@@ -102,6 +102,9 @@ function modelPoint(m, u, v) {
   return [cx + dx * Math.cos(t) - dy * Math.sin(t), cy + dx * Math.sin(t) + dy * Math.cos(t)];
 }
 
+/** filled in once the browser is up: what to save when the run crashes */
+let onCrash = async () => {};
+
 (async () => {
   const server = await startServer();
   const origin = new URL(server.base).origin;
@@ -119,6 +122,13 @@ function modelPoint(m, u, v) {
 
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
   let page = await ctx.newPage();
+
+  onCrash = async () => {
+    // for CI: the screen and the page errors at the moment of the crash
+    console.error('page errors so far:', JSON.stringify(errors.slice(-10), null, 1));
+    await page.screenshot({ path: path.join(OUT, 'crash.png') });
+    console.error('screenshot:', path.join(OUT, 'crash.png'));
+  };
   track(page);
   const tid = (id) => `[data-testid="${id}"]`;
   async function click(id, opts) {
@@ -364,6 +374,9 @@ function modelPoint(m, u, v) {
   await page.waitForSelector(tid('sig-saved-0'));
   await collectButtons();
   await click('sig-saved-0');
+  // the dialog reads the saved PNG, closes, then placement starts: wait for that before moving on
+  await page.waitForSelector(tid('sig-dialog'), { state: 'detached' });
+  await page.waitForSelector(tid('placement-0'), { state: 'attached' });
   await goPage(3);
   await page.waitForSelector(tid('placement-2'), { state: 'attached' });
   before = await annots();
@@ -737,7 +750,8 @@ print(json.dumps([pix.pixel(int(x), int(y)) for x, y in pts]))`, fexp, JSON.stri
   fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify({ results }, null, 2));
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   process.exit(failed.length ? 1 : 0);
-})().catch((e) => {
+})().catch(async (e) => {
   console.error(e);
+  await onCrash().catch(() => {});
   process.exit(2);
 });

@@ -67,6 +67,9 @@ async function startServer() {
   throw new Error('vite did not start');
 }
 
+/** filled in once the browser is up: what to save when the run crashes */
+let onCrash = async () => {};
+
 (async () => {
   const server = await startServer();
   const origin = new URL(server.base).origin;
@@ -93,6 +96,13 @@ async function startServer() {
     document.addEventListener('securitypolicyviolation', (e) => (window.__csp = window.__csp || []).push(`${e.violatedDirective} ${e.blockedURI}`));
   });
   let page = await ctx.newPage();
+
+  onCrash = async () => {
+    // for CI: the screen and the page errors at the moment of the crash
+    console.error('page errors so far:', JSON.stringify(errors.slice(-10), null, 1));
+    await page.screenshot({ path: path.join(OUT, 'crash.png') });
+    console.error('screenshot:', path.join(OUT, 'crash.png'));
+  };
   track(page);
 
   async function waitDoc(pages, p = page) {
@@ -268,7 +278,8 @@ async function startServer() {
   fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify({ mode: PROD ? 'production' : 'dev', results }, null, 2));
   console.log(`\n${passed}/${results.length} checks passed`);
   process.exit(passed === results.length ? 0 : 1);
-})().catch((e) => {
+})().catch(async (e) => {
   console.error(e);
+  await onCrash().catch(() => {});
   process.exit(2);
 });

@@ -262,6 +262,85 @@ let onCrash = async () => {};
   const shown = await page.textContent('body');
   check('"Open with ezPDF" (launchQueue) opens the file it is given', shown.includes('mo-tu-explorer.pdf') && (await page.textContent(tid('page-total'))).includes('/ 300'));
 
+  // ── phone: touch scrolling, pinch zoom, which page a rotation hits ──
+  {
+    const pctx = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
+    pctx.on('request', (r) => requests.push(r.url()));
+    const ph = await pctx.newPage();
+    track(ph);
+    await ph.goto(server.base + '/?e2e');
+    await ph.waitForSelector(tid('state-empty'), { timeout: 60000 });
+    const chooser = ph.waitForEvent('filechooser');
+    await ph.click(tid('btn-open-empty'));
+    await (await chooser).setFiles(FIX('long-300.pdf'));
+    await ph.waitForSelector(tid('page-0'), { state: 'attached', timeout: 60000 });
+    await ph.waitForTimeout(1500);
+    const cdp = await pctx.newCDPSession(ph);
+    const tp = (x, y, id = 0) => ({ x, y, id, radiusX: 5, radiusY: 5, force: 1 });
+    const touch = async (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+    const scrollTop = () =>
+      ph.evaluate(() => {
+        const el = [...document.querySelectorAll('[data-testid="viewer"] *')].find((e) => e.scrollHeight > e.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(e).overflowY));
+        return el ? el.scrollTop : -1;
+      });
+    const swipeUp = async (x, y, dy) => {
+      await touch('touchStart', [tp(x, y)]);
+      for (let i = 1; i <= 10; i++) {
+        await touch('touchMove', [tp(x, y - (dy * i) / 10)]);
+        await ph.waitForTimeout(16);
+      }
+      await touch('touchEnd', []);
+      await ph.waitForTimeout(700);
+    };
+    const pb = await ph.locator(tid('page-0')).boundingBox();
+    const t0 = await scrollTop();
+    await swipeUp(pb.x + pb.width / 2, Math.min(pb.y + pb.height * 0.7, 700), 300);
+    const t1 = await scrollTop();
+    check('phone: one finger on the page scrolls the document (not only on the grey margin)', t1 > t0 + 150, `scrollTop ${t0} → ${t1}`);
+
+    const widthOf = () => ph.evaluate(() => document.querySelector('[data-testid="viewer"] [data-testid^="page-"]').getBoundingClientRect().width);
+    const w0 = await widthOf();
+    await touch('touchStart', [tp(166, 450, 1), tp(246, 450, 2)]);
+    for (let i = 1; i <= 10; i++) {
+      await touch('touchMove', [tp(166 - i * 8, 450, 1), tp(246 + i * 8, 450, 2)]);
+      await ph.waitForTimeout(16);
+    }
+    await touch('touchEnd', []);
+    await ph.waitForTimeout(1200);
+    const w1 = await widthOf();
+    const appScale = await ph.evaluate(() => visualViewport.scale);
+    check('phone: pinching zooms the document, not the whole app', w1 > w0 * 2 && appScale === 1, `page width ${Math.round(w0)} → ${Math.round(w1)} px, app zoom ${appScale}`);
+    await ph.click(tid('btn-zoom-out'));
+    await ph.click(tid('btn-zoom-out'));
+    await ph.waitForTimeout(800);
+
+    const before = (await ph.evaluate(() => window.__ezpdf.annotations())).length;
+    await ph.tap(tid('tool-text'));
+    const tScroll = await scrollTop();
+    const box2 = await ph.locator(tid(`page-${(await ph.textContent(tid('page-compact'))).split('/')[0] - 1}`)).boundingBox();
+    await swipeUp(box2.x + box2.width / 2, Math.min(box2.y + box2.height / 2 + 60, 650), 60);
+    const after = (await ph.evaluate(() => window.__ezpdf.annotations())).length;
+    check('phone: with the text tool, a drag on the page draws a box instead of scrolling', after === before + 1 && Math.abs((await scrollTop()) - tScroll) < 5, `${before} → ${after} annotations`);
+    await ph.keyboard.press('Escape');
+    await ph.keyboard.press('Escape');
+    await ph.waitForTimeout(300);
+
+    const shown = (await ph.textContent(tid('page-compact'))).trim();
+    const n = Number(shown.split('/')[0]);
+    const rotBefore = (await ph.evaluate(() => window.__ezpdf.pages()))[n - 1].rotation;
+    await ph.tap(tid('btn-rotate-page'));
+    await ph.waitForTimeout(300);
+    const hint = await ph.textContent(tid('tool-hint')).catch(() => '');
+    const rotAfter = (await ph.evaluate(() => window.__ezpdf.pages()))[n - 1].rotation;
+    check(
+      'phone: the page shown in the top bar is the page the rotate button turns, and the app says so',
+      /^\d+\/300$/.test(shown) && rotAfter === (rotBefore + 1) % 4 && hint.includes(`Đã xoay trang ${n} sang phải`),
+      `${shown} · ${hint}`,
+    );
+    await ph.screenshot({ path: path.join(OUT, 'phone.png') });
+    await pctx.close();
+  }
+
   // ── what left the page ──
   const foreign = [...new Set(requests.filter((u) => !u.startsWith(origin) && !u.startsWith('blob:') && !u.startsWith('data:')))];
   const expectedRefused = ['https://example.org/upload'];

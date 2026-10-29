@@ -7,6 +7,7 @@ import { TilingLayer } from '@embedpdf/plugin-tiling/react';
 import { SelectionLayer } from '@embedpdf/plugin-selection/react';
 import { SearchLayer } from '@embedpdf/plugin-search/react';
 import { AnnotationLayer } from '@embedpdf/plugin-annotation/react';
+import { ZoomGestureWrapper } from '@embedpdf/plugin-zoom/react';
 import { useCallback, useState } from 'react';
 import { EndEditingContext, ezFreeTextRenderer } from './free-text';
 import { PlacementLayer } from '../images/placement';
@@ -21,53 +22,49 @@ const renderers = [ezFreeTextRenderer];
  */
 export function Viewer({ documentId }: { documentId: string }) {
   const [epochs, setEpochs] = useState<Record<number, number>>({});
-  const endEditing = useCallback(
-    (pageIndex: number) => setEpochs((e) => ({ ...e, [pageIndex]: (e[pageIndex] ?? 0) + 1 })),
-    [],
-  );
+  const endEditing = useCallback((pageIndex: number) => setEpochs((e) => ({ ...e, [pageIndex]: (e[pageIndex] ?? 0) + 1 })), []);
   return (
     <EndEditingContext.Provider value={endEditing}>
-      <div className="absolute inset-0" data-testid="viewer">
+      {/* pan-x pan-y: one finger scrolls, two fingers reach ZoomGestureWrapper (pinch to
+          zoom the document) instead of zooming the whole app */}
+      <div className="absolute inset-0 touch-pan-x touch-pan-y" data-testid="viewer">
         <GlobalPointerProvider documentId={documentId}>
           <Viewport documentId={documentId} className="h-full w-full bg-canvas">
-            <Scroller
-              documentId={documentId}
-              renderPage={({ pageIndex }) => (
-                <Rotate documentId={documentId} pageIndex={pageIndex} style={{ backgroundColor: '#fff' }}>
-                  <div
-                    data-testid={`page-${pageIndex}`}
-                    className="shadow-[0_1px_2px_rgba(0,0,0,0.10),0_2px_8px_rgba(0,0,0,0.06)]"
-                    style={{ position: 'absolute', inset: 0 }}
-                  />
-                  <PagePointerProvider documentId={documentId} pageIndex={pageIndex}>
-                    <RenderLayer
-                      documentId={documentId}
-                      pageIndex={pageIndex}
-                      scale={1}
-                      style={{ pointerEvents: 'none' }}
+            <ZoomGestureWrapper documentId={documentId}>
+              <Scroller
+                documentId={documentId}
+                renderPage={({ pageIndex }) => (
+                  <Rotate documentId={documentId} pageIndex={pageIndex} style={{ backgroundColor: '#fff' }}>
+                    <div
+                      data-testid={`page-${pageIndex}`}
+                      className="shadow-[0_1px_2px_rgba(0,0,0,0.10),0_2px_8px_rgba(0,0,0,0.06)]"
+                      style={{ position: 'absolute', inset: 0 }}
                     />
-                    <TilingLayer documentId={documentId} pageIndex={pageIndex} style={{ pointerEvents: 'none' }} />
-                    <SearchLayer
-                      documentId={documentId}
-                      pageIndex={pageIndex}
-                      highlightColor="rgba(255, 212, 59, 0.45)"
-                      activeHighlightColor="rgba(11, 110, 105, 0.35)"
-                    />
-                    <SelectionLayer documentId={documentId} pageIndex={pageIndex} />
-                    <AnnotationLayer
-                      key={epochs[pageIndex] ?? 0}
-                      documentId={documentId}
-                      pageIndex={pageIndex}
-                      annotationRenderers={renderers}
-                      selectionOutline={{ color: ACCENT, width: 1.5, offset: 1 }}
-                      resizeUI={{ color: ACCENT, size: 10 }}
-                      rotationUI={{ connectorColor: ACCENT, iconColor: ACCENT, border: { color: ACCENT } }}
-                    />
-                  </PagePointerProvider>
-                  <PlacementLayer documentId={documentId} pageIndex={pageIndex} />
-                </Rotate>
-              )}
-            />
+                    <PagePointerProvider documentId={documentId} pageIndex={pageIndex}>
+                      <RenderLayer documentId={documentId} pageIndex={pageIndex} scale={1} style={{ pointerEvents: 'none' }} />
+                      <TilingLayer documentId={documentId} pageIndex={pageIndex} style={{ pointerEvents: 'none' }} />
+                      <SearchLayer
+                        documentId={documentId}
+                        pageIndex={pageIndex}
+                        highlightColor="rgba(255, 212, 59, 0.45)"
+                        activeHighlightColor="rgba(11, 110, 105, 0.35)"
+                      />
+                      <SelectionLayer documentId={documentId} pageIndex={pageIndex} />
+                      <AnnotationLayer
+                        key={epochs[pageIndex] ?? 0}
+                        documentId={documentId}
+                        pageIndex={pageIndex}
+                        annotationRenderers={renderers}
+                        selectionOutline={{ color: ACCENT, width: 1.5, offset: 1 }}
+                        resizeUI={{ color: ACCENT, size: 10 }}
+                        rotationUI={{ connectorColor: ACCENT, iconColor: ACCENT, border: { color: ACCENT } }}
+                      />
+                    </PagePointerProvider>
+                    <PlacementLayer documentId={documentId} pageIndex={pageIndex} />
+                  </Rotate>
+                )}
+              />
+            </ZoomGestureWrapper>
           </Viewport>
         </GlobalPointerProvider>
       </div>

@@ -13,6 +13,8 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- shows behind the status bar and the gesture bar: the colour of ezPDF's bars -->
+        <item name="android:windowBackground">@color/ezpdf_bars</item>
     </style>
 
 

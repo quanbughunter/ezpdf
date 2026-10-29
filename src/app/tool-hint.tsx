@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { PdfAnnotationSubtype } from '@embedpdf/models';
 import { useAnnotation } from '@embedpdf/plugin-annotation/react';
 import { cn } from '@/lib/utils';
@@ -10,6 +10,36 @@ const TOOL_HINTS: Record<string, string> = {
   highlight: 'Kéo qua đoạn chữ cần tô sáng. Esc để quay về chọn.',
   textComment: 'Bấm vào chỗ cần ghi chú, rồi viết nội dung ở cột bên phải.',
 };
+
+/**
+ * A short confirmation shown in the hint strip for a moment, e.g. which page
+ * was just rotated (on a phone the page number is not on screen). It only
+ * shows when no tool, editor or selection has something to say.
+ */
+let flash: { text: string; until: number } | null = null;
+const flashListeners = new Set<() => void>();
+const emitFlash = () => flashListeners.forEach((l) => l());
+
+export function flashHint(text: string, ms = 2600) {
+  flash = { text, until: Date.now() + ms };
+  emitFlash();
+  setTimeout(() => {
+    if (flash && Date.now() >= flash.until) {
+      flash = null;
+      emitFlash();
+    }
+  }, ms + 20);
+}
+
+function useFlash() {
+  return useSyncExternalStore(
+    (cb) => {
+      flashListeners.add(cb);
+      return () => flashListeners.delete(cb);
+    },
+    () => flash?.text ?? null,
+  );
+}
 
 /** True while a FreeText editor on the page has focus. */
 function useEditingText() {
@@ -35,6 +65,7 @@ export function ToolHint({ documentId }: { documentId: string }) {
   const { state } = useAnnotation(documentId);
   const editing = useEditingText();
   const placing = usePlacement()?.placing;
+  const flashText = useFlash();
   const tool = state.activeToolId;
   let text: string | null = placing
     ? `Bấm vào trang để đặt ${placing.kind === 'signature' ? 'chữ ký' : 'ảnh'} (Enter: giữa trang đang xem). Esc để hủy.`
@@ -58,12 +89,18 @@ export function ToolHint({ documentId }: { documentId: string }) {
               ? 'Dấu có sẵn trong tệp: chỉ xóa được. Delete để xóa.'
               : 'Kéo để di chuyển. Delete để xóa.';
   }
+  const kind = text ? 'hint' : 'flash';
+  if (!text && flashText) {
+    tone = 'selection';
+    text = flashText;
+  }
   if (!text) return null;
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
       <p
         role="status"
         data-testid="tool-hint"
+        data-kind={kind}
         className={cn(
           'max-w-[min(560px,100%)] rounded-full px-4 py-2 text-center text-[13px] leading-snug shadow-[0_2px_10px_rgba(0,0,0,0.18)]',
           tone === 'tool' ? 'bg-primary text-primary-foreground' : 'bg-foreground text-background',

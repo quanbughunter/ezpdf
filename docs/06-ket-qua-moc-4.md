@@ -26,7 +26,7 @@ Một mã nguồn, ba bản: web app cài được (PWA), desktop (Tauri 2), And
 | Riêng tư trên Android | Tắt sao lưu lên đám mây và chuyển sang máy mới cho dữ liệu của app (`allowBackup="false"` và `data_extraction_rules.xml`). Nháp và chữ ký không theo bản sao lưu Google lên mạng. |
 | Lời nhắc theo nền tảng | Màn hình trống và danh sách nháp nói đúng theo bản đang chạy. Ví dụ bản desktop nhắc bấm chuột phải để mở, và cho biết nháp nằm trong “thư mục dữ liệu của ezPDF”; di chuột vào sẽ thấy đường dẫn. |
 | Biểu tượng | Một bản vẽ gốc (`branding/*.svg`) sinh ra biểu tượng cho web, Windows (`.ico`), Android (adaptive, tròn, vuông) và màn hình chờ. |
-| CI | `.github/workflows/build.yml`: chạy toàn bộ kiểm thử web, dựng `.msi` và `-setup.exe` trên Windows, dựng APK debug trên Ubuntu. |
+| CI | `.github/workflows/build.yml`: chạy toàn bộ kiểm thử web, dựng `.msi` và `-setup.exe` trên Windows, dựng APK debug trên Ubuntu. **Lượt #3 trên GitHub (29/10) xanh cả 3 job.** Bộ kiểm web cũng đạt trên máy của GitHub. Ba lỗi của hai lượt đầu đã sửa: bước `setup-android@v3` hỏng với cmdline-tools 16; WiX không ghi được chữ tiếng Việt vì mã trang 1252, nên mô tả bộ cài chuyển sang tiếng Anh; một bước của bộ kiểm mốc 3 không chờ hộp thoại chữ ký đóng. |
 
 ## Kết quả kiểm thử
 
@@ -34,8 +34,8 @@ Một mã nguồn, ba bản: web app cài được (PWA), desktop (Tauri 2), And
 |---|---|
 | `npm run e2e` (mốc 1–2), Chromium | **56/56** trên dev server, **56/56** trên bản production |
 | `npm run e2e:m3` (mốc 3) | **50/50** trên dev server, **49/49** trên bản production (bản build không có trang kiểm pdf.js) |
-| `npm run e2e:m4`, dev server | **7/7**: hợp đồng lưu trữ trên IndexedDB 9/9; mã adapter Android chạy trên Filesystem của Capacitor (bản web) 9/9, có ghi 7 MB theo khối; nháp và chữ ký của mốc 3 vẫn mở được 4/4; “Mở bằng” qua `launchQueue`; không request ra ngoài, không lỗi |
-| `npm run e2e:m4:preview`, bản production | **15/15**: manifest và biểu tượng đúng cỡ; Chromium không báo lỗi cài đặt; service worker giữ đủ 18 tệp của bản build. Khi **tắt mạng**: app khởi động, mở PDF, thêm chữ tiếng Việt, lưu nháp, xuất tệp (MuPDF đọc lại thấy đúng chữ). CSP chặn một lệnh POST tới site khác. Không có vi phạm CSP nào khi dùng bình thường |
+| `npm run e2e:m4`, dev server | **11/11** (gồm 4 điểm kiểm cảm ứng trên điện thoại): hợp đồng lưu trữ trên IndexedDB 9/9; mã adapter Android chạy trên Filesystem của Capacitor (bản web) 9/9, có ghi 7 MB theo khối; nháp và chữ ký của mốc 3 vẫn mở được 4/4; “Mở bằng” qua `launchQueue`; không request ra ngoài, không lỗi |
+| `npm run e2e:m4:preview`, bản production | **19/19** (gồm 4 điểm kiểm cảm ứng): manifest và biểu tượng đúng cỡ; Chromium không báo lỗi cài đặt; service worker giữ đủ 18 tệp của bản build. Khi **tắt mạng**: app khởi động, mở PDF, thêm chữ tiếng Việt, lưu nháp, xuất tệp (MuPDF đọc lại thấy đúng chữ). CSP chặn một lệnh POST tới site khác. Không có vi phạm CSP nào khi dùng bình thường |
 | `npm run test:storage` | **25/25**: lớp lưu trữ dạng tệp trên bộ nhớ và **trên đĩa thật** (tệp 12 MB). Có cả trường hợp app tắt giữa lúc ghi: meta ghi dở, meta trỏ tới tệp đã mất, thư mục nháp không có meta |
 | `scripts/smoke-desktop.cjs`, bản desktop thật trên Linux | **18/18** (chi tiết bên dưới) |
 | `cargo test` (phần Rust) | 1/1: chỉ nhận đối số là tệp PDF có thật |
@@ -100,6 +100,18 @@ Lấy APK từ CI (artifact `ezpdf-android-debug`), hoặc dựng bằng Android
 6. Bấm Xuất PDF: hộp thoại “Lưu vào” của hệ thống. Lưu vào Tải xuống, rồi mở bằng một app PDF khác.
 7. Dùng tệp 50 MB (`python3 scripts/make_big_fixture.py out/big-50mb.pdf`, hoặc một bản quét thật). Mở, cuộn tới trang cuối, sửa một chỗ, chờ báo “Nháp đã lưu”, rồi xuất. Ghi lại thời gian từng bước, tên máy, RAM và phiên bản Android.
 8. Bật chế độ máy bay rồi làm lại bước 2, 5 và 6.
+
+## Lần thử đầu trên điện thoại thật (Samsung Galaxy S24 Ultra, 29/10)
+
+APK dựng bằng CI đã cài và mở được, PDF hiển thị đúng. Lần thử này phát hiện ba lỗi, đều đã sửa trong bản 0.4.1:
+
+| Lỗi | Nguyên nhân | Sửa |
+|---|---|---|
+| Thanh công cụ trên bị thanh trạng thái (sóng, pin) che, nên không bấm được Xuất, Đóng… | Trang khai báo `viewport-fit=cover`. Với WebView từ bản 140, Capacitor 8 khi đó để app vẽ tràn ra sau thanh trạng thái | Bỏ `viewport-fit=cover`, để Capacitor tự chừa chỗ cho thanh trạng thái và thanh cử chỉ. Biểu tượng thanh trạng thái màu tối, nền cùng màu thanh công cụ |
+| Không cuộn được khi đặt tay lên trang (chỉ cuộn được ở lề xám), không phóng to/thu nhỏ bằng hai ngón | Chế độ mặc định của EmbedPDF nhận mọi cú chạm trên trang (`touch-action: none`) và chưa bật cử chỉ phóng to | Ở chế độ Chọn, một ngón cuộn trang. Hai ngón phóng to/thu nhỏ tài liệu (`ZoomGestureWrapper`), không phóng cả app. Khi đang dùng công cụ vẽ (chữ, tô sáng…) hoặc kéo một đối tượng, cú chạm vẫn thuộc về công cụ |
+| Không rõ nút xoay áp dụng cho trang nào | Nút xoay “trang hiện tại”, nhưng trên điện thoại không có số trang trên màn hình | Thanh trên hiện “2/300”. Bấm xoay thì dải gợi ý báo “Đã xoay trang 2 sang phải”. Trên máy tính, chú thích của nút cũng ghi số trang |
+
+`e2e:m4` có thêm 4 điểm kiểm trên màn hình điện thoại có cảm ứng: vuốt một ngón trên trang thì cuộn; hai ngón thì phóng to tài liệu mà không phóng app; với công cụ chữ, kéo trên trang tạo ô chữ; số trang hiển thị đúng là trang bị xoay. Từ bản này, APK debug ký bằng một khóa cố định (`android/app/ezpdf-debug.keystore`, chỉ dùng để thử), nên bản sau cài đè được lên bản trước mà không mất nháp.
 
 ## Giới hạn và rủi ro còn lại
 

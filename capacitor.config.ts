@@ -15,6 +15,14 @@ const config: CapacitorConfig = {
     // WebView debugging (chrome://inspect) follows Capacitor's default:
     // on in debug APKs, for testing on a phone; off in release builds.
   },
+  plugins: {
+    SystemBars: {
+      // The page has no viewport-fit=cover, so Capacitor keeps it clear of
+      // the status bar and the gesture bar (it pads the window natively).
+      // Dark icons, because ezPDF's bars are light.
+      style: 'LIGHT',
+    },
+  },
 };
 
 export default config;

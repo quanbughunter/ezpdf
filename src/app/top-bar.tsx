@@ -91,6 +91,7 @@ export function TopBar(p: Props) {
           <Search />
         </IconAction>
       )}
+      {p.documentId && p.compact && <CompactPage documentId={p.documentId} />}
       <div className="min-w-4 flex-1" />
       {p.documentId && (
         <>
@@ -127,6 +128,20 @@ export function TopBar(p: Props) {
         </>
       )}
     </header>
+  );
+}
+
+/** Phone layout: which page is "this page" for the rotate button, without the page box. */
+function CompactPage({ documentId }: { documentId: string }) {
+  const { state } = useScroll(documentId);
+  return (
+    <span
+      className="ml-1 shrink-0 text-[13px] text-muted-foreground tabular-nums"
+      data-testid="page-compact"
+      aria-label={`Đang xem trang ${state.currentPage} trên ${state.totalPages}`}
+    >
+      {state.currentPage}/{state.totalPages}
+    </span>
   );
 }
 
@@ -289,7 +304,7 @@ function DocumentTools({
       </IconAction>
       <span className="flex shrink-0 items-center">
         <IconAction
-          label="Xoay trang này sang phải"
+          label={`Xoay trang ${scroll.currentPage} sang phải`}
           shortcut="R"
           onClick={() => rotatePages([scroll.currentPage - 1], 1)}
           testId="btn-rotate-page"

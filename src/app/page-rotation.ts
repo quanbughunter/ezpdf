@@ -18,6 +18,7 @@ import { refreshPages, setRotation, type PluginRegistry } from '@embedpdf/core';
 import { useRegistry } from '@embedpdf/core/react';
 import { useHistoryCapability } from '@embedpdf/plugin-history/react';
 import type { PdfPageObject, Rotation } from '@embedpdf/models';
+import { flashHint } from './tool-hint';
 
 export const PAGES_HISTORY_TOPIC = 'pages';
 
@@ -47,6 +48,13 @@ export function applyPageRotations(registry: PluginRegistry, documentId: string,
   store.dispatchToCore(setRotation(docState.rotation, documentId));
 }
 
+/** "trang 3", "trang 1, 4", "mọi trang" — for the confirmation after a rotation. */
+function describePages(indexes: number[], total: number) {
+  if (indexes.length === total && total > 1) return 'mọi trang';
+  const nums = indexes.map((i) => i + 1);
+  return nums.length <= 3 ? `trang ${nums.join(', ')}` : `${nums.length} trang`;
+}
+
 /** Rotate pages by quarter turns as one undoable step. */
 export function usePageRotation(documentId: string) {
   const { registry } = useRegistry();
@@ -68,6 +76,10 @@ export function usePageRotation(documentId: string) {
       };
       if (history) history.forDocument(documentId).register(command, PAGES_HISTORY_TOPIC);
       else command.execute();
+      const changed = Object.keys(after).map(Number);
+      if (changed.length) {
+        flashHint(`Đã xoay ${describePages(changed, now.length)} sang ${delta > 0 ? 'phải' : 'trái'}. Hoàn tác bằng nút ↶.`);
+      }
     },
     [registry, history, documentId],
   );

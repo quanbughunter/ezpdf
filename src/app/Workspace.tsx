@@ -7,6 +7,7 @@ import { useHistoryCapability } from '@embedpdf/plugin-history/react';
 import { useZoom } from '@embedpdf/plugin-zoom/react';
 import { useScrollCapability } from '@embedpdf/plugin-scroll/react';
 import { useRegistry } from '@embedpdf/core/react';
+import { useInteractionManagerCapability } from '@embedpdf/plugin-interaction-manager/react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { FullScreenMessage } from './App';
@@ -35,7 +36,21 @@ function useMedia(query: string) {
   return match;
 }
 
+/**
+ * On touch screens the default "select" mode lets one finger scroll the
+ * pages (EmbedPDF's default mode takes every touch, so a page could only be
+ * scrolled from the grey margin). Tools that draw on the page, and dragging
+ * an annotation, still take the touch. Registered before any page mounts.
+ */
+function useTouchScrolling() {
+  const { provides: interaction } = useInteractionManagerCapability();
+  useEffect(() => {
+    interaction?.registerMode({ id: 'pointerMode', scope: 'page', exclusive: false, cursor: 'auto', wantsRawTouch: false });
+  }, [interaction]);
+}
+
 export function Workspace({ documentId }: { documentId: string | null }) {
+  useTouchScrolling();
   const session = useDocumentSession(documentId);
   const platform = usePlatform();
   const fileInput = useRef<HTMLInputElement>(null);

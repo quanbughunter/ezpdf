@@ -9,7 +9,10 @@ export const PDFIUM_WASM_URL = new URL(wasmUrl, window.location.href).href;
 
 const fontBase = new URL(`${import.meta.env.BASE_URL}fonts/`, window.location.href).href;
 
-/** Font embedded into FreeText appearances on export (OFL, Noto Sans subset, renamed). */
+/**
+ * Font embedded into FreeText appearances on export (OFL, Noto Sans subset,
+ * renamed): Latin, Vietnamese, Greek, Cyrillic (scripts/make_fonts.py).
+ */
 export const VN_FONT_URL = `${fontBase}ezSansVN-Regular.ttf`;
 /** Bold face, for editing a bold line whose own font lacks a character. */
 export const VN_BOLD_FONT_URL = `${fontBase}ezSansVN-Bold.ttf`;
@@ -18,13 +21,16 @@ export const VN_BOLD_FONT_URL = `${fontBase}ezSansVN-Bold.ttf`;
  * Fallback fonts PDFium may request while rendering PDFs whose fonts are not
  * embedded. Local only: EmbedPDF's default config fetches from jsDelivr,
  * which would make the app reach the network for a local document.
- * CJK/Arabic/Hebrew packs are not bundled in this milestone.
+ * The bundled font covers Latin, Vietnamese, Greek and Cyrillic;
+ * CJK/Arabic/Hebrew packs are not bundled.
  */
 export const FONT_FALLBACK: FontFallbackConfig = {
   baseUrl: fontBase,
   fonts: {
     [FontCharset.ANSI]: 'ezSansVN-Regular.ttf',
     [FontCharset.VIETNAMESE]: 'ezSansVN-Regular.ttf',
+    [FontCharset.CYRILLIC]: 'ezSansVN-Regular.ttf',
+    [FontCharset.GREEK]: 'ezSansVN-Regular.ttf',
   },
   defaultFont: 'ezSansVN-Regular.ttf',
 };

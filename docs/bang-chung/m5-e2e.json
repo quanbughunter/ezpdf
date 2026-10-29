@@ -1,8 +1,8 @@
 {
  "e2e-edit": {
   "dev": {
-   "passed": 22,
-   "total": 22,
+   "passed": 24,
+   "total": 24,
    "checks": [
     {
      "ok": true,
@@ -22,7 +22,7 @@
     {
      "ok": true,
      "name": "before saving, the bar says the line keeps its own font",
-     "detail": "Giữ phông gốc LiberationSerif. Dòng không tự dàn lại đoạn văn."
+     "detail": "Viết lại cả dòng, giữ phông gốc LiberationSerif."
     },
     {
      "ok": true,
@@ -37,12 +37,12 @@
     {
      "ok": true,
      "name": "page rotation, zoom and the tool are kept across the update",
-     "detail": "rotations [0,1,0,0,1,0], zoom 125%"
+     "detail": "rotations [0,1,0,0,1,0,0], zoom 125%"
     },
     {
      "ok": true,
      "name": "before saving, the bar says which characters the font lacks and that ezSans will be used",
-     "detail": "Phông gốc (LiberationSans-Bold) trong tệp thiếu “u” “ồ”, nên cả dòng sẽ dùng phông ezSans đậm. Dòng không tự dàn lại đoạn văn."
+     "detail": "Phông gốc (LiberationSans-Bold) trong tệp thiếu “u” “ồ”, nên cả dòng sẽ dùng phông ezSans đậm. Phần còn lại của dòng giữ nguyên."
     },
     {
      "ok": true,
@@ -58,6 +58,16 @@
      "ok": true,
      "name": "hidden text (OCR layer) and text in a Form XObject are refused with a reason, no bar opens",
      "detail": "Đây là chữ ẩn (lớp nhận dạng chữ của bản quét). Sửa nó không đổi được hình trên trang. | Dòng này nằm trong một khối đồ họa gộp (Form XObject), bản này chưa sửa được."
+    },
+    {
+     "ok": true,
+     "name": "a line with a bold label: deleting the end rewrites only that part, in the value’s own font, the label stays",
+     "detail": "Viết lại phần “анович -”, giữ phông gốc LiberationSans. Phần còn lại của dòng giữ nguyên."
+    },
+    {
+     "ok": true,
+     "name": "Cyrillic the value’s font lacks: only the value moves to ezSans (which now has Cyrillic), the bar says so first",
+     "detail": "Phông gốc (LiberationSans) trong tệp thiếu “В” “Г”, nên phần “АБ-2026-001” sẽ dùng phông ezSans. Phần còn lại của dòng giữ nguyên. | Đã sửa dòng bằng phông ezPDFSansVN-Regular vì phông gốc chỉ nhúng những ký tự đã dùng, thiếu: В Г."
     },
     {
      "ok": true,
@@ -87,7 +97,7 @@
     {
      "ok": true,
      "name": "exported PDF: old text gone from the file, new text read and drawn by Poppler and MuPDF, the rest of each page unchanged, qpdf clean",
-     "detail": "13/13 independent checks"
+     "detail": "21/21 independent checks"
     },
     {
      "ok": true,
@@ -117,8 +127,8 @@
    ]
   },
   "production": {
-   "passed": 22,
-   "total": 22,
+   "passed": 24,
+   "total": 24,
    "checks": [
     {
      "ok": true,
@@ -138,7 +148,7 @@
     {
      "ok": true,
      "name": "before saving, the bar says the line keeps its own font",
-     "detail": "Giữ phông gốc LiberationSerif. Dòng không tự dàn lại đoạn văn."
+     "detail": "Viết lại cả dòng, giữ phông gốc LiberationSerif."
     },
     {
      "ok": true,
@@ -153,12 +163,12 @@
     {
      "ok": true,
      "name": "page rotation, zoom and the tool are kept across the update",
-     "detail": "rotations [0,1,0,0,1,0], zoom 125%"
+     "detail": "rotations [0,1,0,0,1,0,0], zoom 125%"
     },
     {
      "ok": true,
      "name": "before saving, the bar says which characters the font lacks and that ezSans will be used",
-     "detail": "Phông gốc (LiberationSans-Bold) trong tệp thiếu “u” “ồ”, nên cả dòng sẽ dùng phông ezSans đậm. Dòng không tự dàn lại đoạn văn."
+     "detail": "Phông gốc (LiberationSans-Bold) trong tệp thiếu “u” “ồ”, nên cả dòng sẽ dùng phông ezSans đậm. Phần còn lại của dòng giữ nguyên."
     },
     {
      "ok": true,
@@ -174,6 +184,16 @@
      "ok": true,
      "name": "hidden text (OCR layer) and text in a Form XObject are refused with a reason, no bar opens",
      "detail": "Đây là chữ ẩn (lớp nhận dạng chữ của bản quét). Sửa nó không đổi được hình trên trang. | Dòng này nằm trong một khối đồ họa gộp (Form XObject), bản này chưa sửa được."
+    },
+    {
+     "ok": true,
+     "name": "a line with a bold label: deleting the end rewrites only that part, in the value’s own font, the label stays",
+     "detail": "Viết lại phần “анович -”, giữ phông gốc LiberationSans. Phần còn lại của dòng giữ nguyên."
+    },
+    {
+     "ok": true,
+     "name": "Cyrillic the value’s font lacks: only the value moves to ezSans (which now has Cyrillic), the bar says so first",
+     "detail": "Phông gốc (LiberationSans) trong tệp thiếu “В” “Г”, nên phần “АБ-2026-001” sẽ dùng phông ezSans. Phần còn lại của dòng giữ nguyên. | Đã sửa dòng bằng phông ezPDFSansVN-Regular vì phông gốc chỉ nhúng những ký tự đã dùng, thiếu: В Г."
     },
     {
      "ok": true,
@@ -203,7 +223,7 @@
     {
      "ok": true,
      "name": "exported PDF: old text gone from the file, new text read and drawn by Poppler and MuPDF, the rest of each page unchanged, qpdf clean",
-     "detail": "13/13 independent checks"
+     "detail": "21/21 independent checks"
     },
     {
      "ok": true,
@@ -376,12 +396,12 @@
     {
      "ok": true,
      "name": "changes are saved as a draft on this device a moment after editing",
-     "detail": "Đã lưu lúc 15:36 hôm nay"
+     "detail": "Đã lưu lúc 17:37 hôm nay"
     },
     {
      "ok": true,
      "name": "after a reload the draft is listed (name, pages, not exported)",
-     "detail": "sample.pdfSửa lúc 15:36 hôm nay · 4 trang · 161 KB · chưa xuấtMở"
+     "detail": "sample.pdfSửa lúc 17:37 hôm nay · 4 trang · 161 KB · chưa xuấtMở"
     },
     {
      "ok": true,
@@ -401,7 +421,7 @@
     {
      "ok": true,
      "name": "pictures are /Image stamps; PNG keeps its alpha as a soft mask, JPEG kept as JPEG",
-     "detail": "{\"png\":{\"page\":1,\"id\":\"10cc92e8-f5e5-4d33-9a8e-5f53f62d3940\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/FlateDecode\",\"w\":200,\"h\":120,\"smask\":true}]},\"jpg\":{\"page\":2,\"id\":\"642ff03b-ca43-4eff-a3ec-478e67a3f642\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/DCTDecode\",\"w\":120,\"h\":200,\"smask\":false}]}}"
+     "detail": "{\"png\":{\"page\":1,\"id\":\"4a5386f5-fb13-4d7e-9f22-38b0cf1b0af3\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/FlateDecode\",\"w\":200,\"h\":120,\"smask\":true}]},\"jpg\":{\"page\":2,\"id\":\"edab2333-90ee-49d7-a3a1-6bc203b33a67\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/DCTDecode\",\"w\":120,\"h\":200,\"smask\":false}]}}"
     },
     {
      "ok": true,
@@ -421,7 +441,7 @@
     {
      "ok": true,
      "name": "opening the same original offers the draft: cancel keeps the current, original opens clean, resume restores",
-     "detail": "“sample.pdf” có bản nháp trên máy này, sửa lúc 15:36 hôm nay, đã xuất.Mở bản nhápMở tệp gốcHủy"
+     "detail": "“sample.pdf” có bản nháp trên máy này, sửa lúc 17:37 hôm nay, đã xuất.Mở bản nhápMở tệp gốcHủy"
     },
     {
      "ok": true,
@@ -632,12 +652,12 @@
     {
      "ok": true,
      "name": "changes are saved as a draft on this device a moment after editing",
-     "detail": "Đã lưu lúc 15:40 hôm nay"
+     "detail": "Đã lưu lúc 17:42 hôm nay"
     },
     {
      "ok": true,
      "name": "after a reload the draft is listed (name, pages, not exported)",
-     "detail": "sample.pdfSửa lúc 15:40 hôm nay · 4 trang · 161 KB · chưa xuấtMở"
+     "detail": "sample.pdfSửa lúc 17:42 hôm nay · 4 trang · 161 KB · chưa xuấtMở"
     },
     {
      "ok": true,
@@ -657,7 +677,7 @@
     {
      "ok": true,
      "name": "pictures are /Image stamps; PNG keeps its alpha as a soft mask, JPEG kept as JPEG",
-     "detail": "{\"png\":{\"page\":1,\"id\":\"6e3460a8-2f2f-4650-88c1-3a2ee6c23406\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/FlateDecode\",\"w\":200,\"h\":120,\"smask\":true}]},\"jpg\":{\"page\":2,\"id\":\"c2239baa-987f-493a-a5f2-a03a036a4753\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/DCTDecode\",\"w\":120,\"h\":200,\"smask\":false}]}}"
+     "detail": "{\"png\":{\"page\":1,\"id\":\"a821b8eb-4ed3-484a-ab70-501db7f35e7c\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/FlateDecode\",\"w\":200,\"h\":120,\"smask\":true}]},\"jpg\":{\"page\":2,\"id\":\"9fca53d1-2a51-41a3-aaa6-b997799251fb\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/DCTDecode\",\"w\":120,\"h\":200,\"smask\":false}]}}"
     },
     {
      "ok": true,
@@ -672,7 +692,7 @@
     {
      "ok": true,
      "name": "opening the same original offers the draft: cancel keeps the current, original opens clean, resume restores",
-     "detail": "“sample.pdf” có bản nháp trên máy này, sửa lúc 15:40 hôm nay, đã xuất.Mở bản nhápMở tệp gốcHủy"
+     "detail": "“sample.pdf” có bản nháp trên máy này, sửa lúc 17:42 hôm nay, đã xuất.Mở bản nhápMở tệp gốcHủy"
     },
     {
      "ok": true,
@@ -770,7 +790,7 @@
     {
      "ok": true,
      "name": "phone: one finger on the page scrolls the document (not only on the grey margin)",
-     "detail": "scrollTop 6 → 439"
+     "detail": "scrollTop 6 → 291"
     },
     {
      "ok": true,
@@ -795,7 +815,7 @@
     {
      "ok": true,
      "name": "phone: a tap picks a box and a drag moves it",
-     "detail": "selected [\"a7587a65-fa3f-4f0f-b9d2-e88500154339\"], x 298 → 415"
+     "detail": "selected [\"0c0998bf-fbff-4ecd-9c89-56443d7c265b\"], x 298 → 415"
     },
     {
      "ok": true,
@@ -861,7 +881,7 @@
     {
      "ok": true,
      "name": "offline: the draft is saved on the device",
-     "detail": "Nháp đã lưu 15:41 · chưa xuất"
+     "detail": "Nháp đã lưu 17:42 · chưa xuất"
     },
     {
      "ok": true,
@@ -886,7 +906,7 @@
     {
      "ok": true,
      "name": "phone: one finger on the page scrolls the document (not only on the grey margin)",
-     "detail": "scrollTop 6 → 429"
+     "detail": "scrollTop 6 → 417"
     },
     {
      "ok": true,
@@ -911,7 +931,7 @@
     {
      "ok": true,
      "name": "phone: a tap picks a box and a drag moves it",
-     "detail": "selected [\"291da4d3-2b4b-4041-8823-045278ed8c2e\"], x 298 → 415"
+     "detail": "selected [\"3697e912-41c8-48c4-a6bf-ad3becb41eac\"], x 298 → 415"
     },
     {
      "ok": true,
@@ -944,37 +964,37 @@
     {
      "ok": true,
      "name": "scan engine: photo-wood.jpg (bàn gỗ tối, chụp nghiêng 18°)",
-     "detail": "corners off by 0.2% · 925×1308 px, h/w 1.414 (A4) · matches the original 0.882 · paper 218±17 → 244±2 · ink 92 → 82 · stamp R−G 86 · 191+230 ms"
+     "detail": "corners off by 0.2% · 925×1308 px, h/w 1.414 (A4) · matches the original 0.882 · paper 218±17 → 244±2 · ink 92 → 82 · stamp R−G 86 · 225+252 ms"
     },
     {
      "ok": true,
      "name": "scan engine: photo-desk.jpg (bàn xám, chụp nghiêng 28°)",
-     "detail": "corners off by 0.2% · 930×1315 px, h/w 1.414 (A4) · matches the original 0.959 · paper 218±17 → 244±2 · ink 91 → 81 · stamp R−G 95 · 138+221 ms"
+     "detail": "corners off by 0.2% · 930×1315 px, h/w 1.414 (A4) · matches the original 0.959 · paper 218±17 → 244±2 · ink 91 → 81 · stamp R−G 95 · 174+318 ms"
     },
     {
      "ok": true,
      "name": "scan engine: photo-beige.jpg (bàn màu be sáng: tương phản thấp)",
-     "detail": "corners off by 0.2% · 1066×1508 px, h/w 1.415 (A4) · matches the original 0.97 · paper 217±19 → 244±2 · ink 82 → 71 · stamp R−G 117 · 144+293 ms"
+     "detail": "corners off by 0.2% · 1066×1508 px, h/w 1.415 (A4) · matches the original 0.97 · paper 217±19 → 244±2 · ink 82 → 71 · stamp R−G 117 · 154+259 ms"
     },
     {
      "ok": true,
      "name": "scan engine: photo-cloth.jpg (khăn ca rô sặc sỡ)",
-     "detail": "corners off by 0.2% · 952×1346 px, h/w 1.414 (A4) · matches the original 0.939 · paper 217±17 → 244±1 · ink 92 → 83 · stamp R−G 102 · 104+246 ms"
+     "detail": "corners off by 0.2% · 952×1346 px, h/w 1.414 (A4) · matches the original 0.939 · paper 217±17 → 244±1 · ink 92 → 83 · stamp R−G 102 · 93+226 ms"
     },
     {
      "ok": true,
      "name": "scan engine: photo-shadow.jpg (bóng đổ đậm che nửa trang)",
-     "detail": "corners off by 0.1% · 964×1364 px, h/w 1.415 (A4) · matches the original 0.935 · paper 209±93 → 236±26 · ink 82 → 77 · stamp R−G 119 · 94+227 ms"
+     "detail": "corners off by 0.1% · 964×1364 px, h/w 1.415 (A4) · matches the original 0.935 · paper 209±93 → 236±26 · ink 82 → 77 · stamp R−G 119 · 91+198 ms"
     },
     {
      "ok": true,
      "name": "scan engine: photo-exif.jpg (ảnh lưu nằm ngang, EXIF Orientation 6)",
-     "detail": "corners off by 0.1% · 908×1284 px, h/w 1.414 (A4) · matches the original 0.966 · paper 218±17 → 244±2 · ink 91 → 81 · stamp R−G 106 · 85+253 ms"
+     "detail": "corners off by 0.1% · 908×1284 px, h/w 1.414 (A4) · matches the original 0.966 · paper 218±17 → 244±2 · ink 91 → 81 · stamp R−G 106 · 94+227 ms"
     },
     {
      "ok": true,
      "name": "scan engine: photo-flat.jpg (chụp thẳng từ trên xuống)",
-     "detail": "corners off by 0.2% · 1095×1548 px, h/w 1.414 (A4) · matches the original 0.956 · paper 217±20 → 244±2 · ink 80 → 69 · stamp R−G 122 · 89+316 ms"
+     "detail": "corners off by 0.2% · 1095×1548 px, h/w 1.414 (A4) · matches the original 0.956 · paper 217±20 → 244±2 · ink 80 → 69 · stamp R−G 122 · 117+282 ms"
     },
     {
      "ok": true,
@@ -1034,7 +1054,7 @@
     {
      "ok": true,
      "name": "“Tạo PDF” opens the scan as a new document, saved as a draft at once",
-     "detail": "Bản quét 29-10-2026 15.38.pdf · 595×842, 842×595"
+     "detail": "Bản quét 29-10-2026 17.39.pdf · 595×842, 842×595"
     },
     {
      "ok": true,
@@ -1120,7 +1140,7 @@
     {
      "ok": true,
      "name": "“Tạo PDF” opens the scan as a new document, saved as a draft at once",
-     "detail": "Bản quét 29-10-2026 15.41.pdf · 595×842, 842×595"
+     "detail": "Bản quét 29-10-2026 17.43.pdf · 595×842, 842×595"
     },
     {
      "ok": true,
@@ -1343,7 +1363,7 @@
     {
      "ok": true,
      "name": "300-page document opens",
-     "detail": "1110 ms to first page"
+     "detail": "1166 ms to first page"
     },
     {
      "ok": true,
@@ -1368,7 +1388,7 @@
     {
      "ok": true,
      "name": "search finds exactly the 3 pages (7, 150, 299)",
-     "detail": "Trang 7,Trang 150,Trang 299 in 453 ms"
+     "detail": "Trang 7,Trang 150,Trang 299 in 481 ms"
     },
     {
      "ok": true,
@@ -1629,7 +1649,7 @@
     {
      "ok": true,
      "name": "300-page document opens",
-     "detail": "1123 ms to first page"
+     "detail": "1061 ms to first page"
     },
     {
      "ok": true,
@@ -1654,7 +1674,7 @@
     {
      "ok": true,
      "name": "search finds exactly the 3 pages (7, 150, 299)",
-     "detail": "Trang 7,Trang 150,Trang 299 in 421 ms"
+     "detail": "Trang 7,Trang 150,Trang 299 in 393 ms"
     },
     {
      "ok": true,

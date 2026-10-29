@@ -46,6 +46,14 @@ function check(name, ok, detail = '') {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tid = (id) => `[data-testid="${id}"]`;
+/**
+ * EmbedPDF's render, tile and thumbnail layers revoke a page image's blob:
+ * URL when a newer render replaces it; if the <img> had not finished loading,
+ * Chromium logs "Failed to load resource: net::ERR_FILE_NOT_FOUND" for that
+ * blob: URL. The newer image is shown, nothing is lost: not a page error.
+ * (Timing-dependent, so it appears on slow machines such as CI.)
+ */
+const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.test(m.text()) && /^blob:/.test(m.location()?.url ?? '');
 const py = (code, ...args) => execFileSync('python3', ['-c', code, ...args], { encoding: 'utf8' }).trim();
 
 async function startServer() {
@@ -82,7 +90,7 @@ let onCrash = async () => {};
   const track = (p) => {
     p.on('request', (r) => requests.push(r.url()));
     p.on('pageerror', (e) => errors.push(`${e.message} @${stepName}`));
-    p.on('console', (m) => m.type() === 'error' && errors.push(`${m.text()} @${stepName}`));
+    p.on('console', (m) => m.type() === 'error' && !benignRenderRace(m) && errors.push(`${m.text()} ${m.location()?.url ?? ''} @${stepName}`));
   };
 
   // ── engine, through the app's worker ──

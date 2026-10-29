@@ -40,6 +40,14 @@ function check(name, ok, detail = '') {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tid = (id) => `[data-testid="${id}"]`;
+/**
+ * EmbedPDF's render, tile and thumbnail layers revoke a page image's blob:
+ * URL when a newer render replaces it; if the <img> had not finished loading,
+ * Chromium logs "Failed to load resource: net::ERR_FILE_NOT_FOUND" for that
+ * blob: URL. The newer image is shown, nothing is lost: not a page error.
+ * (Timing-dependent, so it appears on slow machines such as CI.)
+ */
+const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.test(m.text()) && /^blob:/.test(m.location()?.url ?? '');
 const lineSel = (page, text, exact = true) => `${tid(`textedit-layer-${page}`)} [data-testid="textedit-line"][data-text${exact ? '' : '^'}="${text}"]`;
 
 async function startServer() {
@@ -73,7 +81,7 @@ let onCrash = async () => {};
   const errors = [];
   const track = (p) => {
     p.on('pageerror', (e) => errors.push(`${e.message} @${stepName}`));
-    p.on('console', (m) => m.type() === 'error' && errors.push(`${m.text()} @${stepName}`));
+    p.on('console', (m) => m.type() === 'error' && !benignRenderRace(m) && errors.push(`${m.text()} ${m.location()?.url ?? ''} @${stepName}`));
   };
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, acceptDownloads: true });
   let page = await ctx.newPage();
@@ -93,6 +101,8 @@ let onCrash = async () => {};
   };
   const hint = () => page.textContent(tid('tool-hint')).catch(() => '');
   const pageText = (i) => page.evaluate((k) => window.__ezpdf.pageText(k), i);
+  /** the viewer's engine joins its text runs with spaces: compare without them */
+  const reads = (text, wanted) => text.replace(/\s+/g, '').includes(wanted.replace(/\s+/g, ''));
   const rotations = () => page.evaluate(() => window.__ezpdf.pages().map((p) => p.rotation));
   const lineBox = (sel) => page.$eval(sel, (e) => JSON.parse(e.dataset.box));
   /** edit one line through the bar; returns the font note shown before saving */
@@ -102,7 +112,11 @@ let onCrash = async () => {};
     await page.waitForSelector(tid('textedit-input'));
     const before = await page.inputValue(tid('textedit-input'));
     await page.fill(tid('textedit-input'), to);
-    const note = { text: await page.textContent(tid('textedit-font')), keep: await page.getAttribute(tid('textedit-font'), 'data-keep') };
+    const note = {
+      text: await page.textContent(tid('textedit-font')),
+      keep: await page.getAttribute(tid('textedit-font'), 'data-keep'),
+      scope: await page.getAttribute(tid('textedit-font'), 'data-scope'),
+    };
     if (how === 'enter') await page.press(tid('textedit-input'), 'Enter');
     else await page.click(tid('textedit-save'));
     await page.waitForSelector(lineSel(pageIdx, to), { timeout: 30000 });
@@ -116,7 +130,7 @@ let onCrash = async () => {};
     await page.click(tid('btn-open-empty'));
     await (await chooser).setFiles(FIX('edit-text.pdf'));
   }
-  await page.waitForFunction(() => document.querySelector('[data-testid="page-total"]')?.textContent?.includes('/ 6'), null, { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector('[data-testid="page-total"]')?.textContent?.includes('/ 7'), null, { timeout: 60000 });
   await sleep(800);
 
   // view state that must survive an edit: page 2 turned, zoom 125 %
@@ -145,7 +159,7 @@ let onCrash = async () => {};
   const box1 = await lineBox(lineSel(0, OLD1));
   const e1 = await edit(0, OLD1, NEW1, 'click');
   check('tapping a line opens the bar with that line’s text', e1.before === OLD1, e1.before);
-  check('before saving, the bar says the line keeps its own font', e1.note.keep === 'true' && e1.note.text.includes('Giữ phông gốc LiberationSerif'), e1.note.text);
+  check('before saving, the bar says the line keeps its own font', e1.note.keep === 'true' && e1.note.text.includes('giữ phông gốc LiberationSerif'), e1.note.text);
   let t0 = await pageText(0);
   check('after saving, the viewer’s own engine reads the new line, not the old one', t0.includes('ông Lê Văn Hòa') && !t0.includes('bà Lê Thị Hoa'), t0.slice(0, 160));
   check('the app confirms, with the font', (await hint()).includes('Đã sửa dòng, giữ phông gốc LiberationSerif'), await hint());
@@ -187,6 +201,31 @@ let onCrash = async () => {};
     /chữ ẩn/i.test(hHidden) && hForm.includes('Form XObject') && (await page.locator(tid('textedit-bar')).count()) === 0,
     `${hHidden} | ${hForm}`,
   );
+
+  // 3b. Russian form: a bold label and a regular value on one line
+  await goPage(7);
+  const OLD7a = 'Автор: Иванов Иван Иванович -';
+  const NEW7a = 'Автор: Иванов Иван Иванович';
+  await page.waitForSelector(lineSel(6, OLD7a), { timeout: 30000 });
+  const box7a = await lineBox(lineSel(6, OLD7a));
+  const e7a = await edit(6, OLD7a, NEW7a);
+  check(
+    'a line with a bold label: deleting the end rewrites only that part, in the value’s own font, the label stays',
+    e7a.note.keep === 'true' && e7a.note.scope === 'part' && e7a.note.text.includes('giữ phông gốc LiberationSans') && reads(await pageText(6), NEW7a) && !reads(await pageText(6), OLD7a),
+    e7a.note.text,
+  );
+  expectedEdits.push({ page: 6, from: OLD7a, to: NEW7a, keep: true, oldBox: box7a, fontName: 'LiberationSans' });
+  const OLD7b = 'Документ: АБ-2026-001';
+  const NEW7b = 'Документ: ВГ-2026-002';
+  const box7b = await lineBox(lineSel(6, OLD7b));
+  const e7b = await edit(6, OLD7b, NEW7b);
+  const h7b = await hint();
+  check(
+    'Cyrillic the value’s font lacks: only the value moves to ezSans (which now has Cyrillic), the bar says so first',
+    e7b.note.keep === 'false' && e7b.note.scope === 'part' && e7b.note.text.includes('“В” “Г”') && h7b.includes('ezPDFSansVN-Regular') && reads(await pageText(6), NEW7b),
+    `${e7b.note.text} | ${h7b}`,
+  );
+  expectedEdits.push({ page: 6, from: OLD7b, to: NEW7b, keep: false, oldBox: box7b, fontName: 'ezPDFSansVN-Regular' });
 
   // 4. TeX page: no space glyph, font kept
   await goPage(4);
@@ -234,7 +273,7 @@ let onCrash = async () => {};
   await page.waitForSelector(tid('state-empty'), { timeout: 60000 });
   await page.waitForSelector(tid('draft-list'), { timeout: 15000 });
   await page.click(tid('draft-open-0'));
-  await page.waitForFunction(() => document.querySelector('[data-testid="page-total"]')?.textContent?.includes('/ 6'), null, { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector('[data-testid="page-total"]')?.textContent?.includes('/ 7'), null, { timeout: 60000 });
   await sleep(1200);
   const td0 = await pageText(0);
   const td3 = await pageText(3);

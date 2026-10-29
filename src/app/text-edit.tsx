@@ -26,7 +26,7 @@ import {
   textLines,
   UserFacingError,
 } from '@/engine/export-client';
-import { missingForLine, normalizeLineText, type TextLine } from '@/engine/text-edit';
+import { describeEdit, normalizeLineText, type TextLine } from '@/engine/text-edit';
 import type { DocumentSession } from './use-document-session';
 import { usePlacement } from './images/placement';
 
@@ -398,7 +398,11 @@ function EditBar({ api, pageIndex, line }: { api: TextEditApi; pageIndex: number
       window.visualViewport?.removeEventListener('resize', onResize);
     };
   }, [pageIndex, line.key]);
-  const missing = missingForLine(line, text);
+  const edit = describeEdit(line, text);
+  const missing = edit?.missing ?? [];
+  const font = edit?.font ?? { name: line.fontName, bold: line.bold, italic: line.italic, embedded: line.fontEmbedded };
+  // which part of the line gets rewritten, in the user's words
+  const what = !edit ? null : edit.whole ? 'cả dòng' : `phần “${edit.replaced}”`;
   const unchanged = normalizeLineText(text) === line.text;
   const empty = !normalizeLineText(text);
   return (
@@ -444,21 +448,28 @@ function EditBar({ api, pageIndex, line }: { api: TextEditApi; pageIndex: number
         <p
           data-testid="textedit-font"
           data-keep={missing.length ? 'false' : 'true'}
+          data-scope={edit ? (edit.whole ? 'line' : 'part') : 'none'}
           className={cn('flex items-start gap-1.5 px-0.5 text-xs leading-snug', missing.length ? 'text-amber-800' : 'text-muted-foreground')}
         >
           {missing.length ? (
             <>
               <TriangleAlert className="mt-px size-3.5 shrink-0" />
               <span>
-                Phông gốc ({line.fontName}) {line.fontEmbedded ? 'trong tệp' : 'chỉ có bảng chữ Latin,'} thiếu {missing.map((c) => `“${c}”`).join(' ')}, nên cả dòng sẽ dùng phông ezSans
-                {line.bold ? ' đậm' : ''}
-                {line.italic ? ' nghiêng' : ''}. Dòng không tự dàn lại đoạn văn.
+                Phông gốc ({font.name}) {font.embedded ? 'trong tệp' : 'chỉ có bảng chữ Latin,'} thiếu {missing.map((c) => `“${c}”`).join(' ')}, nên {what} sẽ dùng phông ezSans
+                {font.bold ? ' đậm' : ''}
+                {font.italic ? ' nghiêng' : ''}. Phần còn lại của dòng giữ nguyên.
               </span>
             </>
           ) : (
             <>
               <Check className="mt-px size-3.5 shrink-0" />
-              <span>Giữ phông gốc {line.fontName}. Dòng không tự dàn lại đoạn văn.</span>
+              <span>
+                {!edit
+                  ? `Chỉ phần bạn sửa được viết lại, bằng phông gốc nếu phông đó đủ chữ. Dòng không tự dàn lại đoạn văn.`
+                  : !edit.plan.middle
+                    ? `Xóa ${what}; phần còn lại của dòng giữ nguyên.`
+                    : `Viết lại ${what}, giữ phông gốc ${font.name}.${edit.whole ? '' : ' Phần còn lại của dòng giữ nguyên.'}`}
+              </span>
             </>
           )}
         </p>

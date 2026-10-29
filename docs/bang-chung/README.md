@@ -61,6 +61,7 @@
 | Tệp | Là gì |
 |---|---|
 | `m5-sua-chu-truoc-sau.png` | Trang 1 của `tests/fixtures/edit-text.pdf` (Chromium, phông CID subset) trước và sau 5 lần sửa (MuPDF render). Ba dòng giữ phông gốc LiberationSerif: “ông Lê Văn Hòa”, “02 máy”, “Người duyệt”. Tiêu đề và dòng nghiêng dùng ezSans vì phông gốc thiếu chữ |
+| `m5-sua-chu-tieng-nga.png` | Trang 7 (biểu mẫu tiếng Nga) trước và sau 4 lần sửa, bản 0.5.1: nhãn đậm giữ nguyên; bỏ “ -” vẫn giữ phông gốc; mã “ВГ-2026-002” dùng ezSans có chữ Kirin; “руб.” dời theo số dài hơn |
 | `m5-sua-chu-may-tinh.png` | Màn hình sau `e2e:edit`: khung nét đứt quanh các dòng sửa được, dải báo kết quả |
 | `m5-sua-chu-dien-thoai.png` | Như trên, trên điện thoại: dòng sửa bằng chạm, báo đổi phông |
 | `m5-sua-chu-da-xuat.pdf` | Tệp xuất thật của `e2e:edit` (3 dòng đã sửa trên 2 trang, trang 2 xoay 90°). Thử tìm “bà Lê Thị Hoa” hay “Tuesday” bằng viewer bất kỳ: không còn |

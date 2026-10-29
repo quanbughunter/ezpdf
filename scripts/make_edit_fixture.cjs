@@ -12,6 +12,9 @@
  *  6. ReportLab         lines the tool must refuse, with a reason: hidden text
  *                       over a picture (as an OCR layer) and text inside a
  *                       Form XObject; one ordinary line for contrast
+ *  7. Chromium / Skia   a Russian form: bold labels, regular values, a bold
+ *                       unit after a number (lines with two fonts; Cyrillic
+ *                       the line's own font lacks)
  *
  * Usage: node scripts/make_edit_fixture.cjs [out.pdf]
  * Needs: playwright (Chromium), soffice, python3 with reportlab, pdflatex, qpdf.
@@ -52,6 +55,25 @@ p { margin: 0 }
   await page.goto('file://' + p('chromium.html'));
   await page.pdf({ path: p('1-chromium.pdf'), format: 'A4', printBackground: true, preferCSSPageSize: true });
   await browser.close();
+
+  // 7. Chromium: Russian form
+  fs.writeFileSync(
+    p('ru.html'),
+    `<!doctype html><meta charset="utf-8"><style>
+@page { size: A4; margin: 0 } body { margin: 60px 64px; font: 17px/1.9 'Liberation Sans' } b { font-weight: 700 } p { margin: 0 }
+</style>
+<p><b>Автор:</b> Иванов Иван Иванович -</p>
+<p><b>Документ:</b> АБ-2026-001</p>
+<p><b>Итого:</b> 1 250 <b>руб.</b></p>
+<p>Отчёт подготовлен для внутреннего использования.</p>`,
+  );
+  {
+    const b2 = await chromium.launch();
+    const pg = await b2.newPage();
+    await pg.goto('file://' + p('ru.html'));
+    await pg.pdf({ path: p('7-russian.pdf'), format: 'A4', printBackground: true, preferCSSPageSize: true });
+    await b2.close();
+  }
 
   // 2. LibreOffice, from the same HTML minus the page CSS
   fs.writeFileSync(
@@ -131,6 +153,7 @@ Contact the secretary for further details.
     p('4-pdflatex.pdf'),
     p('5-rotated.pdf'),
     p('6-refused.pdf'),
+    p('7-russian.pdf'),
     '--',
     out,
   ]);

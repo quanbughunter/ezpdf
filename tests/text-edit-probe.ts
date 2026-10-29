@@ -66,6 +66,8 @@ interface Edit {
   keep: boolean;
   /** the new text should be set in the bold fallback */
   bold?: boolean;
+  /** a bold label at the start of the line must stay as it was (a line with two fonts) */
+  labelKept?: string;
 }
 
 interface Expected {
@@ -92,12 +94,24 @@ function run(name: string, source: string, edits: Edit[]) {
         const fontOk = r.fontKept === e.keep && (e.bold === undefined || /Bold/.test(r.fontName) === e.bold);
         check(
           `${name} p${e.page + 1}: “${e.to}” ${e.keep ? 'in the original font' : 'in ezSansVN'}`,
-          fontOk && r.readback === e.to,
-          `font ${r.fontName}${r.fallbackReason ? ` (${r.fallbackReason})` : ''}, objects −${r.removedObjects} +${r.addedObjects}`,
+          fontOk && e.to.includes(r.readback),
+          `rewrote “${r.replaced}” → “${r.readback}”, font ${r.fontName}${r.fallbackReason ? ` (${r.fallbackReason})` : ''}, objects −${r.removedObjects} +${r.addedObjects}, kept ${r.keptObjects}`,
         );
         done.push({ ...e, oldBox: line.box, fontName: r.fontName });
-        const after = editor.lines(e.page).map((l) => l.text);
+        const afterLines = editor.lines(e.page);
+        const after = afterLines.map((l) => l.text);
         check(`${name} p${e.page + 1}: page now lists the new line, not the old one`, after.includes(e.to) && !after.includes(e.from), after.join(' | '));
+        if (e.labelKept) {
+          // the label may be split into several objects (Chromium cuts at kerning)
+          const nl = afterLines.find((l) => l.text === e.to);
+          const labelParts = nl ? nl.parts.filter((q) => q.end <= e.labelKept!.length) : [];
+          const labelText = labelParts.map((q) => nl!.text.slice(q.start, q.end)).join('');
+          check(
+            `${name} p${e.page + 1}: the bold label “${e.labelKept}” stays as it was, in its own font`,
+            !!nl && labelText === e.labelKept && labelParts.every((q) => nl.fonts[q.font].bold) && r.keptObjects >= labelParts.length,
+            nl ? `${labelParts.map((q) => nl.fonts[q.font].name).join(', ')}; kept ${r.keptObjects} objects` : 'line gone',
+          );
+        }
       } catch (err) {
         check(`${name} p${e.page + 1}: edit “${e.to}”`, false, String(err));
       }
@@ -115,7 +129,7 @@ function run(name: string, source: string, edits: Edit[]) {
 {
   const { doc, close } = open(new Uint8Array(readFileSync(join(root, 'tests/fixtures/edit-text.pdf'))));
   const editor = new TextEditor(m, doc, fonts);
-  for (let p = 0; p < 6; p++) {
+  for (let p = 0; p < 7; p++) {
     console.log(`page ${p + 1}:`);
     for (const l of editor.lines(p)) {
       console.log(`   ${l.editable ? ' ' : '×'} [${l.key}] ${l.fontName} ${l.fontSize.toFixed(1)}pt${l.bold ? ' bold' : ''}${l.italic ? ' italic' : ''} “${l.text}”`);
@@ -144,6 +158,11 @@ run('edit-text', 'edit-text.pdf', [
   { page: 3, from: 'Meetings will be held every second Tuesday.', to: 'Meetings will be held every second Thursday.', keep: true },
   // Page shown rotated
   { page: 4, from: 'Dòng thứ hai trên trang xoay.', to: 'Dòng thứ ba trên trang xoay.', keep: false },
+  // Russian form: two fonts on a line, Cyrillic the regular subset lacks
+  { page: 6, from: 'Автор: Иванов Иван Иванович -', to: 'Автор: Иванов Иван Иванович', keep: true, labelKept: 'Автор:' },
+  { page: 6, from: 'Документ: АБ-2026-001', to: 'Документ: ВГ-2026-002', keep: false, bold: false, labelKept: 'Документ:' },
+  { page: 6, from: 'Итого: 1 250 руб.', to: 'Итого: 12 500 руб.', keep: true, labelKept: 'Итого:' },
+  { page: 6, from: 'Отчёт подготовлен для внутреннего использования.', to: 'Отчёт подготовлен для служебного пользования.', keep: false },
 ]);
 
 // Encrypted documents stay encrypted and editable (owner password only).

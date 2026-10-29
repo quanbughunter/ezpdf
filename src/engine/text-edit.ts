@@ -4,10 +4,14 @@
  * What it does (one line at a time):
  *  1. Group the page's top-level text objects into lines (same baseline,
  *     close together, upright).
- *  2. Remove the line's text objects from the page.
- *  3. Insert new text objects at the same place in the drawing order, with
- *     the same position, size, colour and render mode as the line's main
- *     object.
+ *  2. Compare the old and the new line object by object: objects at the
+ *     start and at the end whose text did not change stay as they are (a
+ *     bold label before the value keeps its own font); only the objects in
+ *     between are replaced (`planEdit`).
+ *  3. Remove those objects from the page and insert new text objects at the
+ *     same place in the drawing order, with the position, size, colour and
+ *     render mode of the part they replace. Objects after them on the line
+ *     move by the change in width.
  *  4. Regenerate the page content (FPDFPage_GenerateContent) and check the
  *     result by reading the new objects back.
  *
@@ -16,9 +20,9 @@
  * Font: the line keeps its own font only when that font can draw every
  * character of the new text, i.e. each character is already drawn with this
  * font somewhere on the page (an embedded subset holds only the glyphs that
- * were used) and PDFium finds a glyph for it. Otherwise the line is set in
- * ezSansVN Regular or Bold (embedded, covers Vietnamese), slanted for an
- * italic line. When the original font has no space character (TeX places
+ * were used) and PDFium finds a glyph for it. Otherwise the changed part is
+ * set in ezSansVN Regular or Bold (embedded; Latin, Vietnamese, Greek,
+ * Cyrillic), slanted for an italic line. When the original font has no space character (TeX places
  * words by kerning) the words become separate objects so the font is kept.
  *
  * Limits (stated to the user): one line at a time, no reflow of the
@@ -68,9 +72,29 @@ export interface TextLine {
    * (WinAnsi), so `keepChars` is not the limit, `inWinAnsi` is.
    */
   fontEmbedded: boolean;
+  /** the line's objects in reading order, where they sit in `text`, and their fonts */
+  parts: LinePart[];
+  fonts: LineFont[];
   editable: boolean;
   /** why not, in the user's words */
   reason?: string;
+}
+
+export interface LinePart {
+  /** [start, end) in the line's text */
+  start: number;
+  end: number;
+  /** index into TextLine.fonts */
+  font: number;
+}
+
+export interface LineFont {
+  name: string;
+  bold: boolean;
+  italic: boolean;
+  embedded: boolean;
+  /** characters this font can draw (already drawn with it on this page) */
+  keepChars: string;
 }
 
 export interface FallbackFonts {
@@ -86,7 +110,10 @@ export interface EditReport {
   fallbackReason?: string;
   removedObjects: number;
   addedObjects: number;
-  /** text read back from the new objects */
+  /** objects of the line left as they were (unchanged start and end) */
+  keptObjects: number;
+  /** the old text of the part that was replaced, and its new text */
+  replaced: string;
   readback: string;
 }
 
@@ -137,7 +164,10 @@ export class TextEditor {
     });
   }
 
-  /** Replace the text of the line `key` (from `lines`) with `text`. */
+  /**
+   * Replace the text of the line `key` (from `lines`) with `text`. Only the
+   * part that changed is rewritten (see `planEdit`).
+   */
   replaceLine(pageIndex: number, key: string, text: string): EditReport {
     const wanted = normalizeLineText(text);
     if (!wanted) throw new TextEditError('Dòng mới không có chữ. Muốn bỏ cả dòng thì hãy dùng công cụ khác.');
@@ -157,24 +187,52 @@ export class TextEditor {
         this.m.FPDFText_ClosePage(tp);
       }
 
-      const main = mainObject(line);
-      const insertAt = Math.min(...line.map((o) => o.index));
+      const layout = lineLayout(line);
+      let plan = planEdit(layout.text, layout.spans, wanted);
+      if (!plan) {
+        const info = this.fontInfo(mainObject(line).font);
+        return { fontKept: true, fontName: info.name, removedObjects: 0, addedObjects: 0, keptObjects: line.length, replaced: '', readback: wanted };
+      }
+      {
+        // a part that must change font takes its whole run in that font
+        const m0 = mainObject(line.slice(plan.from, plan.to));
+        if (plan.middle && this.cannotKeep(m0.font, plan.middle, fontChars.get(m0.font) ?? new Set())) {
+          plan = widenToRun(plan, line.map((o) => o.font), m0.font, layout.text, layout.spans, wanted);
+        }
+      }
+      const changed = line.slice(plan.from, plan.to);
+      const after = line.slice(plan.to);
+      const kept = line.length - changed.length;
+      const replaced = layout.text.slice(layout.spans[plan.from].start, layout.spans[plan.to - 1].end);
+      const middle = plan.middle;
+      // The space between a kept part and the replaced one often belongs to the
+      // replaced object (" Иванов…" after a bold "Автор:"): keep it, or the
+      // new text would run into its neighbour.
+      const lead = plan.from > 0 && /^[\s\u00a0]/.test(line[plan.from].text) ? ' ' : '';
+      const trail = plan.to < line.length && /[\s\u00a0]$/.test(line[plan.to - 1].text) ? ' ' : '';
+      const drawn = middle ? lead + middle + trail : '';
+
+      const main = mainObject(changed);
+      const first = changed[0];
+      // the new text starts where the replaced part started, in its main style
+      const like: Obj = { ...main, m: [main.m[0], main.m[1], main.m[2], main.m[3], first.m[4], first.m[5]] };
+      const insertAt = Math.min(...changed.map((o) => o.index));
       const style = {
         fill: this.color(main.handle, 'fill'),
         stroke: this.color(main.handle, 'stroke'),
         renderMode: main.renderMode,
       };
       const info = this.fontInfo(main.font);
-      const why = this.cannotKeep(main.font, wanted, fontChars.get(main.font) ?? new Set());
+      const why = middle ? this.cannotKeep(main.font, middle, fontChars.get(main.font) ?? new Set()) : null;
       const variant = info.bold ? 'bold' : 'regular';
       const metrics = this.metrics(variant);
-      const notInFallback = [...new Set([...wanted].filter((ch) => ch !== ' ' && !metrics.has(ch.codePointAt(0)!)))];
+      const notInFallback = [...new Set([...middle].filter((ch) => ch !== ' ' && !metrics.has(ch.codePointAt(0)!)))];
       if (why && notInFallback.length) {
         throw new TextEditError(`Phông gốc và phông thay thế đều chưa có ký tự: ${notInFallback.join(' ')}. Dòng chưa được sửa.`);
       }
 
-      // Take the old objects off the page; they go back if anything fails.
-      for (const o of line) {
+      // Take the replaced objects off the page; they go back if anything fails.
+      for (const o of changed) {
         if (!this.m.FPDFPage_RemoveObject(page, o.handle)) throw new Error('FPDFPage_RemoveObject failed');
       }
       const drop = (objs: number[]) => {
@@ -184,19 +242,31 @@ export class TextEditor {
         }
       };
       const restore = () => {
-        for (const o of [...line].sort((p, q) => p.index - q.index)) this.m.FPDFPage_InsertObjectAtIndex(page, o.handle, o.index);
+        for (const o of [...changed].sort((p, q) => p.index - q.index)) this.m.FPDFPage_InsertObjectAtIndex(page, o.handle, o.index);
       };
-      const finish = (placed: number[], report: Omit<EditReport, 'removedObjects' | 'addedObjects'>): EditReport => {
+      const oldRight = Math.max(...changed.map((o) => o.box.right));
+      const finish = (placed: number[], report: Pick<EditReport, 'fontKept' | 'fontName' | 'fallbackReason' | 'readback'>): EditReport => {
+        // what follows on the line moves by the change in width
+        if (after.length) {
+          const newRight = placed.length ? Math.max(...placed.map((h) => this.bounds(h).right)) : null;
+          const delta = newRight === null ? first.box.left - after[0].box.left : newRight - oldRight;
+          if (Math.abs(delta) > 0.01) {
+            const len = Math.hypot(like.m[0], like.m[1]) || 1;
+            for (const o of after) this.m.FPDFPageObj_Transform(o.handle, 1, 0, 0, 1, (delta * like.m[0]) / len, (delta * like.m[1]) / len);
+          }
+        }
         this.generate(page);
-        for (const o of line) this.m.FPDFPageObj_Destroy(o.handle);
-        return { ...report, removedObjects: line.length, addedObjects: placed.length };
+        for (const o of changed) this.m.FPDFPageObj_Destroy(o.handle);
+        return { ...report, removedObjects: changed.length, addedObjects: placed.length, keptObjects: kept, replaced };
       };
 
       try {
-        // 1st choice: the line's own font, when it can draw every character.
+        // the part was only deleted
+        if (!middle) return finish([], { fontKept: true, fontName: info.name, readback: '' });
+        // 1st choice: the part's own font, when it can draw every character.
         if (!why) {
-          const placed = this.place(page, insertAt, main, main.font, wanted, style, false, this.hasSpace(main.font, fontChars));
-          if (this.readBack(page, placed) === wanted) return finish(placed, { fontKept: true, fontName: info.name, readback: wanted });
+          const placed = this.place(page, insertAt, like, main.font, drawn, style, false, this.hasSpace(main.font, fontChars));
+          if (this.readBack(page, placed) === middle) return finish(placed, { fontKept: true, fontName: info.name, readback: middle });
           drop(placed);
         }
         if (notInFallback.length) {
@@ -204,16 +274,16 @@ export class TextEditor {
         }
         // Otherwise ezSansVN, embedded once per editing session.
         const font = this.fallbackFont(variant);
-        const placed = this.place(page, insertAt, main, font, wanted, style, info.italic, true);
+        const placed = this.place(page, insertAt, like, font, drawn, style, info.italic, true);
         const back = this.readBack(page, placed);
-        if (back !== wanted) {
+        if (back !== middle) {
           drop(placed);
           throw new Error(`đọc lại không khớp: “${back}”`);
         }
         return finish(placed, {
           fontKept: false,
           fontName: this.fontInfo(font).name,
-          fallbackReason: why ?? 'phông gốc không mã hóa được dòng mới',
+          fallbackReason: why ?? 'phông gốc không mã hóa được phần mới',
           readback: back,
         });
       } catch (e) {
@@ -254,10 +324,7 @@ export class TextEditor {
 
   private readObject(h: number, index: number, tp: number): Obj {
     const { w, m } = this;
-    const box = w.withScratch(16, (p) => {
-      m.FPDFPageObj_GetBounds(h, p, p + 4, p + 8, p + 12);
-      return { left: w.f32(p), bottom: w.f32(p + 4), right: w.f32(p + 8), top: w.f32(p + 12) };
-    });
+    const box = this.bounds(h);
     const mat = w.withScratch(24, (p) => {
       m.FPDFPageObj_GetMatrix(h, p);
       return [0, 1, 2, 3, 4, 5].map((k) => w.f32(p + k * 4)) as Matrix;
@@ -276,6 +343,14 @@ export class TextEditor {
     };
   }
 
+  private bounds(h: number): Box {
+    const { w, m } = this;
+    return w.withScratch(16, (p) => {
+      m.FPDFPageObj_GetBounds(h, p, p + 4, p + 8, p + 12);
+      return { left: w.f32(p), bottom: w.f32(p + 4), right: w.f32(p + 8), top: w.f32(p + 12) };
+    });
+  }
+
   private objectText(h: number, tp: number): string {
     const len = this.m.FPDFTextObj_GetText(h, tp, 0, 0);
     if (len <= 2) return '';
@@ -287,11 +362,25 @@ export class TextEditor {
 
   private describe(objs: Obj[], chars?: Map<number, Set<number>>): TextLine {
     const main = mainObject(objs);
-    const keep = [...(chars?.get(main.font) ?? [])]
-      .map((cp) => String.fromCodePoint(cp))
-      .filter((ch) => ch === ' ' || this.hasGlyph(main.font, ch))
-      .join('');
+    const keepOf = (font: number) =>
+      [...(chars?.get(font) ?? [])]
+        .map((cp) => String.fromCodePoint(cp))
+        .filter((ch) => ch === ' ' || this.hasGlyph(font, ch))
+        .join('');
+    const keep = keepOf(main.font);
     const info = this.fontInfo(main.font);
+    const fontIds: number[] = [];
+    const fonts: LineFont[] = [];
+    const layout = lineLayout(objs);
+    const parts: LinePart[] = objs.map((o, i) => {
+      let k = fontIds.indexOf(o.font);
+      if (k < 0) {
+        k = fontIds.push(o.font) - 1;
+        const fi = this.fontInfo(o.font);
+        fonts.push({ name: fi.name, bold: fi.bold, italic: fi.italic, embedded: !!this.m.FPDFFont_GetIsEmbedded(o.font), keepChars: o.font === main.font ? keep : keepOf(o.font) });
+      }
+      return { start: layout.spans[i].start, end: layout.spans[i].end, font: k };
+    });
     const box = objs.reduce(
       (b, o) => ({
         left: Math.min(b.left, o.box.left),
@@ -308,7 +397,7 @@ export class TextEditor {
     const fill = this.color(main.handle, 'fill');
     return {
       key: objs.map((o) => o.index).join(','),
-      text: joinLine(objs),
+      text: layout.text,
       box,
       baseline: main.m[5],
       fontSize: main.size,
@@ -318,6 +407,8 @@ export class TextEditor {
       color: [fill[0], fill[1], fill[2]],
       keepChars: keep,
       fontEmbedded: !!this.m.FPDFFont_GetIsEmbedded(main.font),
+      parts,
+      fonts,
       editable: !reason,
       reason,
     };
@@ -517,9 +608,87 @@ export function inWinAnsi(ch: string): boolean {
   return (cp >= 0x20 && cp <= 0x7e) || (cp >= 0xa0 && cp <= 0xff) || WINANSI_EXTRA.has(ch);
 }
 
-/** Characters of `text` the line's own font cannot draw, as the bar shows them. */
-export function missingForLine(line: Pick<TextLine, 'keepChars' | 'fontEmbedded'>, text: string): string[] {
-  return [...new Set([...text].filter((ch) => ch.trim() && !(line.fontEmbedded ? line.keepChars.includes(ch) : inWinAnsi(ch))))];
+/** Characters of `text` a font of the line cannot draw, as the bar shows them. */
+export function missingForFont(font: Pick<LineFont, 'keepChars' | 'embedded'>, text: string): string[] {
+  return [...new Set([...text].filter((ch) => ch.trim() && !(font.embedded ? font.keepChars.includes(ch) : inWinAnsi(ch))))];
+}
+
+export interface EditPlan {
+  /** objects [from, to) of the line are replaced */
+  from: number;
+  to: number;
+  /** their new text ('' = the part is deleted) */
+  middle: string;
+}
+
+/**
+ * Which objects of a line an edit has to replace. Objects entirely inside
+ * the common start or the common end of the old and new text stay; the
+ * rest is replaced by the new text between them. Returns null when nothing
+ * changed. `spans` are the objects' places in `old` (from the line layout).
+ */
+export function planEdit(old: string, spans: { start: number; end: number }[], next: string): EditPlan | null {
+  if (old === next || !spans.length) return null;
+  let p = 0;
+  while (p < old.length && p < next.length && old[p] === next[p]) p++;
+  let s = 0;
+  while (s < old.length - p && s < next.length - p && old[old.length - 1 - s] === next[next.length - 1 - s]) s++;
+  const tail = old.length - s;
+  let from = 0;
+  while (from < spans.length && spans[from].end <= p) from++;
+  let to = spans.length;
+  while (to > from && spans[to - 1].start >= tail) to--;
+  if (to === from) {
+    // only the space between two objects changed: take the object after it
+    if (from < spans.length) to = from + 1;
+    else from = to - 1;
+  }
+  return { from, to, middle: middleFor(old, spans, next, from, to) };
+}
+
+/** The new text for objects [from, to) once the others stay as they are. */
+function middleFor(old: string, spans: { start: number; end: number }[], next: string, from: number, to: number): string {
+  const a = from > 0 ? spans[from - 1].end : 0;
+  const bOld = to < spans.length ? spans[to].start : old.length;
+  const b = next.length - (old.length - bOld);
+  return next.slice(a, Math.max(a, b)).trim();
+}
+
+/**
+ * When the part has to change font (the original lacks a character), the
+ * new font takes the whole run of objects in that font, so no word ends up
+ * half in one font and half in the other. Objects in other fonts (a bold
+ * label) still stay.
+ */
+export function widenToRun(plan: EditPlan, fontOf: unknown[], main: unknown, old: string, spans: { start: number; end: number }[], next: string): EditPlan {
+  let { from, to } = plan;
+  while (from > 0 && fontOf[from - 1] === main) from--;
+  while (to < fontOf.length && fontOf[to] === main) to++;
+  if (from === plan.from && to === plan.to) return plan;
+  return { from, to, middle: middleFor(old, spans, next, from, to) };
+}
+
+/** What the bar should say before saving: the part rewritten, its font, what that font lacks. */
+export function describeEdit(line: Pick<TextLine, 'text' | 'parts' | 'fonts'>, next: string) {
+  const wanted = normalizeLineText(next);
+  let plan = planEdit(line.text, line.parts, wanted);
+  if (!plan) return null;
+  const mainOf = (p: EditPlan) => {
+    const parts = line.parts.slice(p.from, p.to);
+    return parts.reduce((best, q) => (q.end - q.start > best.end - best.start ? q : best), parts[0]);
+  };
+  const main = mainOf(plan);
+  const font = line.fonts[main.font];
+  const missing = plan.middle ? missingForFont(font, plan.middle) : [];
+  if (missing.length) plan = widenToRun(plan, line.parts.map((q) => q.font), main.font, line.text, line.parts, wanted);
+  return {
+    plan,
+    font,
+    /** old text of the part rewritten */
+    replaced: line.text.slice(line.parts[plan.from].start, line.parts[plan.to - 1].end),
+    whole: plan.from === 0 && plan.to === line.parts.length,
+    missing,
+  };
 }
 
 // ---- grouping ---------------------------------------------------------------
@@ -556,15 +725,38 @@ function groupLines(objs: Obj[]): Obj[][] {
   return lines.filter((l) => l.some((o) => o.text.trim()));
 }
 
-/** The line as a reader sees it: a space where objects are clearly apart. */
-function joinLine(objs: Obj[]): string {
-  let s = '';
+/**
+ * The line as a reader sees it (a space where objects are clearly apart,
+ * white space collapsed), and where each object's text sits in it.
+ */
+function lineLayout(objs: Pick<Obj, 'text' | 'box' | 'size'>[]): { text: string; spans: { start: number; end: number }[] } {
+  let raw = '';
+  const rawSpans: [number, number][] = [];
   objs.forEach((o, i) => {
     if (i > 0) {
       const gap = o.box.left - objs[i - 1].box.right;
-      if (gap > Math.min(o.size, objs[i - 1].size) * 0.15 && !/\s$/.test(s) && !/^\s/.test(o.text)) s += ' ';
+      if (gap > Math.min(o.size, objs[i - 1].size) * 0.15 && !/\s$/.test(raw) && !/^\s/.test(o.text)) raw += ' ';
     }
-    s += o.text;
+    rawSpans.push([raw.length, raw.length + o.text.length]);
+    raw += o.text;
   });
-  return normalizeLineText(s);
+  // collapse white space, keeping a map from raw to collapsed positions
+  const map = new Array<number>(raw.length + 1);
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    map[i] = out.length;
+    if (/[\s\u00a0]/.test(raw[i])) {
+      if (out.length && !out.endsWith(' ')) out += ' ';
+    } else out += raw[i];
+  }
+  map[raw.length] = out.length;
+  const text = out.endsWith(' ') ? out.slice(0, -1) : out;
+  const spans = rawSpans.map(([a, b]) => {
+    let start = Math.min(map[a], text.length);
+    let end = Math.min(map[b], text.length);
+    while (start < end && text[start] === ' ') start++;
+    while (end > start && text[end - 1] === ' ') end--;
+    return { start, end };
+  });
+  return { text, spans };
 }

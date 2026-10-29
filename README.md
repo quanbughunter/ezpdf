@@ -2,9 +2,9 @@
 
 Ứng dụng đọc và chỉnh PDF chạy trên trình duyệt, desktop và Android. Mọi xử lý diễn ra trên thiết bị: tài liệu không bao giờ bị tải lên đâu cả.
 
-**Trạng thái: bản 0.5.0.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra); còn chờ thử trên máy Windows. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và từ bản 0.5.0:
+**Trạng thái: bản 0.5.1.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra); còn chờ thử trên máy Windows. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và từ bản 0.5.0:
 
-- **Sửa chữ có sẵn trong PDF** (phím E): sửa từng dòng. Chữ cũ được xóa khỏi nội dung trang rồi viết chữ mới vào, không phủ đè. Giữ phông gốc khi phông đó vẽ được mọi chữ mới; nếu không thì dùng phông ezSans và báo trước. Xem `docs/07-sua-chu-va-quet.md`.
+- **Sửa chữ có sẵn trong PDF** (phím E): sửa từng dòng, và chỉ phần đã đổi bị viết lại (nhãn đậm đứng trước vẫn giữ nguyên). Chữ cũ được xóa khỏi nội dung trang rồi viết chữ mới vào, không phủ đè. Giữ phông gốc khi phông đó vẽ được mọi chữ mới; nếu không thì dùng phông ezSans (Latin, tiếng Việt, tiếng Nga, Hy Lạp) và báo trước. Xem `docs/07-sua-chu-va-quet.md`.
 - **Quét tài liệu:** chụp hoặc chọn ảnh giấy tờ. App tìm mép giấy; người dùng kéo 4 góc nếu cần (có kính lúp). App làm phẳng và làm sáng ảnh với màu tự nhiên, rồi tạo PDF. Xử lý hoàn toàn trên máy.
 
 Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
@@ -76,6 +76,7 @@ node scripts/smoke-desktop.cjs   # bản desktop thật (Linux, WebDriver): mở
 node scripts/perf-big.cjs        # tệp 50 MB trên màn hình điện thoại, CPU chậm 4× (cần `make_big_fixture.py` trước)
 bash scripts/check_android_java.sh  # biên dịch plugin Android với android.jar
 npm run fixtures     # tạo lại tệp mẫu (sample.pdf, long-300.pdf, ảnh, edit-text.pdf, ảnh quét giả lập)
+python3 scripts/make_fonts.py    # dựng lại phông ezPDF Sans VN từ Noto Sans (Latin, Việt, Kirin, Hy Lạp)
 ```
 
 Script kiểm thử cần: Node 22+, Python 3 với `pymupdf`, `pikepdf`, `Pillow` và `numpy`, `qpdf`, `poppler-utils`, Playwright với Chromium. Tạo lại `edit-text.pdf` cần thêm LibreOffice, ReportLab và pdfLaTeX.
@@ -120,7 +121,7 @@ src/
     font-metrics.ts        metric TrueType + ngắt dòng
     export.worker.ts       PDFium thứ hai trong Web Worker: bước xuất, và phiên sửa chữ có sẵn
     text-edit.ts           sửa chữ có sẵn: gom dòng, thay đối tượng chữ, chọn phông, đọc lại để kiểm
-public/fonts/          ezPDF Sans VN (subset Noto Sans, SIL OFL 1.1, đã đổi tên)
+public/fonts/          ezPDF Sans VN (subset Noto Sans: Latin, Việt, Kirin, Hy Lạp; SIL OFL 1.1, đã đổi tên)
 public/icons/, manifest.webmanifest   biểu tượng và manifest của web app
 build/                 plugin Vite: service worker (danh sách tệp của bản build), CSP cho bản web
 src-tauri/             vỏ desktop: lib.rs (tệp từ dòng lệnh, một cửa sổ), tauri.conf.json, capabilities/

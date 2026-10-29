@@ -12,3 +12,8 @@ android/local.properties
 android/app/src/main/assets/public/
 src-tauri/target-win/
 _to_delete/
+
+# builds downloaded from GitHub Actions (not source)
+ezpdf-android-debug*
+ezpdf-windows*
+web-app*

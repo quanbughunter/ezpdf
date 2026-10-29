@@ -117,7 +117,7 @@ let onCrash = async () => {};
   function track(p) {
     p.on('request', (r) => requests.push({ method: r.method(), url: r.url() }));
     p.on('pageerror', (e) => errors.push(`${e.message} @${stepName} ${(e.stack || '').split('\n').slice(1, 6).join(' ‹ ')}`));
-    p.on('console', (m) => m.type() === 'error' && errors.push(`${m.text()} ${m.location()?.url ?? ''} @${stepName}`));
+    p.on('console', (m) => m.type() === 'error' && !benignRenderRace(m) && errors.push(`${m.text()} ${m.location()?.url ?? ''} @${stepName}`));
   }
 
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
@@ -131,6 +131,14 @@ let onCrash = async () => {};
   };
   track(page);
   const tid = (id) => `[data-testid="${id}"]`;
+/**
+ * EmbedPDF's render, tile and thumbnail layers revoke a page image's blob:
+ * URL when a newer render replaces it; if the <img> had not finished loading,
+ * Chromium logs "Failed to load resource: net::ERR_FILE_NOT_FOUND" for that
+ * blob: URL. The newer image is shown, nothing is lost: not a page error.
+ * (Timing-dependent, so it appears on slow machines such as CI.)
+ */
+const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.test(m.text()) && /^blob:/.test(m.location()?.url ?? '');
   async function click(id, opts) {
     covered.add(id);
     await page.click(tid(id), opts);

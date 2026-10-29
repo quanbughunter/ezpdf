@@ -55,3 +55,17 @@
 | `m4-e2e-web.json` | Kết quả `e2e:m4` trên dev server và trên bản build production |
 | `m4-tep-50mb.json` | Thời gian từng bước và bộ nhớ khi mở, sửa, lưu nháp và xuất tệp 51 MB trên màn hình điện thoại, CPU chậm 4× |
 | `m4-luu-tru.txt` | Kết quả kiểm lớp lưu trữ dạng tệp, có cả trường hợp app tắt giữa lúc ghi |
+
+## Bản 0.5.0: sửa chữ có sẵn, quét tài liệu
+
+| Tệp | Là gì |
+|---|---|
+| `m5-sua-chu-truoc-sau.png` | Trang 1 của `tests/fixtures/edit-text.pdf` (Chromium, phông CID subset) trước và sau 5 lần sửa (MuPDF render). Ba dòng giữ phông gốc LiberationSerif: “ông Lê Văn Hòa”, “02 máy”, “Người duyệt”. Tiêu đề và dòng nghiêng dùng ezSans vì phông gốc thiếu chữ |
+| `m5-sua-chu-may-tinh.png` | Màn hình sau `e2e:edit`: khung nét đứt quanh các dòng sửa được, dải báo kết quả |
+| `m5-sua-chu-dien-thoai.png` | Như trên, trên điện thoại: dòng sửa bằng chạm, báo đổi phông |
+| `m5-sua-chu-da-xuat.pdf` | Tệp xuất thật của `e2e:edit` (3 dòng đã sửa trên 2 trang, trang 2 xoay 90°). Thử tìm “bà Lê Thị Hoa” hay “Tuesday” bằng viewer bất kỳ: không còn |
+| `m5-quet-xem-trang.png` | Màn quét: trang đã làm phẳng, làm sáng; dải trang; nút Xoay, Căn lại góc, Xóa trang, công tắc Làm sáng |
+| `m5-quet-can-goc-dien-thoai.png` | Màn căn góc trên điện thoại, với ảnh lưu nằm ngang (EXIF 6) hiện đúng chiều, 4 góc đã đặt sẵn |
+| `m5-quet-bong-do-truoc-sau.png` | Ảnh có bóng đổ đậm, trang đã làm phẳng nhưng tắt Làm sáng, và trang có Làm sáng |
+| `m5-ban-quet-da-xuat.pdf` | Bản quét 2 trang xuất từ app (trang 2 xoay thành khổ ngang): ảnh JPEG nhúng nguyên |
+| `m5-e2e.json` | Mọi điểm kiểm của 5 bộ e2e, trên dev server và bản build production |

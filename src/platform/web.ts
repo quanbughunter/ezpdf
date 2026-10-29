@@ -35,6 +35,8 @@ export function createWebPlatform(): Platform {
   return {
     kind: 'web',
     storage: createIdbBackend(),
+    // a phone browser opens its camera for <input capture>; a desktop one shows a file dialog
+    canCapture: window.matchMedia('(pointer: coarse)').matches,
     pickPdf: null,
     async savePdf(bytes, name) {
       downloadPdf(bytes, name);

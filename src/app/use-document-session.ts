@@ -6,6 +6,9 @@ import { useExportCapability } from '@embedpdf/plugin-export/react';
 import { useAnnotationCapability } from '@embedpdf/plugin-annotation/react';
 import { useHistoryCapability } from '@embedpdf/plugin-history/react';
 import { useScrollCapability } from '@embedpdf/plugin-scroll/react';
+import { useZoomCapability } from '@embedpdf/plugin-zoom/react';
+import { useViewportCapability } from '@embedpdf/plugin-viewport/react';
+import type { ZoomLevel } from '@embedpdf/plugin-zoom';
 import { finalizePdf } from '@/engine/export-client';
 import { applyPageRotations, getPageRotations } from './page-rotation';
 import {
@@ -46,6 +49,22 @@ export interface DraftOffer {
   record: DraftRecord;
 }
 
+/** What the reader sees, kept across a reopen (text edits, their undo). */
+interface ViewRestore {
+  rotations: number[];
+  lastPage: number;
+  zoom?: ZoomLevel;
+  scroll?: { x: number; y: number };
+}
+
+/**
+ * Text edits change the page content, so the document is reopened from the
+ * edited bytes and EmbedPDF's history starts empty. Their undo keeps whole
+ * snapshots, bounded in count and size.
+ */
+const CONTENT_UNDO_MAX = 20;
+const CONTENT_UNDO_BYTES = 300e6;
+
 interface Current {
   draftId: string;
   hash: string;
@@ -78,6 +97,8 @@ export function useDocumentSession(documentId: string | null) {
   const { provides: annotations } = useAnnotationCapability();
   const { provides: history } = useHistoryCapability();
   const { provides: scroll } = useScrollCapability();
+  const { provides: zoom } = useZoomCapability();
+  const { provides: viewport } = useViewportCapability();
   const docState = useDocumentState(documentId);
   const [fileName, setFileName] = useState('');
   const [openError, setOpenError] = useState<string | null>(null);
@@ -87,9 +108,20 @@ export function useDocumentSession(documentId: string | null) {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [draftOffer, setDraftOffer] = useState<DraftOffer | null>(null);
   const [busy, setBusy] = useState(false);
-  const [switching, setSwitching] = useState<null | 'open' | 'close'>(null);
+  const [switching, setSwitching] = useState<null | 'open' | 'close' | 'update'>(null);
   const current = useRef<Current | null>(null);
-  const restore = useRef<{ rotations: number[]; lastPage: number } | null>(null);
+  const restore = useRef<ViewRestore | null>(null);
+  const contentStack = useRef<{ undo: ArrayBuffer[]; redo: ArrayBuffer[] }>({ undo: [], redo: [] });
+  const [contentDepth, setContentDepth] = useState({ undo: 0, redo: 0 });
+  /** another document opened, or closed */
+  const [docEpoch, setDocEpoch] = useState(0);
+  /** the content was replaced by undo/redo of a content change */
+  const [contentEpoch, setContentEpoch] = useState(0);
+  const syncDepth = () => setContentDepth({ undo: contentStack.current.undo.length, redo: contentStack.current.redo.length });
+  const clearContentStack = () => {
+    contentStack.current = { undo: [], redo: [] };
+    syncDepth();
+  };
   const saving = useRef<Promise<void>>(Promise.resolve());
   const changesRef = useRef(changes);
   changesRef.current = changes;
@@ -100,6 +132,10 @@ export function useDocumentSession(documentId: string | null) {
   useEffect(() => {
     if (!history) return;
     return history.onHistoryChange(() => {
+      if (contentStack.current.redo.length) {
+        contentStack.current.redo = [];
+        setContentDepth((d) => ({ ...d, redo: 0 }));
+      }
       setChanges((c) => ({ ...c, seq: c.seq + 1 }));
       setExportStatus((s) => (s.kind === 'done' ? { kind: 'idle' } : s));
     });
@@ -111,10 +147,31 @@ export function useDocumentSession(documentId: string | null) {
     const r = restore.current;
     restore.current = null;
     applyPageRotations(registry, documentId, Object.fromEntries(r.rotations.map((v, i) => [i, v])));
-    if (r.lastPage > 1) {
+    if (r.zoom !== undefined || r.scroll) {
+      // Zoom requests are ignored until the viewport has a size; the default
+      // zoom is applied when it first gets one.
+      let tries = 80;
+      const id = documentId;
+      const apply = () => {
+        let ready = false;
+        try {
+          ready = (viewport?.forDocument(id).getMetrics().clientWidth ?? 0) > 0;
+        } catch {}
+        if (!ready) {
+          if (tries-- > 0) setTimeout(apply, 50);
+          return;
+        }
+        setTimeout(() => {
+          if (r.zoom !== undefined) zoom?.forDocument(id).requestZoom(r.zoom);
+          const sc = r.scroll;
+          if (sc) setTimeout(() => viewport?.forDocument(id).scrollTo({ x: sc.x, y: sc.y, behavior: 'instant' }), 120);
+        }, 200);
+      };
+      apply();
+    } else if (r.lastPage > 1) {
       setTimeout(() => scroll?.forDocument(documentId).scrollToPage({ pageNumber: r.lastPage, behavior: 'instant' }), 50);
     }
-  }, [registry, documentId, docState?.status, scroll]);
+  }, [registry, documentId, docState?.status, scroll, zoom, viewport]);
 
   const saveNow = useCallback((): Promise<void> => {
     const run = async () => {
@@ -207,19 +264,28 @@ export function useDocumentSession(documentId: string | null) {
    * closed throws ("Interaction state not found"). Take the viewer down
    * first, then close.
    */
-  const unmountViewer = useCallback(async (why: 'open' | 'close') => {
+  const unmountViewer = useCallback(async (why: 'open' | 'close' | 'update') => {
     setSwitching(why);
     await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   }, []);
 
   const openAfterUnmount = useCallback(
-    async (buffer: ArrayBuffer, cur: Current, resumed?: DraftRecord) => {
+    async (buffer: ArrayBuffer, cur: Current, resumed?: DraftRecord, made = false) => {
       if (!docs) return;
       await asPromise(docs.closeAllDocuments());
       current.current = cur;
+      clearContentStack();
+      setDocEpoch((n) => n + 1);
       setFileName(cur.name);
       setExportStatus({ kind: 'idle' });
-      setChanges(resumed ? { seq: 1, savedSeq: 1, exportedSeq: resumed.exported ? 1 : 0 } : { seq: 0, savedSeq: 0, exportedSeq: 0 });
+      // a document made in the app (a scan) exists nowhere else yet: draft it at once
+      setChanges(
+        resumed
+          ? { seq: 1, savedSeq: 1, exportedSeq: resumed.exported ? 1 : 0 }
+          : made
+            ? { seq: 1, savedSeq: 0, exportedSeq: 0 }
+            : { seq: 0, savedSeq: 0, exportedSeq: 0 },
+      );
       setDraftStatus(resumed ? { kind: 'saved', at: resumed.updatedAt } : { kind: 'none' });
       restore.current = resumed ? { rotations: resumed.rotations, lastPage: resumed.lastPage } : null;
       await asPromise(docs.openDocumentBuffer({ buffer, name: cur.name, autoActivate: true }));
@@ -228,11 +294,11 @@ export function useDocumentSession(documentId: string | null) {
   );
 
   const openBuffer = useCallback(
-    async (buffer: ArrayBuffer, cur: Current, resumed?: DraftRecord) => {
+    async (buffer: ArrayBuffer, cur: Current, resumed?: DraftRecord, made = false) => {
       if (!docs) return;
       await unmountViewer('open');
       try {
-        await openAfterUnmount(buffer, cur, resumed);
+        await openAfterUnmount(buffer, cur, resumed, made);
       } finally {
         setSwitching(null);
       }
@@ -275,6 +341,36 @@ export function useDocumentSession(documentId: string | null) {
         await openBuffer(buffer, { draftId: uuidV4(), hash, name: file.name, original: file, record: null });
       } catch (e) {
         setOpenError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [docs, guarded, openBuffer],
+  );
+
+  /**
+   * Open a PDF made in the app (a scan) as a new document. It is not saved
+   * anywhere yet, so it counts as changed: the draft is written at once and
+   * the app asks before it is closed unexported.
+   */
+  const openMade = useCallback(
+    async (file: File) => {
+      if (!docs) return false;
+      setDraftOffer(null);
+      if (!(await guarded(null, false))) {
+        setOpenError(null);
+        return false;
+      }
+      setOpenError(null);
+      setBusy(true);
+      try {
+        const buffer = await file.arrayBuffer();
+        const hash = await sha256(buffer);
+        await openBuffer(buffer, { draftId: uuidV4(), hash, name: file.name, original: file, record: null }, undefined, true);
+        return true;
+      } catch (e) {
+        setOpenError(e instanceof Error ? e.message : String(e));
+        return false;
       } finally {
         setBusy(false);
       }
@@ -339,11 +435,88 @@ export function useDocumentSession(documentId: string | null) {
     } finally {
       setSwitching(null);
     }
+    clearContentStack();
+    setDocEpoch((n) => n + 1);
     setFileName('');
     setChanges({ seq: 0, exportedSeq: 0, savedSeq: 0 });
     setDraftStatus({ kind: 'none' });
     setExportStatus({ kind: 'idle' });
   }, [docs, guarded, unmountViewer]);
+
+  /** The view as it is now, to come back to after a reopen. */
+  const captureView = useCallback((): ViewRestore | null => {
+    if (!registry || !documentId) return null;
+    let lastPage = 1;
+    let z: ZoomLevel | undefined;
+    let sc: { x: number; y: number } | undefined;
+    try {
+      lastPage = scroll?.forDocument(documentId).getCurrentPage() ?? 1;
+      z = zoom?.forDocument(documentId).getState().zoomLevel;
+      const vm = viewport?.forDocument(documentId).getMetrics();
+      if (vm) sc = { x: vm.scrollLeft, y: vm.scrollTop };
+    } catch {}
+    return { rotations: getPageRotations(registry, documentId), lastPage, zoom: z, scroll: sc };
+  }, [registry, documentId, scroll, zoom, viewport]);
+
+  /** Reopen the same document (same draft) from new bytes, keeping the view. */
+  const reopenContent = useCallback(
+    async (bytes: ArrayBuffer) => {
+      const cur = current.current;
+      if (!docs || !cur) return;
+      const view = captureView();
+      await unmountViewer('update');
+      try {
+        await asPromise(docs.closeAllDocuments());
+        restore.current = view;
+        await asPromise(docs.openDocumentBuffer({ buffer: bytes, name: cur.name, autoActivate: true }));
+        setChanges((c) => ({ ...c, seq: c.seq + 1 }));
+        setExportStatus((s) => (s.kind === 'done' ? { kind: 'idle' } : s));
+      } finally {
+        setSwitching(null);
+      }
+    },
+    [docs, captureView, unmountViewer],
+  );
+
+  /**
+   * A change made outside EmbedPDF (editing existing text): `next` becomes
+   * the document, `previous` is what undo brings back.
+   */
+  const replaceContent = useCallback(
+    async (next: ArrayBuffer, previous: ArrayBuffer) => {
+      const st = contentStack.current;
+      st.undo.push(previous);
+      st.redo = [];
+      let total = st.undo.reduce((n, b) => n + b.byteLength, 0);
+      while (st.undo.length > CONTENT_UNDO_MAX || (st.undo.length > 1 && total > CONTENT_UNDO_BYTES)) total -= st.undo.shift()!.byteLength;
+      syncDepth();
+      await reopenContent(next.slice(0));
+    },
+    [reopenContent],
+  );
+
+  const currentBytes = useCallback(async () => {
+    if (!documentId || !exporter || !annotations) throw new Error('Chưa có tài liệu.');
+    await asPromise(annotations.forDocument(documentId).commit());
+    return asPromise(exporter.forDocument(documentId).saveAsCopy());
+  }, [documentId, exporter, annotations]);
+
+  /** Undo/redo of content changes, used once EmbedPDF's own history has nothing left. */
+  const stepContent = useCallback(
+    async (dir: 'undo' | 'redo') => {
+      const st = contentStack.current;
+      const from = dir === 'undo' ? st.undo : st.redo;
+      const to = dir === 'undo' ? st.redo : st.undo;
+      const target = from.pop();
+      if (!target) return false;
+      to.push(await currentBytes());
+      syncDepth();
+      setContentEpoch((n) => n + 1);
+      await reopenContent(target.slice(0));
+      return true;
+    },
+    [currentBytes, reopenContent],
+  );
 
   const exportPdf = useCallback(async () => {
     if (!documentId || !exporter || !annotations || !registry) return;
@@ -384,12 +557,23 @@ export function useDocumentSession(documentId: string | null) {
     switching,
     openFile,
     openPicked,
+    openMade,
     resumeDraft,
     openOfferedOriginal,
     dismissDraftOffer: () => setDraftOffer(null),
     cancelPendingOpen: () => setPendingFile(null),
     closeDocument,
     exportPdf,
+    docEpoch,
+    contentEpoch,
+    currentBytes,
+    replaceContent,
+    contentUndo: {
+      canUndo: contentDepth.undo > 0,
+      canRedo: contentDepth.redo > 0,
+      undo: () => stepContent('undo'),
+      redo: () => stepContent('redo'),
+    },
   };
 }
 

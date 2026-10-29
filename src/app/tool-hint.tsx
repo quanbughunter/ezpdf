@@ -4,6 +4,7 @@ import { useAnnotation } from '@embedpdf/plugin-annotation/react';
 import { cn } from '@/lib/utils';
 import { usePlacement } from './images/placement';
 import { isEzImage, isLockedForeignStamp } from './images/stamp-guard';
+import { isTouchFirst, useTextEdit } from './text-edit';
 
 const TOOL_HINTS: Record<string, string> = {
   freeText: 'Bấm vào trang để đặt ô chữ, hoặc kéo để vẽ ô. Esc để quay về chọn.',
@@ -66,7 +67,41 @@ export function ToolHint({ documentId }: { documentId: string }) {
   const editing = useEditingText();
   const placing = usePlacement()?.placing;
   const flashText = useFlash();
+  const textEdit = useTextEdit();
   const tool = state.activeToolId;
+  if (textEdit?.active) {
+    const m = textEdit.message;
+    const t =
+      textEdit.status === 'opening'
+        ? 'Đang chuẩn bị sửa chữ…'
+        : textEdit.status === 'saving'
+          ? 'Đang sửa dòng trong tệp…'
+          : m
+            ? m.text
+            : textEdit.selected
+              ? isTouchFirst()
+                ? 'Sửa trong ô ở trên rồi chạm Lưu dòng.'
+                : 'Sửa trong ô ở trên. Enter để lưu, Esc để hủy.'
+              : isTouchFirst()
+                ? 'Chạm vào một dòng có khung nét đứt để sửa chữ. Chạm lại nút Sửa chữ để thoát.'
+                : 'Bấm vào một dòng có khung nét đứt để sửa chữ. Esc để thoát.';
+    return (
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
+        <p
+          role="status"
+          data-testid="tool-hint"
+          data-kind="textedit"
+          data-tone={m?.tone ?? 'tool'}
+          className={cn(
+            'max-w-[min(560px,100%)] rounded-full px-4 py-2 text-center text-[13px] leading-snug shadow-[0_2px_10px_rgba(0,0,0,0.18)]',
+            m?.tone === 'error' ? 'bg-destructive text-white' : m?.tone === 'warn' ? 'bg-amber-100 text-amber-950' : 'bg-primary text-primary-foreground',
+          )}
+        >
+          {t}
+        </p>
+      </div>
+    );
+  }
   let text: string | null = placing
     ? `Bấm vào trang để đặt ${placing.kind === 'signature' ? 'chữ ký' : 'ảnh'} (Enter: giữa trang đang xem). Esc để hủy.`
     : editing

@@ -1,7 +1,7 @@
 {
   "name": "ezpdf",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,12 +20,17 @@
     "e2e:preview": "BASE=http://localhost:4173 SKIP_PDFJS=1 node scripts/e2e.cjs",
     "e2e:m3": "node scripts/e2e-m3.cjs",
     "e2e:m3:preview": "BASE=http://localhost:4173 SKIP_PDFJS=1 node scripts/e2e-m3.cjs",
-    "e2e:all": "node scripts/e2e.cjs && node scripts/e2e-m3.cjs && node scripts/e2e-m4.cjs",
-    "fixtures": "python3 scripts/make_fixture.py tests/fixtures/sample.pdf && python3 scripts/make_long_fixture.py tests/fixtures/long-300.pdf && python3 scripts/make_image_fixtures.py tests/fixtures",
+    "e2e:all": "node scripts/e2e.cjs && node scripts/e2e-m3.cjs && node scripts/e2e-m4.cjs && node scripts/e2e-edit.cjs && node scripts/e2e-scan.cjs",
+    "fixtures": "python3 scripts/make_fixture.py tests/fixtures/sample.pdf && python3 scripts/make_long_fixture.py tests/fixtures/long-300.pdf && python3 scripts/make_image_fixtures.py tests/fixtures && node scripts/make_edit_fixture.cjs && python3 scripts/make_scan_fixtures.py tests/fixtures/scan",
     "test:storage": "tsx tests/storage.test.ts",
     "e2e:m4": "node scripts/e2e-m4.cjs",
     "icons": "node scripts/make_icons.cjs && tauri icon branding/icon-1024.png -o src-tauri/icons",
-    "e2e:m4:preview": "BASE=http://localhost:4173 node scripts/e2e-m4.cjs"
+    "e2e:m4:preview": "BASE=http://localhost:4173 node scripts/e2e-m4.cjs",
+    "test:edit": "tsx tests/text-edit-probe.ts && python3 scripts/verify_text_edit.py out/text-edit/expected.json",
+    "e2e:edit": "node scripts/e2e-edit.cjs",
+    "e2e:edit:preview": "BASE=http://localhost:4173 node scripts/e2e-edit.cjs",
+    "e2e:scan": "node scripts/e2e-scan.cjs",
+    "e2e:scan:preview": "BASE=http://localhost:4173 node scripts/e2e-scan.cjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",

@@ -11,6 +11,8 @@ const fontBase = new URL(`${import.meta.env.BASE_URL}fonts/`, window.location.hr
 
 /** Font embedded into FreeText appearances on export (OFL, Noto Sans subset, renamed). */
 export const VN_FONT_URL = `${fontBase}ezSansVN-Regular.ttf`;
+/** Bold face, for editing a bold line whose own font lacks a character. */
+export const VN_BOLD_FONT_URL = `${fontBase}ezSansVN-Bold.ttf`;
 
 /**
  * Fallback fonts PDFium may request while rendering PDFs whose fonts are not

@@ -20,6 +20,7 @@ interface DocRef {
 }
 
 interface EzFilesPlugin {
+  clearCaptures(): Promise<{ removed: number }>;
   openDocument(): Promise<{ cancelled: boolean; file?: DocRef }>;
   createDocument(o: { name: string; mime: string }): Promise<{ cancelled: boolean; file?: DocRef }>;
   openWrite(o: { uri: string }): Promise<{ handle: string }>;
@@ -51,9 +52,16 @@ export async function createAndroidPlatform(): Promise<Platform> {
   await EzFiles.addListener('incoming', () => void take().catch((e) => console.error('ezPDF: incoming file', e)));
   void take().catch((e) => console.error('ezPDF: incoming file', e));
 
+  // photos a scan left behind (the app was closed in the middle of one)
+  void EzFiles.clearCaptures().catch(() => {});
+
   return {
     kind: 'android',
     storage: createCapacitorBackend(),
+    canCapture: true,
+    async clearCapturedPhotos() {
+      await EzFiles.clearCaptures();
+    },
     async pickPdf() {
       const r = await EzFiles.openDocument();
       return r.cancelled || !r.file ? null : fileOf(r.file);

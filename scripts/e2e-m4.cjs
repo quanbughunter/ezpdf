@@ -283,11 +283,22 @@ let onCrash = async () => {};
         const el = [...document.querySelectorAll('[data-testid="viewer"] *')].find((e) => e.scrollHeight > e.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(e).overflowY));
         return el ? el.scrollTop : -1;
       });
+    // Text selection rects and the marquee rectangle of the selection plugin.
+    const selectionMarks = () =>
+      ph.evaluate(
+        () =>
+          [...document.querySelectorAll('[data-testid="viewer"] *')].filter((e) => {
+            const s = e.getAttribute('style') || '';
+            return (/mix-blend-mode: multiply/.test(s) || /rgba\(0, ?122, ?204/.test(s)) && e.getBoundingClientRect().width > 0;
+          }).length,
+      );
+    let maxMarks = 0;
     const swipeUp = async (x, y, dy) => {
       await touch('touchStart', [tp(x, y)]);
       for (let i = 1; i <= 10; i++) {
         await touch('touchMove', [tp(x, y - (dy * i) / 10)]);
         await ph.waitForTimeout(16);
+        maxMarks = Math.max(maxMarks, await selectionMarks());
       }
       await touch('touchEnd', []);
       await ph.waitForTimeout(700);
@@ -297,22 +308,45 @@ let onCrash = async () => {};
     await swipeUp(pb.x + pb.width / 2, Math.min(pb.y + pb.height * 0.7, 700), 300);
     const t1 = await scrollTop();
     check('phone: one finger on the page scrolls the document (not only on the grey margin)', t1 > t0 + 150, `scrollTop ${t0} → ${t1}`);
+    const swipeMarks = maxMarks;
 
     const widthOf = () => ph.evaluate(() => document.querySelector('[data-testid="viewer"] [data-testid^="page-"]').getBoundingClientRect().width);
     const w0 = await widthOf();
-    await touch('touchStart', [tp(166, 450, 1), tp(246, 450, 2)]);
+    // The fingers land over the page's text, one slightly before the other, as on a real phone.
+    maxMarks = 0;
+    await touch('touchStart', [tp(166, 450, 1)]);
+    await ph.waitForTimeout(30);
+    await touch('touchStart', [tp(166, 450, 1), tp(246, 470, 2)]);
     for (let i = 1; i <= 10; i++) {
-      await touch('touchMove', [tp(166 - i * 8, 450, 1), tp(246 + i * 8, 450, 2)]);
+      await touch('touchMove', [tp(166 - i * 8, 450 - i * 4, 1), tp(246 + i * 8, 470 + i * 4, 2)]);
       await ph.waitForTimeout(16);
+      maxMarks = Math.max(maxMarks, await selectionMarks());
     }
     await touch('touchEnd', []);
     await ph.waitForTimeout(1200);
     const w1 = await widthOf();
     const appScale = await ph.evaluate(() => visualViewport.scale);
     check('phone: pinching zooms the document, not the whole app', w1 > w0 * 2 && appScale === 1, `page width ${Math.round(w0)} → ${Math.round(w1)} px, app zoom ${appScale}`);
-    await ph.click(tid('btn-zoom-out'));
-    await ph.click(tid('btn-zoom-out'));
-    await ph.waitForTimeout(800);
+    const pinchMarks = Math.max(maxMarks, await selectionMarks());
+    check(
+      'phone: neither scrolling nor pinching over text selects text or draws a selection rectangle',
+      swipeMarks === 0 && pinchMarks === 0,
+      `selection marks while scrolling ${swipeMarks}, while pinching ${pinchMarks}`,
+    );
+    // fingers together: back out (the phone bar has no zoom buttons, pinching replaces them)
+    for (let round = 0; round < 2; round++) {
+      await touch('touchStart', [tp(86, 450, 3)]);
+      await ph.waitForTimeout(30);
+      await touch('touchStart', [tp(86, 450, 3), tp(326, 470, 4)]);
+      for (let i = 1; i <= 10; i++) {
+        await touch('touchMove', [tp(86 + i * 10, 450, 3), tp(326 - i * 10, 470, 4)]);
+        await ph.waitForTimeout(16);
+      }
+      await touch('touchEnd', []);
+      await ph.waitForTimeout(700);
+    }
+    const w2 = await widthOf();
+    check('phone: pinching the fingers together zooms back out', w2 < w1 * 0.6, `page width ${Math.round(w1)} → ${Math.round(w2)} px`);
 
     const before = (await ph.evaluate(() => window.__ezpdf.annotations())).length;
     await ph.tap(tid('tool-text'));
@@ -324,6 +358,33 @@ let onCrash = async () => {};
     await ph.keyboard.press('Escape');
     await ph.keyboard.press('Escape');
     await ph.waitForTimeout(300);
+
+    // The box made above can still be picked and moved with a finger.
+    {
+      const made = (await ph.evaluate(() => window.__ezpdf.annotations())).at(-1);
+      // where the box is on screen, from its page and its rectangle in PDF units
+      const pageEl = await ph.locator(`[data-testid="viewer"] [data-testid="page-${made.pageIndex}"]`).boundingBox();
+      const scale = pageEl.width / (await ph.evaluate((i) => window.__ezpdf.pages()[i].w, made.pageIndex));
+      const r = { x: pageEl.x + made.rect.origin.x * scale, y: pageEl.y + made.rect.origin.y * scale, width: made.rect.size.width * scale, height: made.rect.size.height * scale };
+      const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+      await touch('touchStart', [tp(cx, cy, 5)]);
+      await touch('touchEnd', []);
+      await ph.waitForTimeout(400);
+      const picked = await ph.evaluate(() => window.__ezpdf.selected());
+      if (process.env.DEBUG_TAP) console.log('tap', made.pageIndex, JSON.stringify(made.rect), JSON.stringify(pageEl), cx, cy, await ph.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? e.tagName + ' ' + e.getAttribute('data-testid') + ' ' + (e.getAttribute('style') || '').slice(0, 80) : 'none'; }, [cx, cy]));
+      const x0 = made.rect.origin.x;
+      await touch('touchStart', [tp(cx, cy, 6)]);
+      for (let i = 1; i <= 10; i++) {
+        await touch('touchMove', [tp(cx + i * 6, cy, 6)]);
+        await ph.waitForTimeout(16);
+      }
+      await touch('touchEnd', []);
+      await ph.waitForTimeout(600);
+      const moved = (await ph.evaluate((id) => window.__ezpdf.annotations().find((a) => a.id === id), made.id)).rect.origin.x;
+      check('phone: a tap picks a box and a drag moves it', picked.includes(made.id) && moved > x0 + 10, `selected ${JSON.stringify(picked)}, x ${Math.round(x0)} → ${Math.round(moved)}`);
+      await ph.keyboard.press('Escape');
+      await ph.waitForTimeout(200);
+    }
 
     const shown = (await ph.textContent(tid('page-compact'))).trim();
     const n = Number(shown.split('/')[0]);

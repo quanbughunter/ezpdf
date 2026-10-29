@@ -31,6 +31,14 @@ export interface Platform {
    * The browser has beforeunload and Android pauses the page instead.
    */
   onCloseRequested?(cb: () => Promise<void>): () => void;
+  /**
+   * Photos the camera app wrote for a scan (Android: the camera saves into
+   * the app's own folder and the copy would otherwise stay there). Called
+   * when a scan ends and when the app starts.
+   */
+  clearCapturedPhotos?(): Promise<void>;
+  /** true when a page's file input can open the camera itself (phones) */
+  readonly canCapture: boolean;
 }
 
 /** Keeps incoming files until a listener is attached. */

@@ -2,7 +2,12 @@
 
 Ứng dụng đọc và chỉnh PDF chạy trên trình duyệt, desktop và Android. Mọi xử lý diễn ra trên thiết bị: tài liệu không bao giờ bị tải lên đâu cả.
 
-**Trạng thái: Mốc 4, phần làm được trong môi trường phát triển đã xong; còn chờ thử trên máy Windows và điện thoại Android thật.** Tính năng của mốc 1–3: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới. Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
+**Trạng thái: bản 0.5.0.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra); còn chờ thử trên máy Windows. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và từ bản 0.5.0:
+
+- **Sửa chữ có sẵn trong PDF** (phím E): sửa từng dòng. Chữ cũ được xóa khỏi nội dung trang rồi viết chữ mới vào, không phủ đè. Giữ phông gốc khi phông đó vẽ được mọi chữ mới; nếu không thì dùng phông ezSans và báo trước. Xem `docs/07-sua-chu-va-quet.md`.
+- **Quét tài liệu:** chụp hoặc chọn ảnh giấy tờ. App tìm mép giấy; người dùng kéo 4 góc nếu cần (có kính lúp). App làm phẳng và làm sáng ảnh với màu tự nhiên, rồi tạo PDF. Xử lý hoàn toàn trên máy.
+
+Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
 
 - **Web app cài được (PWA):** chạy offline sau lần mở đầu, đăng ký làm trình mở PDF khi cài trên Chrome/Edge máy tính.
 - **Desktop (Tauri 2):** hộp thoại Mở/Lưu của hệ điều hành, “Mở bằng ezPDF” khi bấm chuột phải vào tệp PDF, một cửa sổ duy nhất, bản nháp nằm trong thư mục của ứng dụng.
@@ -61,14 +66,19 @@ npm run e2e:preview  # bộ mốc 1–2 trên bản build (sau `npm run build &&
 npm run test:storage # lớp lưu trữ dạng tệp (desktop, Android) trên đĩa thật, kể cả khi app tắt giữa lúc ghi
 npm run e2e:m4       # lớp lưu trữ trong trình duyệt (IndexedDB, Capacitor Filesystem), nháp của mốc 3, "Mở bằng"
 npm run e2e:m4:preview  # trên bản build: cài được, chạy offline, CSP chặn request ra ngoài, "Mở bằng"
+npm run test:edit    # sửa chữ có sẵn: 6 kiểu PDF (Chromium, LibreOffice, Helvetica, LaTeX, trang xoay, chữ ẩn/Form)
+                     # + tệp mã hóa → kiểm độc lập bằng qpdf, Poppler, MuPDF (chữ cũ hết, phần còn lại không đổi điểm ảnh nào)
+npm run e2e:edit     # sửa chữ trong app: thanh sửa, báo phông, giữ góc xoay/mức phóng, hoàn tác, nháp, xuất, điện thoại
+npm run e2e:scan     # quét: 7 ảnh chụp giả lập (góc, tỉ lệ A4, độ sáng giấy, màu dấu), PDF, luồng trong app, camera trên điện thoại
+scripts/regress.sh [preview]     # mọi bộ e2e lần lượt (dev, hoặc bản build trên :4173)
 node scripts/smoke-desktop.cjs   # bản desktop thật (Linux, WebDriver): mở bằng đối số, nháp trong thư mục app,
                                  # quyền tệp, một cửa sổ, hộp thoại Mở/Lưu
 node scripts/perf-big.cjs        # tệp 50 MB trên màn hình điện thoại, CPU chậm 4× (cần `make_big_fixture.py` trước)
 bash scripts/check_android_java.sh  # biên dịch plugin Android với android.jar
-npm run fixtures     # tạo lại tệp mẫu (sample.pdf, long-300.pdf, ảnh và dấu mẫu)
+npm run fixtures     # tạo lại tệp mẫu (sample.pdf, long-300.pdf, ảnh, edit-text.pdf, ảnh quét giả lập)
 ```
 
-Script kiểm thử cần: Node 22+, Python 3 với `pymupdf`, `pikepdf` và `Pillow`, `qpdf`, `poppler-utils`, Playwright với Chromium.
+Script kiểm thử cần: Node 22+, Python 3 với `pymupdf`, `pikepdf`, `Pillow` và `numpy`, `qpdf`, `poppler-utils`, Playwright với Chromium. Tạo lại `edit-text.pdf` cần thêm LibreOffice, ReportLab và pdfLaTeX.
 
 ## Cấu trúc
 
@@ -84,7 +94,9 @@ src/
     thumb-overlay.tsx    vẽ annotation lên thumbnail
     page-rotation.ts     xoay trang (G7): đổi góc trong store, ghi /Rotate khi xuất
     draft-list.tsx       danh sách bản nháp ở màn hình trống
-    use-document-session.ts  mở tệp, bản nháp tự lưu, cờ "chưa xuất", xuất
+    use-document-session.ts  mở tệp, bản nháp tự lưu, cờ "chưa xuất", xuất, mở lại sau khi sửa chữ (giữ góc nhìn), hoàn tác bằng bản chụp
+    text-edit.tsx        công cụ Sửa chữ có sẵn: khung các dòng trên trang, thanh sửa, báo phông
+    scan/ScanDialog.tsx  màn quét: căn 4 góc (kính lúp), xem trang, Tạo PDF
     images/              ảnh và chữ ký: chuẩn bị ảnh, đặt lên trang, hộp thoại chữ ký, vá lỗi stamp (G10–G12)
     storage/             bản nháp (tệp gốc + trạng thái), chữ ký đã lưu, qua lớp lưu trữ của nền tảng
   platform/            phần khác nhau giữa 3 nền tảng, sau một interface (types.ts)
@@ -94,6 +106,9 @@ src/
     storage/             StorageBackend + 3 adapter: idb.ts (web), tauri-fs.ts, capacitor-fs.ts (chung file-tree.ts)
     viewer/Viewer.tsx    trang ảo hoá, các lớp render/tìm/chọn chữ/annotation
     viewer/free-text.tsx ô chữ: vẽ bằng bộ ngắt dòng của bước xuất, sửa, tự giãn
+    viewer/touch-guard.ts  cảm ứng: chụm hai ngón chỉ để phóng, một ngón chỉ để cuộn ở chế độ Chọn
+  scan/                quét: detect.ts (tìm tờ giấy), geometry.ts (phối cảnh, tỉ lệ thật), process.ts (làm phẳng, làm sáng),
+                       jpeg-pdf.ts (PDF từ JPEG), scan.worker.ts
   components/ui/       component shadcn/ui (chép vào, sửa được)
   engine/
     text-layout.ts     ngắt dòng + vị trí dòng, dùng chung cho màn hình và bước xuất
@@ -103,7 +118,8 @@ src/
     appearance-pdf.ts      dựng trang PDF nguồn chứa bản vẽ + phông CID nhúng
     pdf-incremental.ts     đọc xref + incremental update (bổ sung /Fields của AcroForm)
     font-metrics.ts        metric TrueType + ngắt dòng
-    export.worker.ts       PDFium thứ hai trong Web Worker, chỉ dùng khi xuất
+    export.worker.ts       PDFium thứ hai trong Web Worker: bước xuất, và phiên sửa chữ có sẵn
+    text-edit.ts           sửa chữ có sẵn: gom dòng, thay đối tượng chữ, chọn phông, đọc lại để kiểm
 public/fonts/          ezPDF Sans VN (subset Noto Sans, SIL OFL 1.1, đã đổi tên)
 public/icons/, manifest.webmanifest   biểu tượng và manifest của web app
 build/                 plugin Vite: service worker (danh sách tệp của bản build), CSP cho bản web
@@ -112,7 +128,7 @@ android/               dự án Capacitor: EzFilesPlugin.java, AndroidManifest (
 branding/              SVG gốc của biểu tượng
 tests/                 engine-proof.ts, m3-engine-probe.ts, storage-*, fixtures, trang pdf.js để kiểm độc lập
 scripts/               e2e*.cjs, smoke-desktop.cjs, perf-big.cjs, verify_*.py, inspect_export.py, make_*.py
-docs/                  đánh giá engine, kết quả mốc 1–4, kế hoạch các mốc, bằng chứng
+docs/                  đánh giá engine, kết quả mốc 1–4, sửa chữ và quét (07), kế hoạch các mốc, bằng chứng
 ```
 
 ## Nguyên tắc kiến trúc

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FileText, FolderOpen, Loader2 } from 'lucide-react';
+import { FileText, FolderOpen, Loader2, ScanLine } from 'lucide-react';
 import { PdfAnnotationSubtype } from '@embedpdf/models';
 import { DocumentContent } from '@embedpdf/plugin-document-manager/react';
 import { useAnnotation, useAnnotationCapability } from '@embedpdf/plugin-annotation/react';
@@ -24,6 +24,8 @@ import { usePageRotation } from './page-rotation';
 import { DraftList, formatWhen } from './draft-list';
 import { useEzFreeTextTool } from './viewer/free-text';
 import { usePlatform } from '@/platform';
+import { TextEditBar, TextEditProvider, useTextEdit } from './text-edit';
+import { ScanDialog } from './scan/ScanDialog';
 
 function useMedia(query: string) {
   const [match, setMatch] = useState(() => window.matchMedia(query).matches);
@@ -60,6 +62,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
   const [rightOpen, setRightOpen] = useState(!narrow);
   const [leftTab, setLeftTab] = useState<LeftTab>('pages');
   const [searchFocusKey, setSearchFocusKey] = useState(0);
+  const [scanning, setScanning] = useState(false);
   useEffect(() => setLeftOpen(!phone), [phone]);
   useEffect(() => setRightOpen(!narrow), [narrow]);
 
@@ -115,6 +118,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
         onToggleLeft={() => setLeftOpen((v) => !v)}
         onToggleRight={() => setRightOpen((v) => !v)}
         onOpen={openPicker}
+        onScan={() => setScanning(true)}
         onSearch={openSearch}
         onExport={session.exportPdf}
         onClose={() => void session.closeDocument()}
@@ -127,9 +131,12 @@ export function Workspace({ documentId }: { documentId: string | null }) {
             {session.openError}
           </FullScreenMessage>
         ) : session.switching ? (
-          <FullScreenMessage tone="loading" title={session.switching === 'open' ? 'Đang mở tài liệu…' : 'Đang đóng tài liệu…'} />
+          <FullScreenMessage
+            tone="loading"
+            title={session.switching === 'open' ? 'Đang mở tài liệu…' : session.switching === 'update' ? 'Đang cập nhật trang…' : 'Đang đóng tài liệu…'}
+          />
         ) : !documentId ? (
-          <EmptyState onOpen={openPicker} session={session} />
+          <EmptyState onOpen={openPicker} onScan={() => setScanning(true)} session={session} />
         ) : (
           <DocumentContent documentId={documentId}>
             {({ documentState, isLoading, isError, isLoaded }) => (
@@ -164,10 +171,28 @@ export function Workspace({ documentId }: { documentId: string | null }) {
         )}
       </div>
       {phone && documentId && !session.switching && !session.openError && <BottomBar documentId={documentId} />}
+      {scanning && (
+        <ScanDialog
+          onClose={() => setScanning(false)}
+          onDone={async (file) => {
+            const ok = await session.openMade(file);
+            if (ok) setScanning(false);
+            return ok;
+          }}
+        />
+      )}
     </div>
   );
 
-  return documentId ? <PicturesProvider documentId={documentId}>{frame}</PicturesProvider> : frame;
+  return documentId ? (
+    <PicturesProvider documentId={documentId}>
+      <TextEditProvider documentId={documentId} session={session}>
+        {frame}
+      </TextEditProvider>
+    </PicturesProvider>
+  ) : (
+    frame
+  );
 }
 
 function Banner({ tone = 'warn', children, testId }: { tone?: 'warn' | 'info' | 'error'; children: ReactNode; testId?: string }) {
@@ -284,9 +309,13 @@ function LoadedDocument(p: {
           />
         </aside>
       )}
-      <main className="relative min-w-0 flex-1" data-testid="canvas">
-        <Viewer documentId={p.documentId} />
-        <ToolHint documentId={p.documentId} />
+      <main className="flex min-w-0 flex-1 flex-col" data-testid="canvas">
+        {/* in the flow, above the pages: it pushes them down instead of covering a line */}
+        <TextEditBar />
+        <div className="relative min-h-0 flex-1">
+          <Viewer documentId={p.documentId} />
+          <ToolHint documentId={p.documentId} />
+        </div>
       </main>
       {p.rightOpen && (
         <aside
@@ -316,9 +345,12 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
   const placement = usePlacement();
   const pictures = usePictures();
   const rotatePages = usePageRotation(documentId);
+  const textEdit = useTextEdit();
   useEffect(() => {
     const scope = annot?.forDocument(documentId);
     const hist = history?.forDocument(documentId);
+    const undo = () => (hist?.canUndo() ? hist.undo() : textEdit?.contentUndo.canUndo && void textEdit.contentUndo.undo());
+    const redo = () => (hist?.canRedo() ? hist.redo() : textEdit?.contentUndo.canRedo && void textEdit.contentUndo.redo());
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
@@ -329,8 +361,8 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
       if (isTyping(e.target) || pictures?.signatureOpen) return;
       if (mod && (k === '=' || k === '+')) return void (e.preventDefault(), zoom?.zoomIn());
       if (mod && k === '-') return void (e.preventDefault(), zoom?.zoomOut());
-      if (mod && k === 'z' && !e.shiftKey) return void (e.preventDefault(), hist?.undo());
-      if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) return void (e.preventDefault(), hist?.redo());
+      if (mod && k === 'z' && !e.shiftKey) return void (e.preventDefault(), undo());
+      if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) return void (e.preventDefault(), redo());
       if (mod || e.altKey || !scope) return;
       if (k === 'enter' && placement?.placing) {
         // keyboard placement: the middle of the current page
@@ -340,7 +372,9 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
         return;
       }
       if (k === 'escape') {
-        if (placement?.placing) placement.cancel();
+        if (textEdit?.selected) textEdit.cancel();
+        else if (textEdit?.active) textEdit.setActive(false);
+        else if (placement?.placing) placement.cancel();
         else if (scope.getActiveTool()) scope.setActiveTool(null);
         else scope.deselectAnnotation();
         return;
@@ -360,8 +394,10 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
       }
       if (k === 'i') return void pictures?.pickImage();
       if (k === 'k') return void (e.preventDefault(), pictures?.openSignature());
+      if (k === 'e') return void textEdit?.setActive(!textEdit.active);
       if (!['v', 't', 'h', 'n'].includes(k)) return;
       placement?.cancel();
+      textEdit?.setActive(false);
       if (k === 'v') scope.setActiveTool(null);
       else if (k === 't') scope.setActiveTool('freeText');
       else if (k === 'h') scope.setActiveTool('highlight');
@@ -369,7 +405,7 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [annot, history, zoom, scroll, documentId, actions, placement, pictures, rotatePages]);
+  }, [annot, history, zoom, scroll, documentId, actions, placement, pictures, rotatePages, textEdit]);
 }
 
 /** Read-only probe for automated acceptance tests (dev server or ?e2e only). */
@@ -392,6 +428,21 @@ function useTestProbe(documentId: string) {
         return Object.values(st.byUid).map((t) => ({ ...t.object, commitState: t.commitState }));
       },
       select: (pageIndex: number, id: string) => provides?.forDocument(documentId).selectAnnotation(pageIndex, id),
+      /** what the viewer's own engine reads on a page (not the edit worker) */
+      pageText: (pageIndex: number) =>
+        new Promise<string>((resolve, reject) => {
+          const doc = registry?.getStore().getState().core.documents[documentId]?.document;
+          if (!registry || !doc) return reject(new Error('no document'));
+          registry
+            .getEngine()
+            .getPageTextRuns(doc, doc.pages[pageIndex])
+            .wait((r) => resolve(r.runs.map((x) => x.text).join(' ')), (e) => reject(new Error(String(e?.reason?.message ?? e))));
+        }),
+      selected: () => {
+        if (!provides) return [];
+        const st = provides.forDocument(documentId).getState();
+        return (st.selectedUids ?? []).map((uid: string) => st.byUid[uid]?.object.id).filter(Boolean);
+      },
     };
   }, [documentId, provides, registry]);
 }
@@ -402,7 +453,7 @@ const OPEN_HINT = {
   android: 'Chọn tệp, hoặc mở hay chia sẻ một PDF sang ezPDF từ ứng dụng khác.',
 } as const;
 
-function EmptyState({ onOpen, session }: { onOpen: () => void; session: DocumentSession }) {
+function EmptyState({ onOpen, onScan, session }: { onOpen: () => void; onScan: () => void; session: DocumentSession }) {
   const platform = usePlatform();
   return (
     <div className="flex h-full w-full flex-col items-center overflow-y-auto bg-canvas p-6" data-testid="state-empty">
@@ -419,9 +470,14 @@ function EmptyState({ onOpen, session }: { onOpen: () => void; session: Document
               {OPEN_HINT[platform.kind]} Tài liệu chỉ được xử lý trên thiết bị này.
             </p>
           </div>
-          <Button onClick={onOpen} data-testid="btn-open-empty" disabled={session.busy}>
-            <FolderOpen /> Chọn tệp PDF
-          </Button>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button onClick={onOpen} data-testid="btn-open-empty" disabled={session.busy}>
+              <FolderOpen /> Chọn tệp PDF
+            </Button>
+            <Button variant="outline" onClick={onScan} data-testid="btn-scan-empty" disabled={session.busy}>
+              <ScanLine /> Quét tài liệu
+            </Button>
+          </div>
         </div>
         <DraftList onOpen={(r) => void session.resumeDraft(r)} />
       </div>

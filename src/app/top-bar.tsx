@@ -16,8 +16,10 @@ import {
   Redo2,
   RotateCcw,
   RotateCw,
+  ScanLine,
   Search,
   Signature,
+  TextCursorInput,
   Type,
   Undo2,
   X,
@@ -42,6 +44,7 @@ import type { DraftStatus, ExportStatus } from './use-document-session';
 import { usePictures } from './images/pictures';
 import { usePlacement } from './images/placement';
 import { usePageRotation } from './page-rotation';
+import { useTextEdit } from './text-edit';
 
 export const TOOLS = [
   { id: null, label: 'Chọn và di chuyển', shortcut: 'V', icon: MousePointer2, testId: 'tool-select' },
@@ -63,6 +66,7 @@ interface Props {
   onToggleLeft: () => void;
   onToggleRight: () => void;
   onOpen: () => void;
+  onScan: () => void;
   onSearch: () => void;
   onExport: () => void;
   onClose: () => void;
@@ -84,6 +88,9 @@ export function TopBar(p: Props) {
       )}
       <IconAction label="Mở tệp PDF" shortcut="Ctrl O" onClick={p.onOpen} testId="btn-open">
         <FolderOpen />
+      </IconAction>
+      <IconAction label="Quét tài liệu thành PDF" onClick={p.onScan} testId="btn-scan">
+        <ScanLine />
       </IconAction>
       {p.documentId && !p.compact && <DocumentTools documentId={p.documentId} onSearch={p.onSearch} />}
       {p.documentId && p.compact && (
@@ -134,13 +141,15 @@ export function TopBar(p: Props) {
 /** Phone layout: which page is "this page" for the rotate button, without the page box. */
 function CompactPage({ documentId }: { documentId: string }) {
   const { state } = useScroll(documentId);
+  // the scroll state counts pages only once it has laid them out
+  const total = useDocumentState(documentId)?.document?.pageCount || state.totalPages;
   return (
     <span
       className="ml-1 shrink-0 text-[13px] text-muted-foreground tabular-nums"
       data-testid="page-compact"
-      aria-label={`Đang xem trang ${state.currentPage} trên ${state.totalPages}`}
+      aria-label={`Đang xem trang ${state.currentPage} trên ${total}`}
     >
-      {state.currentPage}/{state.totalPages}
+      {state.currentPage}/{total}
     </span>
   );
 }
@@ -179,6 +188,9 @@ function DocumentTools({
   useEffect(() => history?.onHistoryChange(() => rerender((n) => n + 1)), [history]);
   const scope = history?.forDocument(documentId);
   const tool = annot.activeToolId;
+  const textEdit = useTextEdit();
+  const editing = !!textEdit?.active;
+  const content = textEdit?.contentUndo;
 
   return (
     <>
@@ -189,15 +201,25 @@ function DocumentTools({
           label={t.label}
           shortcut={t.shortcut}
           testId={t.testId}
-          pressed={tool === t.id && !placement?.placing}
+          pressed={tool === t.id && !placement?.placing && !editing}
           onPressedChange={(on) => {
             placement?.cancel();
+            textEdit?.setActive(false);
             annotApi?.setActiveTool(on ? t.id : null);
           }}
         >
           <t.icon />
         </ToolToggle>
       ))}
+      <ToolToggle
+        label="Sửa chữ có sẵn trong tệp"
+        shortcut="E"
+        testId="tool-edit-text"
+        pressed={editing}
+        onPressedChange={(on) => textEdit?.setActive(on)}
+      >
+        <TextCursorInput />
+      </ToolToggle>
       <ToolToggle
         label="Thêm ảnh (PNG, JPG)"
         shortcut="I"
@@ -220,8 +242,8 @@ function DocumentTools({
       <IconAction
         label="Hoàn tác"
         shortcut="Ctrl Z"
-        onClick={() => scope?.undo()}
-        disabled={!scope?.canUndo()}
+        onClick={() => (scope?.canUndo() ? scope.undo() : content?.canUndo && void content.undo())}
+        disabled={!scope?.canUndo() && !content?.canUndo}
         testId="btn-undo"
       >
         <Undo2 />
@@ -229,8 +251,8 @@ function DocumentTools({
       <IconAction
         label="Làm lại"
         shortcut="Ctrl Y"
-        onClick={() => scope?.redo()}
-        disabled={!scope?.canRedo()}
+        onClick={() => (scope?.canRedo() ? scope.redo() : content?.canRedo && void content.redo())}
+        disabled={!scope?.canRedo() && !content?.canRedo}
         testId="btn-redo"
       >
         <Redo2 />
@@ -262,9 +284,11 @@ function DocumentTools({
         </>
       )}
       {full && <BarDivider />}
-      <IconAction label="Thu nhỏ" shortcut="Ctrl −" onClick={() => zoomApi?.zoomOut()} testId="btn-zoom-out">
-        <ZoomOut />
-      </IconAction>
+      {full && (
+        <IconAction label="Thu nhỏ" shortcut="Ctrl −" onClick={() => zoomApi?.zoomOut()} testId="btn-zoom-out">
+          <ZoomOut />
+        </IconAction>
+      )}
       {full && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -299,9 +323,11 @@ function DocumentTools({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-      <IconAction label="Phóng to" shortcut="Ctrl +" onClick={() => zoomApi?.zoomIn()} testId="btn-zoom-in">
-        <ZoomIn />
-      </IconAction>
+      {full && (
+        <IconAction label="Phóng to" shortcut="Ctrl +" onClick={() => zoomApi?.zoomIn()} testId="btn-zoom-in">
+          <ZoomIn />
+        </IconAction>
+      )}
       <span className="flex shrink-0 items-center">
         <IconAction
           label={`Xoay trang ${scroll.currentPage} sang phải`}

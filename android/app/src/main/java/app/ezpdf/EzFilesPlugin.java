@@ -5,6 +5,7 @@ import android.content.ContentResolver;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Base64;
@@ -16,6 +17,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -33,6 +35,9 @@ import java.util.UUID;
  *  - openWrite/write/closeWrite  stream the exported bytes into that document
  *  - takeIncoming + "incoming" event  PDFs opened with ezPDF (ACTION_VIEW)
  *                    or shared to it (ACTION_SEND)
+ *  - clearCaptures   delete the photos the camera app wrote for a scan
+ *                    (Capacitor's file chooser has it save JPEG_*.jpg into the
+ *                    app's own Pictures folder; they are photos of documents)
  *
  * Documents are returned as content:// URIs; the page reads them through the
  * WebView's local server (Capacitor.convertFileSrc), which streams the bytes.
@@ -220,6 +225,24 @@ public class EzFilesPlugin extends Plugin {
             writerUris.clear();
         }
         super.handleOnDestroy();
+    }
+
+    // ---- scan photos ---------------------------------------------------------
+
+    @PluginMethod
+    public void clearCaptures(PluginCall call) {
+        int removed = 0;
+        File dir = getContext().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        File[] files = dir == null ? null : dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                String n = f.getName();
+                if (f.isFile() && n.startsWith("JPEG_") && n.endsWith(".jpg") && f.delete()) removed++;
+            }
+        }
+        JSObject ret = new JSObject();
+        ret.put("removed", removed);
+        call.resolve(ret);
     }
 
     // ---- helpers ------------------------------------------------------------

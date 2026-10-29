@@ -732,7 +732,9 @@ print(json.dumps([pix.pixel(int(x), int(y)) for x, y in pts]))`, fexp, JSON.stri
   // ── 19. buttons, privacy, errors ────────────────────────────────────────
   // M1/M2 controls are exercised by scripts/e2e.cjs; this run must cover what M3 added.
   const M2_COVERED = /^(btn-toggle-left|btn-toggle-right|btn-open|tool-select|tool-text|tool-highlight|tool-note|btn-undo|btn-redo|btn-page-prev|btn-page-next|zoom-menu|btn-zoom-in|btn-zoom-out|btn-search|btn-export|btn-delete|tab-pages|tab-search|thumb-\d+|ft-.*|hl-color-\d|note-color-\d|search-.*|btn-open-empty)$/;
-  const untested = [...seenButtons].filter((id) => !covered.has(id) && !M2_COVERED.test(id) && !/^(sig-saved|sig-delete|draft-open|draft-delete|draft-delete-confirm|draft-delete-cancel)-\d+$/.test(id.replace(/-\d+$/, '-0')) );
+  // editing existing text: scripts/e2e-edit.cjs; scanning: scripts/e2e-scan.cjs
+  const LATER_COVERED = /^(tool-edit-text|btn-scan|btn-scan-empty)$/;
+  const untested = [...seenButtons].filter((id) => !covered.has(id) && !M2_COVERED.test(id) && !LATER_COVERED.test(id) && !/^(sig-saved|sig-delete|draft-open|draft-delete|draft-delete-confirm|draft-delete-cancel)-\d+$/.test(id.replace(/-\d+$/, '-0')) );
   const families = ['sig-saved', 'sig-delete', 'draft-open', 'draft-delete', 'draft-delete-confirm', 'draft-delete-cancel'].filter(
     (f) => [...seenButtons].some((id) => new RegExp(`^${f}-\\d+$`).test(id)) && ![...covered].some((id) => new RegExp(`^${f}-\\d+$`).test(id)),
   );

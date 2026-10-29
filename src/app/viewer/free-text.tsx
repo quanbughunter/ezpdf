@@ -237,6 +237,22 @@ export function growToFit(
   return tracked.unrotatedRect ? { rect: grown.rect, unrotatedRect: grown.local } : { rect: grown.rect };
 }
 
+type Size = { width: number; height: number };
+type DrawFactory = {
+  create: (ctx: { onCommit: (a: PdfAnnotationObject) => void; pageSize: Size } & Record<string, unknown>) => unknown;
+} & Record<string, unknown>;
+
+/** Grow a box smaller than `min` from its top-left corner, staying on the page. */
+export function withMinSize<T extends PdfAnnotationObject>(a: T, min: Size, page: Size): T {
+  const { origin, size } = a.rect;
+  if (size.width >= min.width / 4 && size.height >= min.height * 0.75) return a;
+  const width = Math.min(page.width, size.width >= min.width / 4 ? size.width : min.width);
+  const height = Math.min(page.height, Math.max(size.height, min.height));
+  const x = Math.max(0, Math.min(origin.x, page.width - width));
+  const y = Math.max(0, Math.min(origin.y, page.height - height));
+  return { ...a, rect: { origin: { x, y }, size: { width, height } } };
+}
+
 /** Let the editor grow with its content so nothing is hidden while typing. */
 function fitEditor(el: HTMLTextAreaElement) {
   el.style.height = 'auto';
@@ -255,8 +271,22 @@ export function useEzFreeTextTool() {
   const { provides } = useAnnotationCapability();
   useEffect(() => {
     if (!provides || provides.getTools().some((t) => t.id === 'ezFreeText')) return;
-    const base = provides.getTools().find((t) => t.id === 'freeText');
+    let base = provides.getTools().find((t) => t.id === 'freeText');
     if (!base) return;
+    const factory = (base as { pointerHandler?: DrawFactory }).pointerHandler;
+    if (factory && !(factory as { ezMinSize?: true }).ezMinSize) {
+      // A drag along one axis (a swipe straight down, say) would draw a box
+      // with no width that can be neither seen nor picked: a drawn box gets at
+      // least the size a tap gives.
+      const minSize = (base as { clickBehavior?: { defaultSize?: { width: number; height: number } } }).clickBehavior?.defaultSize ?? { width: 180, height: 22 };
+      const wrapped: DrawFactory & { ezMinSize: true } = {
+        ...factory,
+        ezMinSize: true,
+        create: (ctx) => factory.create({ ...ctx, onCommit: (a: PdfAnnotationObject) => ctx.onCommit(withMinSize(a, minSize, ctx.pageSize)) }),
+      };
+      base = { ...base, pointerHandler: wrapped } as unknown as typeof base;
+      provides.addTool(base);
+    }
     provides.addTool({
       ...base,
       id: 'ezFreeText',

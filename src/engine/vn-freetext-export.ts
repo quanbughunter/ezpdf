@@ -23,6 +23,7 @@ import { readFontMetrics, type FontMetrics } from './font-metrics';
 import { layoutFreeText as layoutLines, normalizeFreeText } from './text-layout';
 import { buildAppearancePdf, flate, type DrawSpec, type EmbeddableFont } from './appearance-pdf';
 import { PdfLite, encodeLatin1, type PdfNode } from './pdf-incremental';
+import { Wasm } from './wasm';
 
 const FPDF_ANNOT_FREETEXT = 3;
 const AP_NORMAL = 0;
@@ -67,45 +68,6 @@ interface FreeTextProps {
   width: number;
   height: number;
   rotation: number; // raw /EPDFRotate: degrees counter-clockwise in PDF space
-}
-
-class Wasm {
-  constructor(private m: WrappedPdfiumModule) {}
-  get p() {
-    return this.m.pdfium;
-  }
-  /** Re-read on every access: the view is replaced when WASM memory grows. */
-  get heap(): Uint8Array {
-    return (this.m.pdfium as unknown as { HEAPU8: Uint8Array }).HEAPU8;
-  }
-  malloc(n: number): number {
-    const ptr = this.p.wasmExports.malloc(n);
-    if (!ptr) throw new Error('wasm malloc failed');
-    return ptr;
-  }
-  free(ptr: number) {
-    if (ptr) this.p.wasmExports.free(ptr);
-  }
-  copyIn(data: Uint8Array): number {
-    const ptr = this.malloc(data.byteLength);
-    this.heap.set(data, ptr);
-    return ptr;
-  }
-  withScratch<T>(n: number, fn: (ptr: number) => T): T {
-    const ptr = this.malloc(n);
-    this.heap.fill(0, ptr, ptr + n);
-    try {
-      return fn(ptr);
-    } finally {
-      this.free(ptr);
-    }
-  }
-  f32(ptr: number) {
-    return this.p.getValue(ptr, 'float') as number;
-  }
-  i32(ptr: number) {
-    return this.p.getValue(ptr, 'i32') as number;
-  }
 }
 
 function readAnnotString(m: WrappedPdfiumModule, w: Wasm, annot: number, key: string): string {

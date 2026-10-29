@@ -35,6 +35,7 @@ export async function createTauriPlatform(): Promise<Platform> {
 
   return {
     kind: 'desktop',
+    canCapture: false,
     storage: await createTauriBackend(),
     async pickPdf() {
       const path = await open({ multiple: false, directory: false, filters: PDF, title: 'Mở tệp PDF' });

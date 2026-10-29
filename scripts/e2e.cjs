@@ -610,9 +610,13 @@ let onCrash = async () => {};
   // ── 16. Every button on screen was exercised ────────────────────────────
   const family = (id) => id.replace(/^(thumb|search-result)-\d+$/, '$1-*');
   const familyCovered = new Set([...covered].map(family));
-  // picture and signature tools, closing a document: exercised by scripts/e2e-m3.cjs
+  // picture and signature tools, closing a document: exercised by scripts/e2e-m3.cjs;
+  // editing existing text: scripts/e2e-edit.cjs; scanning: scripts/e2e-scan.cjs
   const M3_COVERED = /^(tool-image|tool-signature|btn-close-doc)$/;
-  const untested = [...seenButtons].filter((id) => !familyCovered.has(family(id)) && !M3_COVERED.test(id) && !/^(ft-color|ft-bg|hl-color|note-color)-\d$/.test(id));
+  const LATER_COVERED = /^(tool-edit-text|btn-scan|btn-scan-empty)$/;
+  const untested = [...seenButtons].filter(
+    (id) => !familyCovered.has(family(id)) && !M3_COVERED.test(id) && !LATER_COVERED.test(id) && !/^(ft-color|ft-bg|hl-color|note-color)-\d$/.test(id),
+  );
   const swatchFamilies = ['ft-color', 'ft-bg', 'hl-color', 'note-color'].filter((f) => [...seenButtons].some((id) => id.startsWith(f)) && ![...covered].some((id) => id.startsWith(f)));
   check('every visible button is exercised by a step', untested.length === 0 && swatchFamilies.length === 0, untested.concat(swatchFamilies).join(', '));
   check('every visible button has a test id', unnamedButtons.size === 0, [...unnamedButtons].join(', '));

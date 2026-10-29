@@ -5,12 +5,16 @@ import { cn } from '@/lib/utils';
 import { usePlacement } from './images/placement';
 import { isEzImage, isLockedForeignStamp } from './images/stamp-guard';
 import { isTouchFirst, useTextEdit } from './text-edit';
+import { usePointerTool, type PointerTool } from './viewer/hand';
 
 const TOOL_HINTS: Record<string, string> = {
-  freeText: 'Bấm vào trang để đặt ô chữ, hoặc kéo để vẽ ô. Esc để quay về chọn.',
-  highlight: 'Kéo qua đoạn chữ cần tô sáng. Esc để quay về chọn.',
+  freeText: 'Bấm vào trang để đặt ô chữ, hoặc kéo để vẽ ô.',
+  highlight: 'Kéo qua đoạn chữ cần tô sáng.',
   textComment: 'Bấm vào chỗ cần ghi chú, rồi viết nội dung ở cột bên phải.',
 };
+
+/** Where Esc goes from a drawing tool: the resting tool. */
+const escBack = (resting: PointerTool) => (resting === 'hand' ? ' Esc để quay về kéo trang.' : ' Esc để quay về chọn.');
 
 /**
  * A short confirmation shown in the hint strip for a moment, e.g. which page
@@ -68,6 +72,7 @@ export function ToolHint({ documentId }: { documentId: string }) {
   const placing = usePlacement()?.placing;
   const flashText = useFlash();
   const textEdit = useTextEdit();
+  const resting = usePointerTool();
   const tool = state.activeToolId;
   if (textEdit?.active) {
     const m = textEdit.message;
@@ -106,8 +111,8 @@ export function ToolHint({ documentId }: { documentId: string }) {
     ? `Bấm vào trang để đặt ${placing.kind === 'signature' ? 'chữ ký' : 'ảnh'} (Enter: giữa trang đang xem). Esc để hủy.`
     : editing
       ? 'Đang sửa chữ. Enter để xuống dòng, Esc hoặc bấm ra ngoài để xong.'
-      : tool
-        ? (TOOL_HINTS[tool] ?? null)
+      : tool && TOOL_HINTS[tool]
+        ? TOOL_HINTS[tool] + (tool === 'textComment' ? '' : escBack(resting))
         : null;
   let tone: 'tool' | 'selection' = 'tool';
   if (!text && state.selectedUids.length) {

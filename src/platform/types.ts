@@ -9,6 +9,22 @@ export type SaveResult =
   | { how: 'file'; name: string; folder?: string };
 
 /**
+ * Ways to hand a finished PDF to someone else, in the order the share button
+ * offers them (the first is the main one).
+ */
+export type ShareWay =
+  /** the system share sheet: Zalo, Telegram, Gmail, Bluetooth… (Android, Windows, phone browsers) */
+  | 'sheet'
+  /** the file on the clipboard, to paste with Ctrl V into a chat or an e-mail (Windows) */
+  | 'copy'
+  /** the file shown in its folder, to drag into a browser tab or an app (desktop) */
+  | 'reveal'
+  /** a browser without file sharing: the file is downloaded to send by hand */
+  | 'download';
+
+export type ShareOutcome = 'done' | 'cancelled' | 'copied' | 'downloaded';
+
+/**
  * What differs between the browser, the desktop app and the Android app.
  * Everything else (engine, UI, tools) is the same code on all three.
  */
@@ -39,6 +55,19 @@ export interface Platform {
   clearCapturedPhotos?(): Promise<void>;
   /** true when a page's file input can open the camera itself (phones) */
   readonly canCapture: boolean;
+  /** how this platform can share a PDF; empty: no share button */
+  readonly shareWays: readonly ShareWay[];
+  /**
+   * Hand `bytes` to another app as a file called `name`. Only after the user
+   * asked for it: ezPDF never sends a document anywhere by itself.
+   */
+  sharePdf(bytes: Uint8Array, name: string, way: ShareWay): Promise<ShareOutcome>;
+  /**
+   * The system's own printing of a PDF file (Android's print service, vector).
+   * null: the page renders the pages and opens the print dialog itself
+   * (browser, desktop app).
+   */
+  readonly printPdf: ((bytes: Uint8Array, name: string, pages: number) => Promise<void>) | null;
 }
 
 /** Keeps incoming files until a listener is attached. */

@@ -7,6 +7,10 @@
  *    from Explorer's context menu or a double click once ezPDF is the
  *    default app. A second launch is forwarded to the running window
  *    (single-instance plugin). See src-tauri/src/lib.rs.
+ *  - share: the finished PDF goes to the shell as raw bytes; it writes a
+ *    temporary copy and puts it on the clipboard, in Windows' share window,
+ *    or shows it in Explorer (src-tauri/src/share.rs)
+ *  - print: the page's own (rendered pages, window.print in WebView2)
  */
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -14,7 +18,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { createTauriBackend } from './storage/tauri-fs';
-import { asPdfFile, baseName, dirName, incomingQueue, type Platform } from './types';
+import { asPdfFile, baseName, dirName, incomingQueue, type Platform, type ShareWay } from './types';
 
 const PDF = [{ name: 'PDF', extensions: ['pdf'] }];
 
@@ -33,6 +37,8 @@ export async function createTauriPlatform(): Promise<Platform> {
   await listen('ezpdf://launch-files', () => void take().catch((e) => console.error('ezPDF: launch file', e)));
   void take().catch((e) => console.error('ezPDF: launch file', e));
 
+  const shareWays = await invoke<ShareWay[]>('share_ways').catch(() => [] as ShareWay[]);
+
   return {
     kind: 'desktop',
     canCapture: false,
@@ -48,6 +54,12 @@ export async function createTauriPlatform(): Promise<Platform> {
       await writeFile(path, bytes);
       return { how: 'file', name: baseName(path), folder: dirName(path) };
     },
+    shareWays,
+    async sharePdf(bytes, name, way) {
+      await invoke('share_file', bytes, { headers: { 'x-ezpdf-name': encodeURIComponent(name), 'x-ezpdf-way': way } });
+      return way === 'copy' ? 'copied' : 'done';
+    },
+    printPdf: null,
     onIncomingFiles: incoming.subscribe,
     onCloseRequested(cb) {
       // Tauri closes the window once this handler has finished.

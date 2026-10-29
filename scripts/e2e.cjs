@@ -62,7 +62,14 @@ const squash = (s) => (s || '').replace(/\s+/g, ' ').trim();
 async function startServer() {
   if (process.env.BASE) return { base: process.env.BASE, stop() {} };
   const port = 5181;
-  const proc = spawn('npx', ['vite', '--port', String(port), '--strictPort'], { cwd: ROOT, stdio: 'ignore' });
+  // its own process group: npx leaves vite running if only npx is stopped
+  const proc = spawn('npx', ['vite', '--port', String(port), '--strictPort'], { cwd: ROOT, stdio: 'ignore', detached: true });
+  const kill = () => {
+    try {
+      process.kill(-proc.pid, 'SIGTERM');
+    } catch {}
+  };
+  process.on('exit', kill); // also when the run ends early
   const base = `http://localhost:${port}`;
   for (let i = 0; i < 150; i++) {
     try {
@@ -75,12 +82,12 @@ async function startServer() {
         await p.waitForSelector('[data-testid="state-empty"]', { timeout: 60000 }).catch(() => {});
         await p.waitForTimeout(2000);
         await b.close();
-        return { base, stop: () => proc.kill('SIGTERM') };
+        return { base, stop: kill };
       }
     } catch {}
     await sleep(200);
   }
-  proc.kill();
+  kill();
   throw new Error('vite did not start');
 }
 
@@ -241,7 +248,8 @@ const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.tes
     ft1 && near([ft1.rect.origin.x, ft1.rect.origin.y, ft1.rect.size.width, ft1.rect.size.height], [72, 230, 300, 60], 1.5),
     ft1 && JSON.stringify(ft1.rect),
   );
-  check('tool returns to select after placing text', (await page.getAttribute(tid('tool-text'), 'aria-pressed')) === 'false' && (await page.getAttribute(tid('tool-select'), 'aria-pressed')) === 'true');
+  // a mouse device rests on the hand (drag to scroll), see e2e-share-print.cjs
+  check('tool returns to the resting tool (hand) after placing text', (await page.getAttribute(tid('tool-text'), 'aria-pressed')) === 'false' && (await page.getAttribute(tid('tool-hand'), 'aria-pressed')) === 'true');
   check('dirty indicator after editing', await page.isVisible(tid('state-dirty')));
 
   // ── 3. Auto-grow: small click-placed box, long text ─────────────────────
@@ -623,7 +631,8 @@ const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.tes
   // picture and signature tools, closing a document: exercised by scripts/e2e-m3.cjs;
   // editing existing text: scripts/e2e-edit.cjs; scanning: scripts/e2e-scan.cjs
   const M3_COVERED = /^(tool-image|tool-signature|btn-close-doc)$/;
-  const LATER_COVERED = /^(tool-edit-text|btn-scan|btn-scan-empty)$/;
+  // covered by e2e-edit, e2e-scan and e2e-share-print
+  const LATER_COVERED = /^(tool-edit-text|btn-scan|btn-scan-empty|tool-hand|btn-share|btn-print|btn-more|share-(copy|sheet|reveal))$/;
   const untested = [...seenButtons].filter(
     (id) => !familyCovered.has(family(id)) && !M3_COVERED.test(id) && !LATER_COVERED.test(id) && !/^(ft-color|ft-bg|hl-color|note-color)-\d$/.test(id),
   );

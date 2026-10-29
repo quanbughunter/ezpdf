@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Download,
   FolderOpen,
+  Hand,
   Highlighter,
   ImagePlus,
   Loader2,
@@ -44,10 +45,12 @@ import type { DraftStatus, ExportStatus } from './use-document-session';
 import { usePictures } from './images/pictures';
 import { usePlacement } from './images/placement';
 import { usePageRotation } from './page-rotation';
-import { useTextEdit } from './text-edit';
+import { isTouchFirst, useTextEdit } from './text-edit';
+import { usePointerTool, useSetPointerTool } from './viewer/hand';
+import { MoreMenu, PrintButton, ShareButton } from './output-actions';
 
 export const TOOLS = [
-  { id: null, label: 'Chọn và di chuyển', shortcut: 'V', icon: MousePointer2, testId: 'tool-select' },
+  { id: null, label: 'Chọn chữ và đối tượng', shortcut: 'V', icon: MousePointer2, testId: 'tool-select' },
   { id: 'freeText', label: 'Thêm chữ', shortcut: 'T', icon: Type, testId: 'tool-text' },
   { id: 'highlight', label: 'Tô sáng chữ', shortcut: 'H', icon: Highlighter, testId: 'tool-highlight' },
   { id: 'textComment', label: 'Ghi chú dán', shortcut: 'N', icon: MessageSquareText, testId: 'tool-note' },
@@ -111,9 +114,16 @@ export function TopBar(p: Props) {
           <span className="mr-1 md:hidden">
             <SaveState dirty={p.dirty} status={p.exportStatus} draft={p.draftStatus} compact />
           </span>
-          <IconAction label="Đóng tài liệu (nháp đã lưu trên máy)" onClick={p.onClose} testId="btn-close-doc">
-            <X />
-          </IconAction>
+          {p.compact ? (
+            <>
+              <ShareButton />
+              <MoreMenu onClose={p.onClose} />
+            </>
+          ) : (
+            <IconAction label="Đóng tài liệu (nháp đã lưu trên máy)" onClick={p.onClose} testId="btn-close-doc">
+              <X />
+            </IconAction>
+          )}
           <IconAction
             label={p.rightOpen ? 'Ẩn thuộc tính' : 'Hiện thuộc tính'}
             onClick={p.onToggleRight}
@@ -121,6 +131,13 @@ export function TopBar(p: Props) {
           >
             <PanelRight />
           </IconAction>
+          {!p.compact && (
+            <>
+              <BarDivider />
+              <PrintButton />
+              <ShareButton />
+            </>
+          )}
           <Button
             size="sm"
             data-testid="btn-export"
@@ -191,21 +208,42 @@ function DocumentTools({
   const textEdit = useTextEdit();
   const editing = !!textEdit?.active;
   const content = textEdit?.contentUndo;
+  const resting = usePointerTool();
+  const setResting = useSetPointerTool(documentId);
+  const idle = tool === null && !placement?.placing && !editing;
+  // a finger already scrolls the page in select mode; the hand is for the mouse
+  const showHand = !isTouchFirst() || resting === 'hand';
 
   return (
     <>
       {full && <BarDivider />}
+      {showHand && (
+        <ToolToggle
+          label="Kéo trang (giữ Space để kéo tạm)"
+          shortcut="P"
+          testId="tool-hand"
+          pressed={idle && resting === 'hand'}
+          onPressedChange={() => {
+            placement?.cancel();
+            textEdit?.setActive(false);
+            setResting('hand');
+          }}
+        >
+          <Hand />
+        </ToolToggle>
+      )}
       {TOOLS.map((t) => (
         <ToolToggle
           key={t.testId}
           label={t.label}
           shortcut={t.shortcut}
           testId={t.testId}
-          pressed={tool === t.id && !placement?.placing && !editing}
+          pressed={t.id === null ? idle && resting === 'select' : tool === t.id && !placement?.placing && !editing}
           onPressedChange={(on) => {
             placement?.cancel();
             textEdit?.setActive(false);
-            annotApi?.setActiveTool(on ? t.id : null);
+            if (t.id === null) setResting('select');
+            else annotApi?.setActiveTool(on ? t.id : null);
           }}
         >
           <t.icon />

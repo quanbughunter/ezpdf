@@ -7,7 +7,6 @@ import { useHistoryCapability } from '@embedpdf/plugin-history/react';
 import { useZoom } from '@embedpdf/plugin-zoom/react';
 import { useScrollCapability } from '@embedpdf/plugin-scroll/react';
 import { useRegistry } from '@embedpdf/core/react';
-import { useInteractionManagerCapability } from '@embedpdf/plugin-interaction-manager/react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { FullScreenMessage } from './App';
@@ -26,6 +25,8 @@ import { useEzFreeTextTool } from './viewer/free-text';
 import { usePlatform } from '@/platform';
 import { TextEditBar, TextEditProvider, useTextEdit } from './text-edit';
 import { ScanDialog } from './scan/ScanDialog';
+import { useRestingModes, useSetPointerTool, useSpaceToPan } from './viewer/hand';
+import { OutputProvider, PrintProgressOverlay, useOutput } from './output-actions';
 
 function useMedia(query: string) {
   const [match, setMatch] = useState(() => window.matchMedia(query).matches);
@@ -39,20 +40,12 @@ function useMedia(query: string) {
 }
 
 /**
- * On touch screens the default "select" mode lets one finger scroll the
- * pages (EmbedPDF's default mode takes every touch, so a page could only be
- * scrolled from the grey margin). Tools that draw on the page, and dragging
- * an annotation, still take the touch. Registered before any page mounts.
+ * Resting modes (hand, select) are registered before any page mounts. On
+ * touch screens select lets one finger scroll the pages (EmbedPDF's default
+ * mode takes every touch); see viewer/hand.ts for the hand.
  */
-function useTouchScrolling() {
-  const { provides: interaction } = useInteractionManagerCapability();
-  useEffect(() => {
-    interaction?.registerMode({ id: 'pointerMode', scope: 'page', exclusive: false, cursor: 'auto', wantsRawTouch: false });
-  }, [interaction]);
-}
-
 export function Workspace({ documentId }: { documentId: string | null }) {
-  useTouchScrolling();
+  useRestingModes();
   const session = useDocumentSession(documentId);
   const platform = usePlatform();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -171,6 +164,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
         )}
       </div>
       {phone && documentId && !session.switching && !session.openError && <BottomBar documentId={documentId} />}
+      {documentId && <PrintProgressOverlay />}
       {scanning && (
         <ScanDialog
           onClose={() => setScanning(false)}
@@ -187,7 +181,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
   return documentId ? (
     <PicturesProvider documentId={documentId}>
       <TextEditProvider documentId={documentId} session={session}>
-        {frame}
+        <OutputProvider session={session}>{frame}</OutputProvider>
       </TextEditProvider>
     </PicturesProvider>
   ) : (
@@ -214,8 +208,23 @@ function Banner({ tone = 'warn', children, testId }: { tone?: 'warn' | 'info' | 
 
 function Banners({ session }: { session: DocumentSession }) {
   const pictures = usePictures();
+  const output = useOutput();
+  const notice = output?.notice;
   return (
     <>
+      {notice && (
+        <Banner tone={notice.tone} testId="banner-output">
+          <span data-testid="banner-output-text">{notice.text}</span>
+          {notice.action && (
+            <Button size="xs" onClick={notice.action.run} data-testid="btn-output-action">
+              {notice.action.label}
+            </Button>
+          )}
+          <Button size="xs" variant="ghost" onClick={output.dismissNotice} data-testid="btn-output-close">
+            Đóng
+          </Button>
+        </Banner>
+      )}
       {session.pendingFile && (
         <Banner testId="banner-unsaved">
           <span>
@@ -346,6 +355,12 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
   const pictures = usePictures();
   const rotatePages = usePageRotation(documentId);
   const textEdit = useTextEdit();
+  const setPointerTool = useSetPointerTool(documentId);
+  const output = useOutput();
+  const busyRef = useRef<() => boolean>(() => false);
+  busyRef.current = () => !!placement?.placing || !!textEdit?.active || !!pictures?.signatureOpen;
+  const spaceBlocked = useCallback(() => busyRef.current(), []);
+  useSpaceToPan(documentId, spaceBlocked);
   useEffect(() => {
     const scope = annot?.forDocument(documentId);
     const hist = history?.forDocument(documentId);
@@ -358,6 +373,13 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
       if (mod && k === 'f') return void (e.preventDefault(), actions.search());
       if (mod && k === 'o') return void (e.preventDefault(), actions.open());
       if (mod && k === 's') return void (e.preventDefault(), actions.exportPdf());
+      // the document, not the app's screen
+      if (mod && k === 'p') return void (e.preventDefault(), !e.repeat && output?.print());
+      // while pages are drawn for the printer, only Esc (cancel) acts
+      if (output?.printProgress) {
+        if (k === 'escape') output.cancelPrint();
+        return;
+      }
       if (isTyping(e.target) || pictures?.signatureOpen) return;
       if (mod && (k === '=' || k === '+')) return void (e.preventDefault(), zoom?.zoomIn());
       if (mod && k === '-') return void (e.preventDefault(), zoom?.zoomOut());
@@ -395,17 +417,18 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
       if (k === 'i') return void pictures?.pickImage();
       if (k === 'k') return void (e.preventDefault(), pictures?.openSignature());
       if (k === 'e') return void textEdit?.setActive(!textEdit.active);
-      if (!['v', 't', 'h', 'n'].includes(k)) return;
+      if (!['v', 'p', 't', 'h', 'n'].includes(k)) return;
       placement?.cancel();
       textEdit?.setActive(false);
-      if (k === 'v') scope.setActiveTool(null);
+      if (k === 'v') setPointerTool('select');
+      else if (k === 'p') setPointerTool('hand');
       else if (k === 't') scope.setActiveTool('freeText');
       else if (k === 'h') scope.setActiveTool('highlight');
       else if (k === 'n') scope.setActiveTool('textComment');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [annot, history, zoom, scroll, documentId, actions, placement, pictures, rotatePages, textEdit]);
+  }, [annot, history, zoom, scroll, documentId, actions, placement, pictures, rotatePages, textEdit, setPointerTool, output]);
 }
 
 /** Read-only probe for automated acceptance tests (dev server or ?e2e only). */

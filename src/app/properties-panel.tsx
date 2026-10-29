@@ -33,7 +33,8 @@ const KIND: Record<number, string> = {
 };
 
 export const SHORTCUTS: [string, string][] = [
-  ['V', 'Chọn và di chuyển'],
+  ['P', 'Kéo trang bằng chuột (giữ Space: kéo tạm)'],
+  ['V', 'Chọn chữ và đối tượng'],
   ['T', 'Thêm chữ'],
   ['H', 'Tô sáng chữ'],
   ['N', 'Ghi chú dán'],
@@ -42,13 +43,14 @@ export const SHORTCUTS: [string, string][] = [
   ['E', 'Sửa chữ có sẵn trong tệp'],
   ['R / Shift R', 'Xoay trang này phải / trái'],
   ['Enter', 'Đặt ảnh, chữ ký vào giữa trang'],
-  ['Esc', 'Hủy đặt ảnh hay sửa chữ, về công cụ chọn, bỏ chọn'],
+  ['Esc', 'Hủy đặt ảnh hay sửa chữ, thôi công cụ đang dùng, bỏ chọn'],
   ['Delete', 'Xóa đối tượng đang chọn'],
   ['Ctrl Z / Ctrl Y', 'Hoàn tác / làm lại'],
   ['Ctrl F', 'Tìm trong tài liệu'],
   ['Ctrl + / Ctrl −', 'Phóng to / thu nhỏ'],
   ['Ctrl O', 'Mở tệp'],
   ['Ctrl S', 'Xuất PDF'],
+  ['Ctrl P', 'In tài liệu'],
 ];
 
 export function PropertiesPanel({

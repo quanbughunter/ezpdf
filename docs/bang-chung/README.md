@@ -70,3 +70,13 @@
 | `m5-quet-bong-do-truoc-sau.png` | Ảnh có bóng đổ đậm, trang đã làm phẳng nhưng tắt Làm sáng, và trang có Làm sáng |
 | `m5-ban-quet-da-xuat.pdf` | Bản quét 2 trang xuất từ app (trang 2 xoay thành khổ ngang): ảnh JPEG nhúng nguyên |
 | `m5-e2e.json` | Mọi điểm kiểm của 5 bộ e2e, trên dev server và bản build production |
+
+## Bản 0.6.0: kéo trang, chia sẻ, in
+
+| Tệp | Là gì |
+|---|---|
+| `m6-thanh-cong-cu-may-tinh.png` | Thanh công cụ trên máy tính: nút bàn tay (đang bật) đứng đầu nhóm công cụ; In và Chia sẻ đứng trước Xuất PDF |
+| `m6-dien-thoai-menu-in.png` | Điện thoại: nút Chia sẻ ở thanh trên, menu ⋮ với In tài liệu và Đóng tài liệu; thanh dưới không có bàn tay |
+| `m6-in-so-voi-tep-xuat.png` | Hàng trên: 4 trang Chromium in ra (ảnh trang 300 dpi, trang xoay 90°/270° in ngang, trang 495×700 pt đúng khổ). Hàng dưới: tệp xuất cùng lúc, MuPDF vẽ lại. Ô chữ “Bản in thử ezPDF” có ở cả hai |
+| `m6-kiem-ban-in.json` | Số liệu của `verify_print.py`: khổ từng trang, dpi, độ lệch và tương quan với tệp xuất (và với trang lật ngược để đối chứng) |
+| `m6-e2e.json` | Mọi điểm kiểm của 6 bộ e2e trên dev server và bản build production, và của bản desktop thật (smoke, Linux) |

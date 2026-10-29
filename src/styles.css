@@ -101,3 +101,48 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Printing. The app's own "In" button builds #ez-print (one picture per page
+ * of the finished PDF, see app/print/print-pages.ts) and prints only that.
+ * Anything else that asks the browser to print (its menu) gets a note
+ * instead of a printout of the app's buttons.
+ */
+#ez-print {
+  display: none;
+}
+@media print {
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body > :not(#ez-print) {
+    display: none !important;
+  }
+  body:not(.ez-printing)::before {
+    content: 'Hãy dùng nút In trong ezPDF để in tài liệu.';
+    display: block;
+    padding: 2cm;
+    font: 14pt sans-serif;
+    color: #000;
+  }
+  body.ez-printing #ez-print {
+    display: block;
+  }
+  #ez-print .ez-print-page {
+    overflow: hidden;
+    break-after: page;
+    break-inside: avoid;
+  }
+  #ez-print .ez-print-page:last-child {
+    break-after: auto;
+  }
+  #ez-print img {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}

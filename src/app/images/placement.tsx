@@ -215,6 +215,8 @@ export function PlacementLayer({ documentId, pageIndex }: { documentId: string; 
     <div
       ref={ref}
       data-testid={`placement-${pageIndex}`}
+      // its own pointer handling: EmbedPDF's handlers and the hand keep out
+      data-no-interaction=""
       style={{ position: 'absolute', inset: 0, zIndex: 20, cursor: 'copy', touchAction: 'pan-x pan-y pinch-zoom' }}
     >
       {ghost && (

@@ -7,9 +7,10 @@
 set -u
 cd "$(dirname "$0")/.."
 MODE="${1:-dev}"
-SUITES="e2e e2e-m3 e2e-m4 e2e-edit e2e-scan"
+SUITES="e2e e2e-m3 e2e-m4 e2e-edit e2e-scan e2e-share-print"
 if [ "$MODE" = preview ]; then
-  npx vite preview --port 4173 --strictPort > out/preview-server.log 2>&1 &
+  # vite itself, not npx: killing npx would leave the server running
+  node_modules/.bin/vite preview --port 4173 --strictPort > out/preview-server.log 2>&1 &
   SERVER=$!
   trap 'kill $SERVER 2>/dev/null' EXIT
   sleep 3

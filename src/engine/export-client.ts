@@ -1,10 +1,10 @@
-import type { EditRequest, EditResponse, ExportRequest, ExportResponse } from './export.worker';
+import type { EditRequest, EditResponse, ExportRequest, ExportResponse, RenderRequest, RenderResponse } from './export.worker';
 import type { FinalizeReport } from './vn-freetext-export';
 import type { EditReport, TextLine } from './text-edit';
 import { PDFIUM_WASM_URL, VN_FONT_URL, VN_BOLD_FONT_URL } from './config';
 
-type Response = ExportResponse | EditResponse;
-type Request = ExportRequest | EditRequest;
+type Response = ExportResponse | EditResponse | RenderResponse;
+type Request = ExportRequest | EditRequest | RenderRequest;
 
 let worker: Worker | null = null;
 let seq = 0;
@@ -80,4 +80,24 @@ export async function replaceTextLine(session: number, pageIndex: number, key: s
 
 export function closeTextEditSession(session: number): Promise<unknown> {
   return call({ kind: 'edit-close', session }).catch(() => undefined);
+}
+
+// ---- printing ---------------------------------------------------------------
+
+/** Opens a copy for rendering (the caller's buffer is detached); page sizes in points, /Rotate applied. */
+export async function openRenderSession(bytes: ArrayBuffer) {
+  const r = await call<{ id: number; ok: true; session: number; pages: { w: number; h: number }[] }>(
+    { kind: 'render-open', bytes, wasmUrl: PDFIUM_WASM_URL },
+    [bytes],
+  );
+  return { session: r.session, pages: r.pages };
+}
+
+export async function renderPageImage(session: number, pageIndex: number, dpi: number) {
+  const r = await call<{ id: number; ok: true; image: Blob; width: number; height: number }>({ kind: 'render-page', session, pageIndex, dpi });
+  return { image: r.image, width: r.width, height: r.height };
+}
+
+export function closeRenderSession(session: number): Promise<unknown> {
+  return call({ kind: 'render-close', session }).catch(() => undefined);
 }

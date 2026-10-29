@@ -5,7 +5,7 @@ import { Kbd } from '@/components/ui/kbd';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-function Tip({ label, shortcut, children }: { label: string; shortcut?: string; children: ReactNode }) {
+export function Tip({ label, shortcut, children }: { label: string; shortcut?: string; children: ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>

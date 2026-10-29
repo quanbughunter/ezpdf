@@ -2,10 +2,14 @@
 
 Ứng dụng đọc và chỉnh PDF chạy trên trình duyệt, desktop và Android. Mọi xử lý diễn ra trên thiết bị: tài liệu không bao giờ bị tải lên đâu cả.
 
-**Trạng thái: bản 0.5.1.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra); còn chờ thử trên máy Windows. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và từ bản 0.5.0:
+**Trạng thái: bản 0.6.0.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra) và trên Windows. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và:
 
-- **Sửa chữ có sẵn trong PDF** (phím E): sửa từng dòng, và chỉ phần đã đổi bị viết lại (nhãn đậm đứng trước vẫn giữ nguyên). Chữ cũ được xóa khỏi nội dung trang rồi viết chữ mới vào, không phủ đè. Giữ phông gốc khi phông đó vẽ được mọi chữ mới; nếu không thì dùng phông ezSans (Latin, tiếng Việt, tiếng Nga, Hy Lạp) và báo trước. Xem `docs/07-sua-chu-va-quet.md`.
-- **Quét tài liệu:** chụp hoặc chọn ảnh giấy tờ. App tìm mép giấy; người dùng kéo 4 góc nếu cần (có kính lúp). App làm phẳng và làm sáng ảnh với màu tự nhiên, rồi tạo PDF. Xử lý hoàn toàn trên máy.
+- **Kéo trang bằng chuột** (bản 0.6.0, phím P, giữ Space để kéo tạm): mặc định trên máy có chuột. Trên điện thoại, một ngón cuộn trang như trước.
+- **Chia sẻ** (bản 0.6.0): gửi đúng tệp “Xuất PDF” qua Zalo, Telegram, thư… Windows: chép tệp để dán (Ctrl V), cửa sổ chia sẻ của Windows, hiện tệp trong thư mục. Android và trình duyệt: bảng chia sẻ của hệ điều hành.
+- **In** (bản 0.6.0, Ctrl P): Android in thẳng tệp PDF qua dịch vụ in của máy; Windows và trình duyệt in ảnh trang 300 dpi qua hộp thoại in. Xem `docs/08-keo-trang-chia-se-in.md`.
+
+- **Sửa chữ có sẵn trong PDF** (bản 0.5.0, phím E): sửa từng dòng, và chỉ phần đã đổi bị viết lại (nhãn đậm đứng trước vẫn giữ nguyên). Chữ cũ được xóa khỏi nội dung trang rồi viết chữ mới vào, không phủ đè. Giữ phông gốc khi phông đó vẽ được mọi chữ mới; nếu không thì dùng phông ezSans (Latin, tiếng Việt, tiếng Nga, Hy Lạp) và báo trước. Xem `docs/07-sua-chu-va-quet.md`.
+- **Quét tài liệu** (bản 0.5.0): chụp hoặc chọn ảnh giấy tờ. App tìm mép giấy; người dùng kéo 4 góc nếu cần (có kính lúp). App làm phẳng và làm sáng ảnh với màu tự nhiên, rồi tạo PDF. Xử lý hoàn toàn trên máy.
 
 Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
 
@@ -61,7 +65,7 @@ npm run test:m3      # headless: ảnh PNG/JPG trên 4 kiểu trang, đổi cỡ
 npm run e2e          # Chromium thật, mốc 1–2: màn hình = tệp ở 11 mức zoom, 300 trang, điện thoại, không nút chết, không request ra ngoài
 npm run e2e:m3       # Chromium thật, mốc 3: ảnh, chữ ký, xoay trang, bản nháp, kiểm tệp xuất bằng Poppler, MuPDF, pdf.js
                      # (chạy test:m3 trước thì e2e:m3 kiểm luôn các tệp của nó bằng pdf.js)
-npm run e2e:all      # cả ba bộ e2e (mốc 1–2, 3, 4) trên dev server
+npm run e2e:all      # mọi bộ e2e trên dev server
 npm run e2e:preview  # bộ mốc 1–2 trên bản build (sau `npm run build && npm run preview`); e2e:m3:preview tương tự
 npm run test:storage # lớp lưu trữ dạng tệp (desktop, Android) trên đĩa thật, kể cả khi app tắt giữa lúc ghi
 npm run e2e:m4       # lớp lưu trữ trong trình duyệt (IndexedDB, Capacitor Filesystem), nháp của mốc 3, "Mở bằng"
@@ -70,16 +74,18 @@ npm run test:edit    # sửa chữ có sẵn: 6 kiểu PDF (Chromium, LibreOffic
                      # + tệp mã hóa → kiểm độc lập bằng qpdf, Poppler, MuPDF (chữ cũ hết, phần còn lại không đổi điểm ảnh nào)
 npm run e2e:edit     # sửa chữ trong app: thanh sửa, báo phông, giữ góc xoay/mức phóng, hoàn tác, nháp, xuất, điện thoại
 npm run e2e:scan     # quét: 7 ảnh chụp giả lập (góc, tỉ lệ A4, độ sáng giấy, màu dấu), PDF, luồng trong app, camera trên điện thoại
+npm run e2e:share    # bàn tay (kéo trang, Space, chú thích vẫn chọn/kéo được), chia sẻ (tệp = tệp xuất), in (trang in so với
+                     # tệp xuất bằng MuPDF: số trang, khổ, chiều, 300 dpi, hình), hủy in, điện thoại
 scripts/regress.sh [preview]     # mọi bộ e2e lần lượt (dev, hoặc bản build trên :4173)
 node scripts/smoke-desktop.cjs   # bản desktop thật (Linux, WebDriver): mở bằng đối số, nháp trong thư mục app,
-                                 # quyền tệp, một cửa sổ, hộp thoại Mở/Lưu
+                                 # quyền tệp, một cửa sổ, hộp thoại Mở/Lưu, chia sẻ qua vỏ Rust
 node scripts/perf-big.cjs        # tệp 50 MB trên màn hình điện thoại, CPU chậm 4× (cần `make_big_fixture.py` trước)
 bash scripts/check_android_java.sh  # biên dịch plugin Android với android.jar
 npm run fixtures     # tạo lại tệp mẫu (sample.pdf, long-300.pdf, ảnh, edit-text.pdf, ảnh quét giả lập)
 python3 scripts/make_fonts.py    # dựng lại phông ezPDF Sans VN từ Noto Sans (Latin, Việt, Kirin, Hy Lạp)
 ```
 
-Script kiểm thử cần: Node 22+, Python 3 với `pymupdf`, `pikepdf`, `Pillow` và `numpy`, `qpdf`, `poppler-utils`, Playwright với Chromium. Tạo lại `edit-text.pdf` cần thêm LibreOffice, ReportLab và pdfLaTeX.
+Script kiểm thử cần: Node 22+, Python 3 với `pymupdf`, `pikepdf`, `Pillow`, `numpy` và `scipy`, `qpdf`, `poppler-utils`, Playwright với Chromium. Tạo lại `edit-text.pdf` cần thêm LibreOffice, ReportLab và pdfLaTeX.
 
 ## Cấu trúc
 
@@ -97,17 +103,20 @@ src/
     draft-list.tsx       danh sách bản nháp ở màn hình trống
     use-document-session.ts  mở tệp, bản nháp tự lưu, cờ "chưa xuất", xuất, mở lại sau khi sửa chữ (giữ góc nhìn), hoàn tác bằng bản chụp
     text-edit.tsx        công cụ Sửa chữ có sẵn: khung các dòng trên trang, thanh sửa, báo phông
+    output-actions.tsx   nút Chia sẻ (menu trên Windows), In, menu ⋮ trên điện thoại, thông báo, tiến độ in
+    print/print-pages.ts in trong trình duyệt và desktop: ảnh trang 300 dpi, mỗi khổ một trang CSS, window.print
     scan/ScanDialog.tsx  màn quét: căn 4 góc (kính lúp), xem trang, Tạo PDF
     images/              ảnh và chữ ký: chuẩn bị ảnh, đặt lên trang, hộp thoại chữ ký, vá lỗi stamp (G10–G12)
     storage/             bản nháp (tệp gốc + trạng thái), chữ ký đã lưu, qua lớp lưu trữ của nền tảng
   platform/            phần khác nhau giữa 3 nền tảng, sau một interface (types.ts)
-    web.ts               ô chọn tệp, tải về, launchQueue của PWA
-    tauri.ts             hộp thoại hệ thống, tệp từ dòng lệnh / "Mở bằng", lưu nháp trước khi đóng cửa sổ
-    android.ts           plugin EzFiles: Storage Access Framework, tệp được mở bằng / chia sẻ sang
+    web.ts               ô chọn tệp, tải về, launchQueue của PWA, Web Share
+    tauri.ts             hộp thoại hệ thống, tệp từ dòng lệnh / "Mở bằng", lưu nháp trước khi đóng cửa sổ, chia sẻ qua vỏ Rust
+    android.ts           plugin EzFiles: Storage Access Framework, tệp được mở bằng / chia sẻ sang, chia sẻ đi, in
     storage/             StorageBackend + 3 adapter: idb.ts (web), tauri-fs.ts, capacitor-fs.ts (chung file-tree.ts)
     viewer/Viewer.tsx    trang ảo hoá, các lớp render/tìm/chọn chữ/annotation
     viewer/free-text.tsx ô chữ: vẽ bằng bộ ngắt dòng của bước xuất, sửa, tự giãn
     viewer/touch-guard.ts  cảm ứng: chụm hai ngón chỉ để phóng, một ngón chỉ để cuộn ở chế độ Chọn
+    viewer/hand.ts       bàn tay: chế độ kéo trang, công cụ nghỉ (bàn tay / chọn), giữ Space để kéo
   scan/                quét: detect.ts (tìm tờ giấy), geometry.ts (phối cảnh, tỉ lệ thật), process.ts (làm phẳng, làm sáng),
                        jpeg-pdf.ts (PDF từ JPEG), scan.worker.ts
   components/ui/       component shadcn/ui (chép vào, sửa được)
@@ -119,17 +128,18 @@ src/
     appearance-pdf.ts      dựng trang PDF nguồn chứa bản vẽ + phông CID nhúng
     pdf-incremental.ts     đọc xref + incremental update (bổ sung /Fields của AcroForm)
     font-metrics.ts        metric TrueType + ngắt dòng
-    export.worker.ts       PDFium thứ hai trong Web Worker: bước xuất, và phiên sửa chữ có sẵn
+    export.worker.ts       PDFium thứ hai trong Web Worker: bước xuất, phiên sửa chữ có sẵn, dựng ảnh trang để in
     text-edit.ts           sửa chữ có sẵn: gom dòng, thay đối tượng chữ, chọn phông, đọc lại để kiểm
 public/fonts/          ezPDF Sans VN (subset Noto Sans: Latin, Việt, Kirin, Hy Lạp; SIL OFL 1.1, đã đổi tên)
 public/icons/, manifest.webmanifest   biểu tượng và manifest của web app
 build/                 plugin Vite: service worker (danh sách tệp của bản build), CSP cho bản web
-src-tauri/             vỏ desktop: lib.rs (tệp từ dòng lệnh, một cửa sổ), tauri.conf.json, capabilities/
-android/               dự án Capacitor: EzFilesPlugin.java, AndroidManifest (mở bằng / chia sẻ, tắt sao lưu)
+src-tauri/             vỏ desktop: lib.rs (tệp từ dòng lệnh, một cửa sổ), share.rs (bộ nhớ tạm, cửa sổ chia sẻ Windows,
+                       hiện tệp trong thư mục), tauri.conf.json, capabilities/
+android/               dự án Capacitor: EzFilesPlugin.java (tệp, chia sẻ, in), AndroidManifest (mở bằng / chia sẻ, tắt sao lưu)
 branding/              SVG gốc của biểu tượng
 tests/                 engine-proof.ts, m3-engine-probe.ts, storage-*, fixtures, trang pdf.js để kiểm độc lập
 scripts/               e2e*.cjs, smoke-desktop.cjs, perf-big.cjs, verify_*.py, inspect_export.py, make_*.py
-docs/                  đánh giá engine, kết quả mốc 1–4, sửa chữ và quét (07), kế hoạch các mốc, bằng chứng
+docs/                  đánh giá engine, kết quả mốc 1–4, sửa chữ và quét (07), kéo trang, chia sẻ, in (08), kế hoạch, bằng chứng
 ```
 
 ## Nguyên tắc kiến trúc

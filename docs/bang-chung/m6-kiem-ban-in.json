@@ -1,0 +1,103 @@
+{
+  "checks": [
+    {
+      "name": "same page count",
+      "ok": true,
+      "detail": "printed 4, exported 4"
+    },
+    {
+      "name": "each printed page has the exported page's size and orientation (±1 pt)",
+      "ok": true,
+      "detail": "595.0×841.9 vs 595.3×841.9; 841.9×595.0 vs 841.9×595.3; 495.1×700.1 vs 495.0×700.0; 841.9×595.0 vs 841.9×595.3"
+    },
+    {
+      "name": "every printed page carries its page picture",
+      "ok": true,
+      "detail": "[300, 300, 300, 300]"
+    },
+    {
+      "name": "the pictures are at least 290 dpi",
+      "ok": true,
+      "detail": "[300, 300, 300, 300]"
+    },
+    {
+      "name": "printed pages look like the exported pages (MuPDF, 50 dpi, σ 1.5: MAD <= 8, correlation >= 0.97, upside-down far lower)",
+      "ok": true,
+      "detail": "[{'page': 1, 'mad': 0.93, 'corr': 0.9925, 'corr_upside_down': -0.0416}, {'page': 2, 'mad': 0.87, 'corr': 0.9905, 'corr_upside_down': -0.0363}, {'page': 3, 'mad': 1.31, 'corr': 0.9945, 'corr_upside_down': -0.054}, {'page': 4, 'mad': 1.4, 'corr': 0.9894, 'corr_upside_down': -0.0365}]"
+    }
+  ],
+  "dpi": [
+    300,
+    300,
+    300,
+    300
+  ],
+  "sizes": [
+    [
+      [
+        595.0,
+        841.9
+      ],
+      [
+        595.3,
+        841.9
+      ]
+    ],
+    [
+      [
+        841.9,
+        595.0
+      ],
+      [
+        841.9,
+        595.3
+      ]
+    ],
+    [
+      [
+        495.1,
+        700.1
+      ],
+      [
+        495.0,
+        700.0
+      ]
+    ],
+    [
+      [
+        841.9,
+        595.0
+      ],
+      [
+        841.9,
+        595.3
+      ]
+    ]
+  ],
+  "diffs": [
+    {
+      "page": 1,
+      "mad": 0.93,
+      "corr": 0.9925,
+      "corr_upside_down": -0.0416
+    },
+    {
+      "page": 2,
+      "mad": 0.87,
+      "corr": 0.9905,
+      "corr_upside_down": -0.0363
+    },
+    {
+      "page": 3,
+      "mad": 1.31,
+      "corr": 0.9945,
+      "corr_upside_down": -0.054
+    },
+    {
+      "page": 4,
+      "mad": 1.4,
+      "corr": 0.9894,
+      "corr_upside_down": -0.0365
+    }
+  ]
+}

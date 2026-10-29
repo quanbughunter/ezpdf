@@ -1,11 +1,12 @@
 import { useEffect, type RefObject } from 'react';
 import { useInteractionManagerCapability } from '@embedpdf/plugin-interaction-manager/react';
+import { HAND_MODE } from './hand';
 
 /**
  * Touch on the pages, between the browser (scroll, pinch to zoom) and
  * EmbedPDF's pointer handlers (text selection, tools, annotations).
  *
- *  - Select mode: a finger moving on the page is a scroll, never a text
+ *  - Select and hand modes: a finger moving on the page is a scroll, never a text
  *    selection or a selection box, so its moves stop here (taps still pass:
  *    they select or deselect annotations). Annotations and their handles mark
  *    themselves with touch-action: none; those keep every event, so they can
@@ -21,7 +22,10 @@ export function useTouchGuard(root: RefObject<HTMLElement | null>, documentId: s
     if (!el || !interaction) return;
     const down = new Set<number>();
     let pinching = false;
-    const selectMode = () => interaction.forDocument(documentId).getActiveMode() === 'pointerMode';
+    const selectMode = () => {
+      const m = interaction.forDocument(documentId).getActiveMode();
+      return m === 'pointerMode' || m === HAND_MODE;
+    };
     const onDraggable = (t: EventTarget | null) => t instanceof Element && !!t.closest('[style*="touch-action: none"]');
 
     const onDown = (e: PointerEvent) => {

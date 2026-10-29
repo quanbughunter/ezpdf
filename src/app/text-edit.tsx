@@ -317,6 +317,8 @@ export function TextEditLayer({ documentId, pageIndex }: { documentId: string; p
     <div
       ref={ref}
       data-testid={`textedit-layer-${pageIndex}`}
+      // its own pointer handling: EmbedPDF's handlers and the hand keep out
+      data-no-interaction=""
       data-ready={lines ? 'true' : 'false'}
       style={{ position: 'absolute', inset: 0, zIndex: 20, cursor: 'text', touchAction: 'pan-x pan-y pinch-zoom' }}
     >

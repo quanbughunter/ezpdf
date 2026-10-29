@@ -18,6 +18,12 @@
  *     picked PDF opens, the export is written where the user chose
  *  7. the window closed (WM_DELETE_WINDOW, as the close button does) right
  *     after an edit: the draft is saved before the window goes
+ *  2b. sharing through the shell (src-tauri/src/share.rs): the share button
+ *     sends the finished PDF over the IPC as raw bytes; the shell writes a
+ *     temporary copy under the document's name (Vietnamese marks) and shows
+ *     it in its folder (xdg-open, replaced by a recorder here); a way this
+ *     system lacks is refused with a message. Windows' clipboard and share
+ *     window are compiled for Windows only: see docs/08 for the manual check.
  *
  * Needs: Xvfb (or a display), WebKitWebDriver, `cargo install tauri-driver`,
  * and the app built with `npx tauri build --debug --no-bundle`.
@@ -101,7 +107,12 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
     procs.push(spawn('Xvfb', [display, '-screen', '0', '1400x900x24'], { stdio: 'ignore' }));
     await sleep(800);
   }
-  const env = { ...process.env, DISPLAY: display };
+  // xdg-open replaced by a recorder: the share step must not start a file manager
+  const fakeBin = path.join(OUT, 'fakebin');
+  const xdgLog = path.join(OUT, 'xdg-open.log');
+  fs.mkdirSync(fakeBin, { recursive: true });
+  fs.writeFileSync(path.join(fakeBin, 'xdg-open'), `#!/bin/sh\nprintf '%s\\n' "$@" >> '${xdgLog}'\n`, { mode: 0o755 });
+  const env = { ...process.env, DISPLAY: display, PATH: `${fakeBin}:${process.env.PATH}` };
   const driver = spawn(path.join(os.homedir(), '.cargo/bin/tauri-driver'), ['--port', '4444'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   procs.push(driver);
   driver.stderr.on('data', (d) => fs.appendFileSync(path.join(OUT, 'driver.log'), d));
@@ -146,6 +157,32 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
     check('the original kept with the draft is byte-identical to the file opened', orig && sha(fs.readFileSync(path.join(dir, orig))) === sha(fs.readFileSync(work)));
     check('the file opened is untouched', sha(fs.readFileSync(work)) === sha(fs.readFileSync(sample)));
     await s.shot('2-saved.png');
+
+    // 2b. share through the shell
+    const ways = await s.jsAsync(`const done = arguments[0]; window.__TAURI_INTERNALS__.invoke('share_ways').then((w) => done(JSON.stringify(w)), (e) => done('err ' + e));`);
+    const shareRoot = path.join(os.tmpdir(), 'ezPDF-chia-se');
+    fs.rmSync(xdgLog, { force: true });
+    fs.rmSync(shareRoot, { recursive: true, force: true });
+    await s.js(`document.querySelector('${T('btn-share')}').click()`);
+    for (let i = 0; i < 100 && !fs.existsSync(xdgLog); i++) await sleep(200);
+    const stamps = fs.existsSync(shareRoot) ? fs.readdirSync(shareRoot) : [];
+    const copy = stamps.length === 1 ? path.join(shareRoot, stamps[0], 'Hợp đồng mẫu.pdf') : null;
+    const copyRot = copy && fs.existsSync(copy)
+      ? execFileSync('python3', ['-c', 'import pikepdf,sys; pdf = pikepdf.open(sys.argv[1]); print(int(pdf.pages[0].obj.get("/Rotate", 0)))', copy], { encoding: 'utf8' }).trim()
+      : null;
+    const opened = fs.existsSync(xdgLog) ? fs.readFileSync(xdgLog, 'utf8').trim() : '';
+    check(
+      'share: the finished PDF reaches the shell as a copy named after the document (page 1 turned) and its folder is shown',
+      ways === '["reveal"]' && copyRot === '90' && opened === path.dirname(copy),
+      `ways ${ways}; copy ${copy && path.relative(os.tmpdir(), copy)}; /Rotate ${copyRot}; xdg-open ${opened}`,
+    );
+    const refused = await s.jsAsync(
+      `const done = arguments[0];
+       window.__TAURI_INTERNALS__.invoke('share_file', new Uint8Array([37, 80, 68, 70]), { headers: { 'x-ezpdf-name': encodeURIComponent('a.pdf'), 'x-ezpdf-way': 'copy' } })
+         .then(() => done('allowed'), (e) => done('refused: ' + String(e)));`,
+    );
+    check('share: a way this system does not have (clipboard on Linux) is refused with a message', refused.startsWith('refused: Máy này không chia sẻ được'), refused);
+    fs.rmSync(shareRoot, { recursive: true, force: true });
 
     // 3. what the page may not do
     const probe = async (cmd, args) =>

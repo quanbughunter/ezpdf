@@ -10,6 +10,7 @@ import { AnnotationLayer } from '@embedpdf/plugin-annotation/react';
 import { ZoomGestureWrapper } from '@embedpdf/plugin-zoom/react';
 import { useCallback, useRef, useState } from 'react';
 import { useTouchGuard } from './touch-guard';
+import { useHandPan } from './hand';
 import { EndEditingContext, ezFreeTextRenderer } from './free-text';
 import { PlacementLayer } from '../images/placement';
 import { TextEditLayer } from '../text-edit';
@@ -27,13 +28,14 @@ export function Viewer({ documentId }: { documentId: string }) {
   const endEditing = useCallback((pageIndex: number) => setEpochs((e) => ({ ...e, [pageIndex]: (e[pageIndex] ?? 0) + 1 })), []);
   const rootRef = useRef<HTMLDivElement>(null);
   useTouchGuard(rootRef, documentId);
+  useHandPan(rootRef, documentId);
   return (
     <EndEditingContext.Provider value={endEditing}>
       {/* pan-x pan-y: one finger scrolls, two fingers reach ZoomGestureWrapper (pinch to
           zoom the document) instead of zooming the whole app */}
       <div ref={rootRef} className="absolute inset-0 touch-pan-x touch-pan-y" data-testid="viewer">
         <GlobalPointerProvider documentId={documentId}>
-          <Viewport documentId={documentId} className="h-full w-full bg-canvas">
+          <Viewport documentId={documentId} className="h-full w-full bg-canvas" data-ez-viewport="">
             <ZoomGestureWrapper documentId={documentId}>
               <Scroller
                 documentId={documentId}

@@ -59,7 +59,14 @@ const py = (code, ...args) => execFileSync('python3', ['-c', code, ...args], { e
 async function startServer() {
   if (PROD) return { base: process.env.BASE, stop() {} };
   const port = 5187;
-  const proc = spawn('npx', ['vite', '--port', String(port), '--strictPort'], { cwd: ROOT, stdio: 'ignore' });
+  // its own process group: npx leaves vite running if only npx is stopped
+  const proc = spawn('npx', ['vite', '--port', String(port), '--strictPort'], { cwd: ROOT, stdio: 'ignore', detached: true });
+  const kill = () => {
+    try {
+      process.kill(-proc.pid, 'SIGTERM');
+    } catch {}
+  };
+  process.on('exit', kill); // also when the run ends early
   const base = `http://localhost:${port}`;
   for (let i = 0; i < 150; i++) {
     try {
@@ -70,12 +77,12 @@ async function startServer() {
         await p.waitForSelector(tid('state-empty'), { timeout: 60000 }).catch(() => {});
         await p.waitForTimeout(2000);
         await b.close();
-        return { base, stop: () => proc.kill('SIGTERM') };
+        return { base, stop: kill };
       }
     } catch {}
     await sleep(200);
   }
-  proc.kill();
+  kill();
   throw new Error('vite did not start');
 }
 

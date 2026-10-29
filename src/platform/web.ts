@@ -6,7 +6,7 @@
  *    "Open with ezPDF" files through window.launchQueue
  */
 import { createIdbBackend } from './storage/idb';
-import { incomingQueue, type Platform } from './types';
+import { incomingQueue, type Platform, type ShareWay } from './types';
 
 interface LaunchParams {
   files?: { kind: string; getFile(): Promise<File> }[];
@@ -22,6 +22,16 @@ export function downloadPdf(bytes: Uint8Array, name: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+/** Web Share with files: Chrome and Edge (Windows, Android), Safari; not Firefox desktop. */
+function canShareFiles() {
+  try {
+    const probe = new File([new Uint8Array(1)], 'a.pdf', { type: 'application/pdf' });
+    return typeof navigator.share === 'function' && !!navigator.canShare?.({ files: [probe] });
+  } catch {
+    return false;
+  }
 }
 
 export function createWebPlatform(): Platform {
@@ -42,6 +52,22 @@ export function createWebPlatform(): Platform {
       downloadPdf(bytes, name);
       return { how: 'download', name };
     },
+    shareWays: (canShareFiles() ? ['sheet'] : ['download']) as ShareWay[],
+    async sharePdf(bytes, name, way) {
+      if (way !== 'sheet') {
+        downloadPdf(bytes, name);
+        return 'downloaded';
+      }
+      const file = new File([bytes as BlobPart], name, { type: 'application/pdf' });
+      try {
+        await navigator.share({ files: [file], title: name });
+        return 'done';
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return 'cancelled';
+        throw e;
+      }
+    },
+    printPdf: null,
     onIncomingFiles: incoming.subscribe,
   };
 }

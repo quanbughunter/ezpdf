@@ -518,17 +518,29 @@ export function useDocumentSession(documentId: string | null) {
     [currentBytes, reopenContent],
   );
 
+  /**
+   * The finished PDF, exactly what "Xuất PDF" writes: annotations committed,
+   * Vietnamese text appearances and page rotations written in. Sharing and
+   * printing use it too, so what leaves the app is always the same file.
+   */
+  const buildOutput = useCallback(async () => {
+    if (!documentId || !exporter || !annotations || !registry) throw new Error('Chưa có tài liệu.');
+    await asPromise(annotations.forDocument(documentId).commit());
+    const seq = changesRef.current.seq;
+    const raw = await asPromise(exporter.forDocument(documentId).saveAsCopy());
+    const rotations = getPageRotations(registry, documentId);
+    const out = await finalizePdf(raw, { pageRotations: Object.fromEntries(rotations.map((r, i) => [i, r])) });
+    const base = fileName.replace(/\.pdf$/i, '') || 'tai-lieu';
+    return { ...out, seq, base, pages: rotations.length };
+  }, [documentId, exporter, annotations, registry, fileName]);
+
   const exportPdf = useCallback(async () => {
     if (!documentId || !exporter || !annotations || !registry) return;
     setExportStatus({ kind: 'working' });
     try {
-      await asPromise(annotations.forDocument(documentId).commit());
-      const seq = changesRef.current.seq;
-      const raw = await asPromise(exporter.forDocument(documentId).saveAsCopy());
-      const rotations = getPageRotations(registry, documentId);
-      const out = await finalizePdf(raw, { pageRotations: Object.fromEntries(rotations.map((r, i) => [i, r])) });
-      const base = fileName.replace(/\.pdf$/i, '') || 'tai-lieu';
-      const saved = await platform.savePdf(new Uint8Array(out.bytes), `${base} (ezPDF).pdf`);
+      const out = await buildOutput();
+      const seq = out.seq;
+      const saved = await platform.savePdf(new Uint8Array(out.bytes), `${out.base} (ezPDF).pdf`);
       if (!saved) {
         setExportStatus({ kind: 'idle' }); // save dialog cancelled
         return;
@@ -542,7 +554,7 @@ export function useDocumentSession(documentId: string | null) {
     } catch (e) {
       setExportStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
     }
-  }, [documentId, exporter, annotations, registry, fileName, platform]);
+  }, [documentId, exporter, annotations, registry, platform, buildOutput]);
 
   return {
     fileName,
@@ -564,6 +576,7 @@ export function useDocumentSession(documentId: string | null) {
     cancelPendingOpen: () => setPendingFile(null),
     closeDocument,
     exportPdf,
+    buildOutput,
     docEpoch,
     contentEpoch,
     currentBytes,

@@ -1,0 +1,77 @@
+# Builds and checks ezPDF on GitHub's machines, which have every toolchain:
+#   web      unit + browser tests (dev and production build), web app artifact
+#   windows  Tauri installers (.msi and setup .exe), cargo test
+#   android  debug APK (Capacitor 8, Gradle)
+# Nothing here uploads documents: the tests use the fixtures in tests/.
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: PDF tools used by the checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils qpdf
+          pip install pymupdf pikepdf pillow
+      - run: npm run build
+      - run: npm run test:layout && npm run test:engine && npm run verify && npm run test:m3 && npm run test:storage
+      - run: npm run e2e && npm run e2e:m3 && npm run e2e:m4
+      - name: production build in the browser
+        run: |
+          npx vite preview --port 4173 --strictPort &
+          sleep 3
+          npm run e2e:preview && npm run e2e:m3:preview && npm run e2e:m4:preview
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: web-app, path: dist }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: test-output, path: out, retention-days: 7 }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - run: npm ci
+      - run: cargo test --lib
+        working-directory: src-tauri
+      - run: npx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ezpdf-windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npm run build:android
+      # the executable bit is lost when the project comes from Windows
+      - run: chmod +x gradlew && ./gradlew assembleDebug
+        working-directory: android
+      - uses: actions/upload-artifact@v4
+        with: { name: ezpdf-android-debug, path: android/app/build/outputs/apk/debug/app-debug.apk }

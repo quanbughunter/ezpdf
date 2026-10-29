@@ -1,0 +1,286 @@
+{
+  "results": [
+    {
+      "name": "empty state before a file is opened",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "PDF opens; toolbar shows 4 pages",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "left panel shows page thumbnails",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "right panel shows document info (4 pages)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "panels can be hidden and shown",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "active tool explained in the hint strip",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "editing hint while typing",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "FreeText created with Vietnamese contents",
+      "ok": true,
+      "detail": "\"Xin chào! Tiếng Việt có dấu: ắ ằ ẳ ẵ ặ, ơ ư đ — Nguyễn Văn Ấn ký tên\""
+    },
+    {
+      "name": "FreeText rect = dragged rect (page space)",
+      "ok": true,
+      "detail": "{\"origin\":{\"x\":71.99837742740534,\"y\":229.99947387257782},\"size\":{\"width\":299.99318003227205,\"height\":59.99985561575937}}"
+    },
+    {
+      "name": "tool returns to select after placing text",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "dirty indicator after editing",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "click-placed box starts at default size and grows to fit the text",
+      "ok": true,
+      "detail": "{\"width\":180,\"height\":115.75}"
+    },
+    {
+      "name": "grown box shows every line (none clipped)",
+      "ok": true,
+      "detail": "7 lines"
+    },
+    {
+      "name": "properties panel follows the selection (Ô chữ)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "size 16, red, centred, light-yellow background applied",
+      "ok": true,
+      "detail": "{\"s\":16,\"c\":\"#b42318\",\"a\":1,\"bg\":\"#fff3bf\"}"
+    },
+    {
+      "name": "highlight created from text selection on the target line",
+      "ok": true,
+      "detail": "{\"origin\":{\"x\":72,\"y\":137},\"size\":{\"width\":219,\"height\":20}}"
+    },
+    {
+      "name": "highlight colour + comment",
+      "ok": true,
+      "detail": "{\"c\":\"#8ce99a\",\"t\":\"Lời nhắn: đoạn này cần kiểm tra lại số liệu.\"}"
+    },
+    {
+      "name": "sticky note with Vietnamese text and colour",
+      "ok": true,
+      "detail": "{\"c\":\"Ghi chú dán: nhớ ký nháy từng trang.\",\"col\":\"#4dabf7\"}"
+    },
+    {
+      "name": "Delete key removes; Ctrl+Z / redo / undo buttons",
+      "ok": true,
+      "detail": "4→3→4→3→4"
+    },
+    {
+      "name": "Xóa button in the panel removes the selected object",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "FreeText lines and positions identical at 11 zoom levels",
+      "ok": true,
+      "detail": "50% 75% 125% 150% 200% 300% 97% 112% 132% 112%"
+    },
+    {
+      "name": "FreeText follows the page when the view rotates 90°",
+      "ok": true,
+      "detail": "[\"0.656\",\"0.121\",\"0.071\",\"0.504\"]"
+    },
+    {
+      "name": "FreeText on /Rotate 90 page reads upright (rotation 270)",
+      "ok": true,
+      "detail": "rotation=270"
+    },
+    {
+      "name": "rotated box grew in its own frame (unrotated height up, page-space width up)",
+      "ok": true,
+      "detail": "{\"rect\":{\"width\":33.250000000000064,\"height\":336.75},\"local\":{\"width\":336.75,\"height\":33.25}}"
+    },
+    {
+      "name": "export downloads a new file, original kept apart",
+      "ok": true,
+      "detail": "sample (ezPDF).pdf"
+    },
+    {
+      "name": "dirty indicator cleared after export",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "MuPDF reads the same lines as the screen, baselines within 0.6 pt (box 1)",
+      "ok": true,
+      "detail": "0.02/0.01 0.02/0.01"
+    },
+    {
+      "name": "MuPDF reads the same lines as the screen, baselines within 0.6 pt (auto-grown box)",
+      "ok": true,
+      "detail": "0.01/-0.00 0.01/0.02 0.01/0.01 0.01/0.01 0.01/0.01 0.01/0.02 0.01/0.01"
+    },
+    {
+      "name": "exported text keeps size 16 and red colour",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "exported highlight: colour + comment",
+      "ok": true,
+      "detail": "{\"s\":\"#8ce99a\",\"c\":\"Lời nhắn: đoạn này cần kiểm tra lại số liệu.\"}"
+    },
+    {
+      "name": "exported sticky note: Vietnamese contents + colour",
+      "ok": true,
+      "detail": "{\"s\":\"#4dabf7\",\"c\":\"Ghi chú dán: nhớ ký nháy từng trang.\"}"
+    },
+    {
+      "name": "exported rotated-page text: full text, turned upright",
+      "ok": true,
+      "detail": "{\"t\":\"Trang xoay 90°: chữ vẫn đứng thẳng, ô vẫn tự giãn khi gõ thêm nhiều chữ nữa ở đây.\",\"m\":[6.1232343e-17,1,-1,6.1232343e-17,0,0]}"
+    },
+    {
+      "name": "ezPDF font embedded, qpdf clean, Poppler without errors",
+      "ok": true,
+      "detail": "3 fonts; "
+    },
+    {
+      "name": "pdf.js: FreeText appearances present, note text readable",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "reopened: all annotations back as editable objects",
+      "ok": true,
+      "detail": "5 annotations"
+    },
+    {
+      "name": "edit after reopen reaches the file",
+      "ok": true,
+      "detail": "Xin chào! Tiếng Việt có dấu: ắ ằ ẳ ẵ ặ, ơ ư đ — Nguyễn Văn Ấn ký tên (sửa lần 2)"
+    },
+    {
+      "name": "opening another file asks first when changes are unexported",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "300-page document opens",
+      "ok": true,
+      "detail": "1138 ms to first page"
+    },
+    {
+      "name": "thumbnails are virtualised",
+      "ok": true,
+      "detail": "8 in DOM"
+    },
+    {
+      "name": "thumbnail click, prev/next, page number jump",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "page list follows the current page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "search opens with the box focused",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "search finds exactly the 3 pages (7, 150, 299)",
+      "ok": true,
+      "detail": "Trang 7,Trang 150,Trang 299 in 480 ms"
+    },
+    {
+      "name": "result click, next, previous move to the right page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "match case and whole word options change the results",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "clear empties the search and its results",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "page / search tabs switch the left panel",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "phone: no horizontal overflow, export button on screen",
+      "ok": true,
+      "detail": "overflow 0, export right edge 382"
+    },
+    {
+      "name": "phone: page list starts closed, tools at the bottom",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "phone: choosing a page closes the overlay",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "phone: tool hint visible",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every visible button is exercised by a step",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every visible button has a test id",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no request to any other origin",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nothing uploaded (no non-GET request)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no page errors",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "openMs": 1138,
+  "searchMs": 480
+}

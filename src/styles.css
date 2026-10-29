@@ -1,0 +1,103 @@
+@import 'tailwindcss';
+
+@font-face {
+  font-family: 'ezPDF Sans VN';
+  src: url('/fonts/ezSansVN-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: 'ezPDF Sans VN';
+  src: url('/fonts/ezSansVN-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: block;
+}
+
+/*
+ * ezPDF tokens. Neutral chrome, one accent (ink teal) for: active tool,
+ * selection, the primary action and focus. Amber only for "not exported",
+ * red only for destructive actions and errors.
+ */
+:root {
+  --canvas: #e9eaec; /* behind the pages */
+  --background: #fbfbfc; /* toolbar, panels */
+  --foreground: #1c1f24;
+  --muted: #f1f2f4;
+  --muted-foreground: #646a73;
+  --border: #dee0e3;
+  --input: #d5d8dc;
+  --primary: #0b6e69;
+  --primary-foreground: #ffffff;
+  --primary-soft: #e3f1ef;
+  --secondary: #eef0f2;
+  --secondary-foreground: #1c1f24;
+  --accent: #eef0f2; /* shadcn: hover surface, not the brand accent */
+  --accent-foreground: #1c1f24;
+  --popover: #ffffff;
+  --popover-foreground: #1c1f24;
+  --ring: #0b6e69;
+  --destructive: #b42318;
+  --warning: #b45309;
+  --success: #15803d;
+  --radius: 6px;
+}
+
+@theme inline {
+  --font-sans: 'ezPDF Sans VN', ui-sans-serif, system-ui, sans-serif;
+  --color-canvas: var(--canvas);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

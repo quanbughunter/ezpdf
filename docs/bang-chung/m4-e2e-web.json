@@ -1,0 +1,116 @@
+{
+  "dev": [
+    {
+      "name": "storage: web adapter (IndexedDB)",
+      "ok": true,
+      "detail": "9/9 checks"
+    },
+    {
+      "name": "storage: Android adapter code on Capacitor Filesystem (web implementation)",
+      "ok": true,
+      "detail": "9/9 checks"
+    },
+    {
+      "name": "storage: M3 data in IndexedDB",
+      "ok": true,
+      "detail": "4/4 checks"
+    },
+    {
+      "name": "\"Open with ezPDF\" (launchQueue) opens the file it is given",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every request went to the app itself (apart from the refused probe)",
+      "ok": true,
+      "detail": "none"
+    },
+    {
+      "name": "no Content-Security-Policy violation in normal use",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no page errors",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "production": [
+    {
+      "name": "manifest: name, standalone, start URL, theme colour, icons of the declared size (any + maskable)",
+      "ok": true,
+      "detail": "icons/icon-192.png 192x192 any, icons/icon-512.png 512x512 any, icons/maskable-512.png 512x512 maskable"
+    },
+    {
+      "name": "manifest: registered as a PDF handler for \"Open with\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "service worker active, controls the page and caches every file of the build",
+      "ok": true,
+      "detail": "18 files, missing: none"
+    },
+    {
+      "name": "Chromium finds no installability error and no manifest error",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "offline: the app starts from the device (network really off)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "offline: a PDF opens (engine and fonts from the cache)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "offline: Vietnamese text added",
+      "ok": true,
+      "detail": "Ký nhận ngoại tuyến: Đã đọc và đồng ý."
+    },
+    {
+      "name": "offline: the draft is saved on the device",
+      "ok": true,
+      "detail": "Nháp đã lưu 22:03 · chưa xuất"
+    },
+    {
+      "name": "offline: export downloads a PDF that MuPDF reads, with the text",
+      "ok": true,
+      "detail": "sample (ezPDF).pdf · Ký nhận ngoại tuyến: Đã đọc và đồng ý."
+    },
+    {
+      "name": "the page declares a Content-Security-Policy limited to its own origin",
+      "ok": true,
+      "detail": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob: data:; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'none'"
+    },
+    {
+      "name": "a request to another site is refused by the browser (CSP), even online",
+      "ok": true,
+      "detail": "connect-src https://example.org/upload"
+    },
+    {
+      "name": "\"Open with ezPDF\" (launchQueue) opens the file it is given",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every request went to the app itself (apart from the refused probe)",
+      "ok": true,
+      "detail": "none"
+    },
+    {
+      "name": "no Content-Security-Policy violation in normal use",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no page errors",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

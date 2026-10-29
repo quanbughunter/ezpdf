@@ -1,0 +1,40 @@
+
+
+
+file-tree / memory
+  PASS  a missing record reads as null
+  PASS  put stores the record and its parts
+  PASS  a later put replaces only the parts it is given
+  PASS  a put without parts keeps every part
+  PASS  list returns every record of a collection, and only those
+  PASS  an unknown part reads as null
+  PASS  remove deletes the record and its parts, others stay
+  PASS  removing something that does not exist is fine
+  PASS  ids that could escape the folder are refused
+
+file-tree / disk
+  PASS  a missing record reads as null
+  PASS  put stores the record and its parts
+  PASS  a later put replaces only the parts it is given
+  PASS  a put without parts keeps every part
+  PASS  list returns every record of a collection, and only those
+  PASS  an unknown part reads as null
+  PASS  remove deletes the record and its parts, others stay
+  PASS  removing something that does not exist is fine
+  PASS  ids that could escape the folder are refused
+
+file-tree / interrupted writes
+  PASS  one meta and one file per part after a put  (draft-1793226740173.pdf meta-1793226740173.json original-1793226740173.pdf)
+  PASS  replaced parts and metas are cleared  (draft-1793226740175.pdf meta-1793226740175.json original-1793226740173.pdf)
+  PASS  a half-written meta is skipped, the previous state is read
+  PASS  a meta whose part file is missing is skipped
+  PASS  the next put clears leftovers of interrupted writes  (draft-1793226740185.pdf meta-1793226740185.json original-1793226740173.pdf)
+  PASS  the new revision is newer than any leftover
+  PASS  a draft folder without a meta is not listed
+
+25/25 checks passed
+
+Trong trình duyệt (npm run e2e:m4):
+PASS  storage: web adapter (IndexedDB)  — 9/9 checks
+PASS  storage: Android adapter code on Capacitor Filesystem (web implementation)  — 9/9 checks
+PASS  storage: M3 data in IndexedDB  — 4/4 checks

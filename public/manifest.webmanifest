@@ -1,0 +1,21 @@
+{
+  "name": "ezPDF",
+  "short_name": "ezPDF",
+  "description": "Đọc, ghi chú, ký và xuất PDF ngay trên máy. Tài liệu không rời thiết bị.",
+  "lang": "vi",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#e9eaec",
+  "theme_color": "#0b6e69",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "file_handlers": [
+    { "action": "./", "accept": { "application/pdf": [".pdf"] }, "launch_type": "single-client" }
+  ],
+  "launch_handler": { "client_mode": "focus-existing" }
+}

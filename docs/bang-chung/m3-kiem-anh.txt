@@ -1,0 +1,72 @@
+ok   poppler export-m3.pdf        p1 96afd617-e03 
+ok   poppler export-m3.pdf        p2 fe3ac32a-ef7 
+ok   poppler export-m3.pdf        p4 8b3e610b-575 
+ok   poppler export-m3.pdf        p1 paper gone   257/288 samples page-white, 14 ink
+ok   mupdf export-m3.pdf          p1 96afd617-e03 
+ok   mupdf export-m3.pdf          p2 fe3ac32a-ef7 
+ok   mupdf export-m3.pdf          p4 8b3e610b-575 
+ok   mupdf export-m3.pdf          p1 paper gone   252/288 samples page-white, 17 ink
+ok   pdfjs export-m3.pdf          p1 96afd617-e03 
+ok   pdfjs export-m3.pdf          p2 fe3ac32a-ef7 
+ok   pdfjs export-m3.pdf          p4 8b3e610b-575 
+ok   pdfjs export-m3.pdf          p1 paper gone   244/288 samples page-white, 2 ink
+
+IMAGE/ROTATION CHECK: PASS
+
+# Tệp của bộ kiểm engine (npm run test:m3), thêm pdf.js
+ok   poppler final.pdf            p1 png-0        
+ok   poppler final.pdf            p1 jpg-0        
+ok   poppler final.pdf            p2 png-1        
+ok   poppler final.pdf            p2 jpg-1        
+ok   poppler final.pdf            p3 png-2        
+ok   poppler final.pdf            p3 jpg-2        
+ok   poppler final.pdf            p4 png-3        
+ok   poppler final.pdf            p4 jpg-3        
+ok   poppler final.pdf            p1 png-edited   
+ok   mupdf final.pdf              p1 png-0        
+ok   mupdf final.pdf              p1 jpg-0        
+ok   mupdf final.pdf              p2 png-1        
+ok   mupdf final.pdf              p2 jpg-1        
+ok   mupdf final.pdf              p3 png-2        
+ok   mupdf final.pdf              p3 jpg-2        
+ok   mupdf final.pdf              p4 png-3        
+ok   mupdf final.pdf              p4 jpg-3        
+ok   mupdf final.pdf              p1 png-edited   
+ok   pdfjs final.pdf              p1 png-0        
+ok   pdfjs final.pdf              p1 jpg-0        
+ok   pdfjs final.pdf              p2 png-1        
+ok   pdfjs final.pdf              p2 jpg-1        
+ok   pdfjs final.pdf              p3 png-2        
+ok   pdfjs final.pdf              p3 jpg-2        
+ok   pdfjs final.pdf              p4 png-3        
+ok   pdfjs final.pdf              p4 jpg-3        
+ok   pdfjs final.pdf              p1 png-edited   
+ok   poppler final-rotated.pdf    p1 png-0        
+ok   poppler final-rotated.pdf    p1 jpg-0        
+ok   poppler final-rotated.pdf    p2 png-1        
+ok   poppler final-rotated.pdf    p2 jpg-1        
+ok   poppler final-rotated.pdf    p3 png-2        
+ok   poppler final-rotated.pdf    p3 jpg-2        
+ok   poppler final-rotated.pdf    p4 png-3        
+ok   poppler final-rotated.pdf    p4 jpg-3        
+ok   poppler final-rotated.pdf    p1 png-edited   
+ok   mupdf final-rotated.pdf      p1 png-0        
+ok   mupdf final-rotated.pdf      p1 jpg-0        
+ok   mupdf final-rotated.pdf      p2 png-1        
+ok   mupdf final-rotated.pdf      p2 jpg-1        
+ok   mupdf final-rotated.pdf      p3 png-2        
+ok   mupdf final-rotated.pdf      p3 jpg-2        
+ok   mupdf final-rotated.pdf      p4 png-3        
+ok   mupdf final-rotated.pdf      p4 jpg-3        
+ok   mupdf final-rotated.pdf      p1 png-edited   
+ok   pdfjs final-rotated.pdf      p1 png-0        
+ok   pdfjs final-rotated.pdf      p1 jpg-0        
+ok   pdfjs final-rotated.pdf      p2 png-1        
+ok   pdfjs final-rotated.pdf      p2 jpg-1        
+ok   pdfjs final-rotated.pdf      p3 png-2        
+ok   pdfjs final-rotated.pdf      p3 jpg-2        
+ok   pdfjs final-rotated.pdf      p4 png-3        
+ok   pdfjs final-rotated.pdf      p4 jpg-3        
+ok   pdfjs final-rotated.pdf      p1 png-edited   
+
+IMAGE/ROTATION CHECK: PASS

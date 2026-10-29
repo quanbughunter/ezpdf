@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- ezPDF app icon: a page with a signature line. Square tile; the maskable
+       variant (icon-maskable.svg) keeps the page inside the 80% safe zone. -->
+  <rect width="512" height="512" rx="112" fill="#0b6e69"/>
+  <g id="page">
+    <path d="M168 96h132l60 60v248a16 16 0 0 1-16 16H168a16 16 0 0 1-16-16V112a16 16 0 0 1 16-16z" fill="#fff"/>
+    <path d="M300 96v44a16 16 0 0 0 16 16h44z" fill="#bcdcd8"/>
+    <rect x="188" y="176" width="104" height="14" rx="7" fill="#0b6e69" opacity=".28"/>
+    <rect x="188" y="212" width="136" height="14" rx="7" fill="#0b6e69" opacity=".28"/>
+    <path d="M190 326c16-38 34-62 46-54 14 9-18 52-4 58 13 5 30-40 46-36 11 3-1 30 9 32 11 2 24-20 41-22" fill="none" stroke="#0b6e69" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="186" y="358" width="144" height="8" rx="4" fill="#0b6e69" opacity=".35"/>
+  </g>
+</svg>

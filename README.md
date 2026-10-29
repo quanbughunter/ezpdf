@@ -1,0 +1,126 @@
+# ezPDF
+
+Ứng dụng đọc và chỉnh PDF chạy trên trình duyệt, desktop và Android. Mọi xử lý diễn ra trên thiết bị: tài liệu không bao giờ bị tải lên đâu cả.
+
+**Trạng thái: Mốc 4, phần làm được trong môi trường phát triển đã xong; còn chờ thử trên máy Windows và điện thoại Android thật.** Tính năng của mốc 1–3: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới. Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
+
+- **Web app cài được (PWA):** chạy offline sau lần mở đầu, đăng ký làm trình mở PDF khi cài trên Chrome/Edge máy tính.
+- **Desktop (Tauri 2):** hộp thoại Mở/Lưu của hệ điều hành, “Mở bằng ezPDF” khi bấm chuột phải vào tệp PDF, một cửa sổ duy nhất, bản nháp nằm trong thư mục của ứng dụng.
+- **Android (Capacitor 8):** chọn và lưu tệp qua Storage Access Framework, nhận PDF khi người dùng mở bằng hoặc chia sẻ sang ezPDF, bản nháp nằm trong bộ nhớ riêng của ứng dụng.
+
+Xem `docs/06-ket-qua-moc-4.md`.
+
+## Chạy
+
+```bash
+npm install
+npm run dev          # http://localhost:5173
+npm run build        # web app (PWA) trong dist/; `npm run preview` để thử, kể cả offline
+```
+
+### Bản desktop (Windows)
+
+Cần Node 22, Rust (rustup) và Visual Studio Build Tools có gói “Desktop development with C++”. WebView2 có sẵn trên Windows 10/11.
+
+```bash
+npm ci
+npx tauri dev        # chạy thử với dev server
+npx tauri build      # bộ cài: src-tauri/target/release/bundle/msi/*.msi và nsis/*-setup.exe
+```
+
+Bộ cài đăng ký ezPDF vào mục “Mở bằng” của tệp PDF. `scripts/build-windows-cross.sh` dựng bản chạy thử (không có bộ cài) từ Linux.
+
+### Bản Android
+
+Cần Android Studio (có sẵn JDK 21 và Android SDK).
+
+```bash
+npm ci
+npm run build:android   # build web ở chế độ android rồi chép vào android/
+npx cap open android    # mở trong Android Studio → Run; hoặc: cd android && ./gradlew assembleDebug
+```
+
+APK debug nằm ở `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+### Tự động trên GitHub
+
+`.github/workflows/build.yml` chạy toàn bộ kiểm thử web, dựng bộ cài Windows và APK Android trên máy của GitHub, mỗi lần push.
+
+## Kiểm thử
+
+```bash
+npm run test:layout  # ngắt dòng, chân chữ, căn lề, giãn ô khi xoay (14 điểm)
+npm run test:engine  # headless: 3 tệp (thường, AES-256, RC4) × 4 kiểu trang × chữ Việt + highlight + chữ ký → xuất → đọc lại
+npm run verify       # kiểm các tệp xuất của test:engine bằng qpdf, Poppler, MuPDF
+npm run test:m3      # headless: ảnh PNG/JPG trên 4 kiểu trang, đổi cỡ, xóa-tạo lại, đổi góc xoay trang → Poppler + MuPDF
+npm run e2e          # Chromium thật, mốc 1–2: màn hình = tệp ở 11 mức zoom, 300 trang, điện thoại, không nút chết, không request ra ngoài
+npm run e2e:m3       # Chromium thật, mốc 3: ảnh, chữ ký, xoay trang, bản nháp, kiểm tệp xuất bằng Poppler, MuPDF, pdf.js
+                     # (chạy test:m3 trước thì e2e:m3 kiểm luôn các tệp của nó bằng pdf.js)
+npm run e2e:all      # cả ba bộ e2e (mốc 1–2, 3, 4) trên dev server
+npm run e2e:preview  # bộ mốc 1–2 trên bản build (sau `npm run build && npm run preview`); e2e:m3:preview tương tự
+npm run test:storage # lớp lưu trữ dạng tệp (desktop, Android) trên đĩa thật, kể cả khi app tắt giữa lúc ghi
+npm run e2e:m4       # lớp lưu trữ trong trình duyệt (IndexedDB, Capacitor Filesystem), nháp của mốc 3, "Mở bằng"
+npm run e2e:m4:preview  # trên bản build: cài được, chạy offline, CSP chặn request ra ngoài, "Mở bằng"
+node scripts/smoke-desktop.cjs   # bản desktop thật (Linux, WebDriver): mở bằng đối số, nháp trong thư mục app,
+                                 # quyền tệp, một cửa sổ, hộp thoại Mở/Lưu
+node scripts/perf-big.cjs        # tệp 50 MB trên màn hình điện thoại, CPU chậm 4× (cần `make_big_fixture.py` trước)
+bash scripts/check_android_java.sh  # biên dịch plugin Android với android.jar
+npm run fixtures     # tạo lại tệp mẫu (sample.pdf, long-300.pdf, ảnh và dấu mẫu)
+```
+
+Script kiểm thử cần: Node 22+, Python 3 với `pymupdf`, `pikepdf` và `Pillow`, `qpdf`, `poppler-utils`, Playwright với Chromium.
+
+## Cấu trúc
+
+```
+src/
+  app/                 UI (React)
+    App.tsx              engine + plugin + cấu hình công cụ
+    Workspace.tsx        bố cục 3 cột / điện thoại, phím tắt, trạng thái trống-lỗi-đang mở
+    top-bar.tsx          thanh công cụ (desktop) và thanh dưới (điện thoại)
+    side-panels.tsx      thumbnail + tìm kiếm
+    properties-panel.tsx thuộc tính theo đối tượng đang chọn
+    tool-hint.tsx        dải gợi ý công cụ
+    thumb-overlay.tsx    vẽ annotation lên thumbnail
+    page-rotation.ts     xoay trang (G7): đổi góc trong store, ghi /Rotate khi xuất
+    draft-list.tsx       danh sách bản nháp ở màn hình trống
+    use-document-session.ts  mở tệp, bản nháp tự lưu, cờ "chưa xuất", xuất
+    images/              ảnh và chữ ký: chuẩn bị ảnh, đặt lên trang, hộp thoại chữ ký, vá lỗi stamp (G10–G12)
+    storage/             bản nháp (tệp gốc + trạng thái), chữ ký đã lưu, qua lớp lưu trữ của nền tảng
+  platform/            phần khác nhau giữa 3 nền tảng, sau một interface (types.ts)
+    web.ts               ô chọn tệp, tải về, launchQueue của PWA
+    tauri.ts             hộp thoại hệ thống, tệp từ dòng lệnh / "Mở bằng", lưu nháp trước khi đóng cửa sổ
+    android.ts           plugin EzFiles: Storage Access Framework, tệp được mở bằng / chia sẻ sang
+    storage/             StorageBackend + 3 adapter: idb.ts (web), tauri-fs.ts, capacitor-fs.ts (chung file-tree.ts)
+    viewer/Viewer.tsx    trang ảo hoá, các lớp render/tìm/chọn chữ/annotation
+    viewer/free-text.tsx ô chữ: vẽ bằng bộ ngắt dòng của bước xuất, sửa, tự giãn
+  components/ui/       component shadcn/ui (chép vào, sửa được)
+  engine/
+    text-layout.ts     ngắt dòng + vị trí dòng, dùng chung cho màn hình và bước xuất
+    geometry.ts        giãn ô giữ nguyên mép trên, kể cả khi ô bị xoay
+    config.ts          WASM và phông tự host, không dùng CDN
+    vn-freetext-export.ts  bước xuất: vẽ lại appearance FreeText bằng phông tiếng Việt nhúng, ghi /Rotate
+    appearance-pdf.ts      dựng trang PDF nguồn chứa bản vẽ + phông CID nhúng
+    pdf-incremental.ts     đọc xref + incremental update (bổ sung /Fields của AcroForm)
+    font-metrics.ts        metric TrueType + ngắt dòng
+    export.worker.ts       PDFium thứ hai trong Web Worker, chỉ dùng khi xuất
+public/fonts/          ezPDF Sans VN (subset Noto Sans, SIL OFL 1.1, đã đổi tên)
+public/icons/, manifest.webmanifest   biểu tượng và manifest của web app
+build/                 plugin Vite: service worker (danh sách tệp của bản build), CSP cho bản web
+src-tauri/             vỏ desktop: lib.rs (tệp từ dòng lệnh, một cửa sổ), tauri.conf.json, capabilities/
+android/               dự án Capacitor: EzFilesPlugin.java, AndroidManifest (mở bằng / chia sẻ, tắt sao lưu)
+branding/              SVG gốc của biểu tượng
+tests/                 engine-proof.ts, m3-engine-probe.ts, storage-*, fixtures, trang pdf.js để kiểm độc lập
+scripts/               e2e*.cjs, smoke-desktop.cjs, perf-big.cjs, verify_*.py, inspect_export.py, make_*.py
+docs/                  đánh giá engine, kết quả mốc 1–4, kế hoạch các mốc, bằng chứng
+```
+
+## Nguyên tắc kiến trúc
+
+- **Một nguồn trạng thái:** annotation state và history của EmbedPDF. UI chỉ đọc state và gọi lệnh, không giữ bản sao riêng.
+- **Hệ tọa độ trang PDF:** annotation lưu theo point, gốc trên-trái của trang chưa xoay (`normalizeRotation: true`). Zoom và xoay chỉ là phép biến đổi khi hiển thị.
+- **Tệp gốc giữ nguyên:** “Xuất PDF” luôn tạo tệp mới `… (ezPDF).pdf`. Bản nháp (tệp gốc + trạng thái) tự lưu trên máy, tách hẳn khỏi tệp xuất.
+- **Một mã nguồn, ba vỏ:** mọi khác biệt giữa web, desktop và Android nằm trong `src/platform/`. Phần còn lại của app không biết mình đang chạy ở đâu.
+- **Không gửi gì ra ngoài:** bản web và desktop có Content-Security-Policy chỉ cho nói chuyện với chính app. Bản desktop chỉ được đọc/ghi thư mục nháp của nó và đúng tệp người dùng chọn. Bản Android tắt sao lưu đám mây cho dữ liệu của app.
+- **Không làm giả:** nút nào chưa chạy được đến cuối luồng thì không xuất hiện.
+- `@embedpdf/*` được **ghim đúng 2.15.1**. Trước khi nâng cấp, xem `docs/01-danh-gia-engine.md` mục 4.

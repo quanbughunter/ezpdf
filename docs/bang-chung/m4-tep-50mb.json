@@ -1,0 +1,77 @@
+{
+  "file": "big-50mb.pdf",
+  "bytes": 51370844,
+  "pages": 36,
+  "cpuSlowdown": 4,
+  "viewport": "412×915 @2.625",
+  "memoryBeforeMB": 483,
+  "memoryPeakMB": 1716,
+  "steps": [
+    {
+      "step": "opened (page layout ready)",
+      "ms": 1900,
+      "rssMB": 739
+    },
+    {
+      "step": "first page drawn",
+      "ms": 2400,
+      "rssMB": 720
+    },
+    {
+      "step": "last page drawn",
+      "ms": 3693,
+      "rssMB": 1104
+    },
+    {
+      "step": "draft saved (original + edited copy)",
+      "ms": 9682,
+      "rssMB": 1426
+    },
+    {
+      "step": "draft reopened, first page drawn",
+      "ms": 1829,
+      "rssMB": 926
+    },
+    {
+      "step": "exported",
+      "ms": 5176,
+      "rssMB": 1716
+    },
+    {
+      "step": "base64 of the whole file in 3 MB chunks (Android save path, JS side)",
+      "ms": 1121
+    }
+  ],
+  "results": [
+    {
+      "name": "51 MB, 36 pages: opens and the first page is drawn",
+      "ok": true,
+      "detail": "2.4 s (layout 1.9 s)"
+    },
+    {
+      "name": "the last page is drawn after scrolling",
+      "ok": true,
+      "detail": "3.7 s"
+    },
+    {
+      "name": "an edit is kept as a draft on the device",
+      "ok": true,
+      "detail": "9.7 s"
+    },
+    {
+      "name": "the draft reopens after a reload",
+      "ok": true,
+      "detail": "1.8 s"
+    },
+    {
+      "name": "export produces the file",
+      "ok": true,
+      "detail": "5.2 s, 51.4 MB"
+    },
+    {
+      "name": "no page errors",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

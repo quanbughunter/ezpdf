@@ -1,0 +1,95 @@
+{
+  "binary": "/home/claude/ezpdf/src-tauri/target/debug/ezpdf",
+  "results": [
+    {
+      "name": "started with a PDF path, the PDF opens (name with Vietnamese marks and a space)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "runs inside the desktop shell, not a browser",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the edit is saved as files in the app's folder (.local/share/app.ezpdf.desktop/store)",
+      "ok": true,
+      "detail": "draft-1793226642589.pdf meta-1793226642589.json original-1793226642589.pdf"
+    },
+    {
+      "name": "the original kept with the draft is byte-identical to the file opened",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the file opened is untouched",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the page cannot read a PDF it was not given, nor a system file, nor write outside its folder",
+      "ok": true,
+      "detail": "refused: forbidden path: /home/claude/ezpdf/tests/ | refused: forbidden path: /etc/hostname, maybe it i | refused: forbidden path: /tmp/ezpdf-should-not-exi"
+    },
+    {
+      "name": "...while the same write into its own folder is allowed (the refusals are the scope, not the call)",
+      "ok": true,
+      "detail": "allowed"
+    },
+    {
+      "name": "the page cannot send anything to another site (CSP)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "restarted: the draft is listed (name, pages, not exported)",
+      "ok": true,
+      "detail": "Hợp đồng mẫu.pdfSửa lúc 22:30 hôm nay · 4 trang · 27 KB · chưa xuấtMở"
+    },
+    {
+      "name": "the empty screen speaks of the desktop: where drafts live (folder on hover), \"Open with ezPDF\"",
+      "ok": true,
+      "detail": "/root/.local/share/app.ezpdf.desktop/store · Kéo thả tệp vào đây, chọn tệp, hoặc bấm chuột phải vào một tệp PDF và chọn Mở bằng ezPDF. Tài liệu chỉ được xử lý trên thiết bị này."
+    },
+    {
+      "name": "the reopened draft has the edit (page 1 turned)",
+      "ok": true,
+      "detail": "779.578125x551.21875"
+    },
+    {
+      "name": "a second \"Open with\" goes to the open window, the second process exits",
+      "ok": true,
+      "detail": "exit 0, opened in 399 ms"
+    },
+    {
+      "name": "...and that PDF opens there",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the open dialog (system file chooser) opens the PDF picked there",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the save dialog writes the export where the user chose, with the edit (page 1 /Rotate 90)",
+      "ok": true,
+      "detail": "xuat-qua-hop-thoai.pdf · /Rotate 90"
+    },
+    {
+      "name": "...and the app says where it went",
+      "ok": true,
+      "detail": "/home/claude/ezpdf/out/smoke-desktop / xuat-qua-hop-thoai.pdf"
+    },
+    {
+      "name": "the PDF picked in the dialog is untouched",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "closing the window just after an edit saves the draft first, then closes",
+      "ok": true,
+      "detail": "draft state at close: pending; window gone after 293 ms; saved rotation 1"
+    }
+  ]
+}

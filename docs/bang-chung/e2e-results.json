@@ -1,0 +1,162 @@
+[
+  {
+    "name": "empty state shown before a file is opened",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "PDF opens and page 1 renders",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "FreeText created with Vietnamese contents",
+    "ok": true,
+    "detail": "\"Xin chào! Tiếng Việt có dấu: ắ ằ ẳ ẵ ặ, ơ ư đ — Nguyễn Văn Ấn ký tên\""
+  },
+  {
+    "name": "FreeText rect in page space = dragged rect",
+    "ok": true,
+    "detail": "{\"origin\":{\"x\":71.99910069927674,\"y\":229.9983839274418},\"size\":{\"width\":299.99629752999533,\"height\":59.99957662523195}}"
+  },
+  {
+    "name": "dirty indicator after editing",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "highlight created from text selection",
+    "ok": true,
+    "detail": "{\"origin\":{\"x\":72,\"y\":137},\"size\":{\"width\":219,\"height\":20}}"
+  },
+  {
+    "name": "highlight covers the target text line (y 137–157)",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "undo removes the last annotation, redo restores it",
+    "ok": true,
+    "detail": "2→1→2"
+  },
+  {
+    "name": "FreeText stays on the same page spot at every zoom",
+    "ok": true,
+    "detail": "148% 168% 188% 168% 148% 128%"
+  },
+  {
+    "name": "FreeText follows the page when the view is rotated 90°",
+    "ok": true,
+    "detail": "[0.6555627799267101,0.12094346962592903,0.07125588128845457,0.5039618353432567]"
+  },
+  {
+    "name": "FreeText on /Rotate 90 page is counter-rotated to read upright",
+    "ok": true,
+    "detail": "rotation=270"
+  },
+  {
+    "name": "export downloads a new file, original name kept apart",
+    "ok": true,
+    "detail": "sample (ezPDF).pdf"
+  },
+  {
+    "name": "dirty indicator cleared after export",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "reopened export: annotations come back as editable objects",
+    "ok": true,
+    "detail": "3 annotations"
+  },
+  {
+    "name": "reopened FreeText can be moved",
+    "ok": true,
+    "detail": "{\"x\":111.99858410380952,\"y\":249.99815527211962}"
+  },
+  {
+    "name": "[first export] MuPDF reads Vietnamese from FreeText appearance (p1)",
+    "ok": true,
+    "detail": "\"Xin chào! Tiếng Việt có dấu: ắ ằ ẳ ẵ ặ, ơ ư đ — Nguyễn Văn Ấn ký tên\""
+  },
+  {
+    "name": "[first export] MuPDF reads Vietnamese from FreeText appearance (p2)",
+    "ok": true,
+    "detail": "\"Trang xoay 90°: chữ vẫn đứng thẳng — Đã kiểm tra\""
+  },
+  {
+    "name": "[first export] FreeText font embedded (pdffonts)",
+    "ok": true,
+    "detail": "embedded=2"
+  },
+  {
+    "name": "[first export] p2 appearance turned to read upright on the rotated page",
+    "ok": true,
+    "detail": "[6.1232343e-17,1,-1,6.1232343e-17,0,0]"
+  },
+  {
+    "name": "[first export] qpdf structure check",
+    "ok": true,
+    "detail": "errors that qpdf cannot detect"
+  },
+  {
+    "name": "[first export] Poppler renders without errors",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[after reopen + move] MuPDF reads Vietnamese from FreeText appearance (p1)",
+    "ok": true,
+    "detail": "\"Xin chào! Tiếng Việt có dấu: ắ ằ ẳ ẵ ặ, ơ ư đ — Nguyễn Văn Ấn ký tên\""
+  },
+  {
+    "name": "[after reopen + move] MuPDF reads Vietnamese from FreeText appearance (p2)",
+    "ok": true,
+    "detail": "\"Trang xoay 90°: chữ vẫn đứng thẳng — Đã kiểm tra\""
+  },
+  {
+    "name": "[after reopen + move] FreeText font embedded (pdffonts)",
+    "ok": true,
+    "detail": "embedded=2"
+  },
+  {
+    "name": "[after reopen + move] p2 appearance turned to read upright on the rotated page",
+    "ok": true,
+    "detail": "[6.1232343e-17,1,-1,6.1232343e-17,0,0]"
+  },
+  {
+    "name": "[after reopen + move] qpdf structure check",
+    "ok": true,
+    "detail": "errors that qpdf cannot detect"
+  },
+  {
+    "name": "[after reopen + move] Poppler renders without errors",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[after reopen + move] moved position persisted",
+    "ok": true,
+    "detail": "[112,250,411.99,310]"
+  },
+  {
+    "name": "pdf.js sees FreeText with appearance + Vietnamese contents",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "no request to any other origin",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "no upload (no non-GET request)",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "no page errors",
+    "ok": true,
+    "detail": ""
+  }
+]

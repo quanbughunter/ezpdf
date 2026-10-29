@@ -1,0 +1,254 @@
+{
+  "results": [
+    {
+      "name": "empty state has no draft list on a fresh device",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "a file that is not a picture is refused with a message",
+      "ok": true,
+      "detail": "Trình duyệt không đọc được ảnh này. Hãy dùng ảnh PNG hoặc JPG.Đóng"
+    },
+    {
+      "name": "placing a picture: tool lit, hint says how, ghost follows the pointer",
+      "ok": true,
+      "detail": "Bấm vào trang để đặt ảnh (Enter: giữa trang đang xem). Esc để hủy. pressed=true ghost=1"
+    },
+    {
+      "name": "PNG placed centred on the click, natural size at 96 dpi, marked as ezPDF picture",
+      "ok": true,
+      "detail": "{\"r\":{\"origin\":{\"x\":124.99999955738124,\"y\":374.9999867221418},\"size\":{\"width\":150,\"height\":90}},\"n\":37,\"c\":{\"ez\":1,\"kind\":\"image\"}}"
+    },
+    {
+      "name": "placement ends after one click; properties show the picture",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "screen: PNG drawn upright, transparent part shows the page, soft alpha blends",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "thumbnail of page 1 shows the picture",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the I key opens the picture picker",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "JPEG on a /Rotate 90 page: box turned with the page (90 × 150 pt in page space)",
+      "ok": true,
+      "detail": "{\"origin\":{\"x\":252.63778686523438,\"y\":514.3228338863572},\"size\":{\"width\":90,\"height\":150}}"
+    },
+    {
+      "name": "screen: JPEG on the rotated page reads upright",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Enter puts the picture in the middle of the current page (a /Rotate 270 page)",
+      "ok": true,
+      "detail": "{\"origin\":{\"x\":252.63778686523438,\"y\":345.94488525390625},\"size\":{\"width\":90,\"height\":150}}"
+    },
+    {
+      "name": "screen: PNG on the /Rotate 270 page reads upright",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "corner drag enlarges the picture and keeps its aspect ratio",
+      "ok": true,
+      "detail": "221.4 × 132.8"
+    },
+    {
+      "name": "undo / redo of the resize",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "drag moves the picture",
+      "ok": true,
+      "detail": "{\"x\":160.84229346419127,\"y\":401.8817071522493}"
+    },
+    {
+      "name": "delete, then undo: the picture comes back with its pixels (G11)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "signature: clear empties the pad, keep can be toggled, dialog closes into placement",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "drawn signature placed as an ezPDF picture (transparent PNG, 150 pt wide)",
+      "ok": true,
+      "detail": "{\"width\":150,\"height\":47.63513513513513}"
+    },
+    {
+      "name": "a saved signature is reused on another page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "saved signature deleted from this device; dialog closes by X and Hủy",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "signature from a photo placed (kept only when asked)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "rotation handle offered for text, never for a picture (G10)",
+      "ok": true,
+      "detail": "text 1, picture 0"
+    },
+    {
+      "name": "thumbnail of page 3 shows the text (same lines), the highlight and the signature",
+      "ok": true,
+      "detail": "{\"text\":\"Ô chữ trên trang lệchkhung: Đã duyệt, ký nháytừng trang.\",\"hl\":1,\"img\":1}"
+    },
+    {
+      "name": "rotating page 1: the page turns landscape and so does its thumbnail",
+      "ok": true,
+      "detail": "940×664, thumb 136×88"
+    },
+    {
+      "name": "the picture turns with its page (drawn as on paper)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "this page left/right, every page right/left, each one undoable",
+      "ok": true,
+      "detail": "1,2,1,0 | 3,0,3,2 | 0,1,0,3"
+    },
+    {
+      "name": "R and Shift+R rotate the current page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "changes are saved as a draft on this device a moment after editing",
+      "ok": true,
+      "detail": "Đã lưu lúc 20:56 hôm nay"
+    },
+    {
+      "name": "after a reload the draft is listed (name, pages, not exported)",
+      "ok": true,
+      "detail": "sample.pdfSửa lúc 20:56 hôm nay · 4 trang · 161 KB · chưa xuấtMở"
+    },
+    {
+      "name": "the reopened draft has every annotation and the page rotation",
+      "ok": true,
+      "detail": "8 annotations"
+    },
+    {
+      "name": "reopened draft: pictures drawn, Vietnamese text drawn with its marks (not the engine appearance)",
+      "ok": true,
+      "detail": "Ô chữ trên trang lệch khung: Đã duyệt, ký nháy từng trang."
+    },
+    {
+      "name": "exported page /Rotate matches the screen (90, 90, 0, 270)",
+      "ok": true,
+      "detail": "[90,90,0,270]"
+    },
+    {
+      "name": "pictures are /Image stamps; PNG keeps its alpha as a soft mask, JPEG kept as JPEG",
+      "ok": true,
+      "detail": "{\"png\":{\"page\":1,\"id\":\"96afd617-e035-4c74-ba63-b4b54c255522\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/FlateDecode\",\"w\":200,\"h\":120,\"smask\":true}]},\"jpg\":{\"page\":2,\"id\":\"fe3ac32a-ef7e-4178-97f6-de1a741b37da\",\"name\":\"/Image\",\"images\":[{\"filter\":\"/DCTDecode\",\"w\":120,\"h\":200,\"smask\":false}]}}"
+    },
+    {
+      "name": "pictures at their place, upright, transparent; signature paper gone — Poppler, MuPDF, pdf.js",
+      "ok": true,
+      "detail": "12/12 checks"
+    },
+    {
+      "name": "engine probe files (every page kind, rotations changed) also right in pdf.js, Poppler, MuPDF",
+      "ok": true,
+      "detail": "18/18 pdf.js checks"
+    },
+    {
+      "name": "exported text on page 3 drawn with the embedded Vietnamese font",
+      "ok": true,
+      "detail": "Ô chữ trên trang lệch khung: Đã duyệt, ký nháy từng trang."
+    },
+    {
+      "name": "opening the same original offers the draft: cancel keeps the current, original opens clean, resume restores",
+      "ok": true,
+      "detail": "“sample.pdf” có bản nháp trên máy này, sửa lúc 20:56 hôm nay, đã xuất.Mở bản nhápMở tệp gốcHủy"
+    },
+    {
+      "name": "close returns to the list; delete asks once more, then removes the draft",
+      "ok": true,
+      "detail": "1 draft(s)"
+    },
+    {
+      "name": "a stamp without a name stays in place (G12) and says why",
+      "ok": true,
+      "detail": "Dấu có sẵn trong tệp | Dấu có sẵn trong tệp: chỉ xóa được. Delete để xóa."
+    },
+    {
+      "name": "deleted, then undone: the foreign stamp is back with its own appearance",
+      "ok": true,
+      "detail": "[33,140,64]"
+    },
+    {
+      "name": "a stamp with its own name can be moved; both keep their appearance in the export (MuPDF)",
+      "ok": true,
+      "detail": "[[33,140,63],[140,33,114]]"
+    },
+    {
+      "name": "when drafts cannot be saved the app says so and asks before dropping changes",
+      "ok": true,
+      "detail": "Trình duyệt này không cho lưu dữ liệu trên máy (IndexedDB)."
+    },
+    {
+      "name": "phone: every bottom tool fits without scrolling, pictures and rotation included",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "phone: signature dialog fits the screen, a tap places the signature",
+      "ok": true,
+      "detail": "{\"x\":16,\"y\":184.25,\"width\":358,\"height\":475.5}"
+    },
+    {
+      "name": "phone: search sits in the top bar",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every new button on screen is exercised by a step",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every visible button has a test id",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no request to any other origin",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nothing uploaded (no non-GET request)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no page errors",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

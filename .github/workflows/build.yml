@@ -19,6 +19,9 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      # Ubuntu 24.04's own Python refuses system-wide pip installs (PEP 668)
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
       - name: PDF tools used by the checks
         run: |
           sudo apt-get update
@@ -67,7 +70,9 @@ jobs:
         with: { node-version: 22, cache: npm }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
-      - uses: android-actions/setup-android@v3
+      # The runner image already has the Android SDK (ANDROID_HOME) with licences
+      # accepted; android-actions/setup-android@v3 breaks on cmdline-tools 16
+      # (it asks for the removed 'tools' package). Gradle fetches what is missing.
       - run: npm ci
       - run: npm run build:android
       # the executable bit is lost when the project comes from Windows

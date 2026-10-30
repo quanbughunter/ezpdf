@@ -1,4 +1,4 @@
-# 09 · Web app trên iPhone (bản 0.6.1, 0.6.2)
+# 09 · Web app trên iPhone (bản 0.6.1 → 0.7.0)
 
 Trên iPhone và iPad, ezPDF chạy dưới dạng **web app**. Đó là bản web, được thêm vào màn hình chính, mở như một app và chạy được khi không có mạng. Bản này dùng chung mã với bản trình duyệt.
 
@@ -128,9 +128,29 @@ Trình duyệt máy tính, Android và Safari thường không đổi. Đã ki�
 
 **Chưa kiểm:** camera thật của iPhone. Hãy thử lại đúng cảnh đã chụp: hai tờ chồng nhau trên khăn.
 
+## Bản 0.7.0: thanh công cụ vẫn mờ, sửa lần hai
+
+Sau bản 0.6.2, phần quét trên iPhone đã chạy tốt, nhưng thanh công cụ vẫn bị mờ ở phía trên. Đẩy thanh công cụ xuống 16 px không giúp được gì.
+
+**Nguyên nhân.** Safari 26 tự tô dải dưới thanh trạng thái dựa vào nội dung trang:
+- Nếu trang có một thanh **cố định** (`position: fixed` hoặc `sticky`), rộng hết màn hình và **chạm sát mép trên**, Safari tô dải đó bằng đúng màu của thanh, màu đặc.
+- Nếu không có thanh như vậy, Safari phủ một lớp mép mềm, làm mờ phần trên cùng của trang. Thanh công cụ của ezPDF không cố định, nên bị mờ.
+
+**Đã sửa** (`src/app/top-bar.tsx`, `src/styles.css`):
+- Thanh công cụ giờ là thanh `sticky` ở sát mép trên. Trang không có gì để cuộn qua thanh này, nên trên mọi nền tảng nó vẫn đứng yên như cũ.
+- Trên web app iPhone, khoảng lùi 16 px nằm bên trong thanh công cụ (thanh cao hơn ở phía trên), chứ không còn là khoảng trống phía trên thanh. Nhờ vậy thanh vẫn chạm mép trên và nút cách xa thanh trạng thái hơn.
+- Màn quét và màn Sắp xếp trang vốn đã là lớp phủ cố định chạm mép trên.
+
+**Đã kiểm** ở cỡ màn iPhone 15 Pro Max:
+- Bình thường: thanh công cụ ở sát mép trên, cao 48 px như trước.
+- Khi giả lập web app iPhone: thanh vẫn sát mép trên, cao 64 px.
+- Trang không bị cuộn thừa trong cả hai trường hợp.
+
+Việc Safari thật tô màu đặc thay vì làm mờ thì chỉ kiểm được trên iPhone. Cách Safari 26 chọn màu mép trên được mô tả ở [README của bleedblend](https://cdn.jsdelivr.net/npm/bleedblend@2.3.0/README.md) và [WebKit bug 305546](https://bugs.webkit.org/show_bug.cgi?id=305546).
+
 ## Tự kiểm trên iPhone
 
-1. Mở trang bằng Safari, rồi Thêm vào MH chính. Mở từ biểu tượng, bật chế độ máy bay: app vẫn mở được.
+1. Mở trang bằng Safari, rồi Thêm vào MH chính. Thanh công cụ không còn bị mờ: dải dưới thanh trạng thái cùng màu trắng với thanh công cụ. Mở từ biểu tượng, bật chế độ máy bay: app vẫn mở được.
 2. Chọn một PDF từ app Tệp. Thêm một ô chữ tiếng Việt, tô sáng một dòng, ký.
 3. Đóng hẳn app rồi mở lại. Danh sách Bản nháp còn tài liệu vừa sửa.
 4. **Chia sẻ** → Zalo hoặc Telegram. Người nhận thấy đủ chú thích.

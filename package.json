@@ -1,7 +1,7 @@
 {
   "name": "ezpdf",
   "private": true,
-  "version": "0.6.2",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,7 +20,7 @@
     "e2e:preview": "BASE=http://localhost:4173 SKIP_PDFJS=1 node scripts/e2e.cjs",
     "e2e:m3": "node scripts/e2e-m3.cjs",
     "e2e:m3:preview": "BASE=http://localhost:4173 SKIP_PDFJS=1 node scripts/e2e-m3.cjs",
-    "e2e:all": "node scripts/e2e.cjs && node scripts/e2e-m3.cjs && node scripts/e2e-m4.cjs && node scripts/e2e-edit.cjs && node scripts/e2e-scan.cjs && node scripts/e2e-share-print.cjs",
+    "e2e:all": "node scripts/e2e.cjs && node scripts/e2e-m3.cjs && node scripts/e2e-m4.cjs && node scripts/e2e-edit.cjs && node scripts/e2e-scan.cjs && node scripts/e2e-share-print.cjs && node scripts/e2e-pages.cjs",
     "fixtures": "python3 scripts/make_fixture.py tests/fixtures/sample.pdf && python3 scripts/make_long_fixture.py tests/fixtures/long-300.pdf && python3 scripts/make_image_fixtures.py tests/fixtures && node scripts/make_edit_fixture.cjs && python3 scripts/make_scan_fixtures.py tests/fixtures/scan",
     "test:storage": "tsx tests/storage.test.ts",
     "e2e:m4": "node scripts/e2e-m4.cjs",
@@ -32,7 +32,10 @@
     "e2e:scan": "node scripts/e2e-scan.cjs",
     "e2e:scan:preview": "BASE=http://localhost:4173 node scripts/e2e-scan.cjs",
     "e2e:share": "node scripts/e2e-share-print.cjs",
-    "e2e:share:preview": "BASE=http://localhost:4173 node scripts/e2e-share-print.cjs"
+    "e2e:share:preview": "BASE=http://localhost:4173 node scripts/e2e-share-print.cjs",
+    "e2e:pages": "node scripts/e2e-pages.cjs",
+    "e2e:pages:preview": "BASE=http://localhost:4173 node scripts/e2e-pages.cjs",
+    "test:pages": "tsx tests/page-ops-probe.ts && tsx tests/ranges.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",

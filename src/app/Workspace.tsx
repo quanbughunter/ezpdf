@@ -27,6 +27,8 @@ import { TextEditBar, TextEditProvider, useTextEdit } from './text-edit';
 import { ScanDialog } from './scan/ScanDialog';
 import { useRestingModes, useSetPointerTool, useSpaceToPan } from './viewer/hand';
 import { OutputProvider, PrintProgressOverlay, useOutput } from './output-actions';
+import { PageOrganizer } from './pages/PageOrganizer';
+import { buildPages } from '@/engine/export-client';
 
 function useMedia(query: string) {
   const [match, setMatch] = useState(() => window.matchMedia(query).matches);
@@ -56,7 +58,10 @@ export function Workspace({ documentId }: { documentId: string | null }) {
   const [leftTab, setLeftTab] = useState<LeftTab>('pages');
   const [searchFocusKey, setSearchFocusKey] = useState(0);
   const [scanning, setScanning] = useState(false);
+  const [organizing, setOrganizing] = useState(false);
   useEffect(() => setLeftOpen(!phone), [phone]);
+  // another document, or none: the organizer was for the old one
+  useEffect(() => setOrganizing(false), [session.docEpoch]);
   useEffect(() => setRightOpen(!narrow), [narrow]);
 
   const { openPicked } = session;
@@ -79,6 +84,19 @@ export function Workspace({ documentId }: { documentId: string | null }) {
     () => ({ open: openPicker, search: openSearch, exportPdf: session.exportPdf }),
     [openPicker, openSearch, session.exportPdf],
   );
+
+  /** A scan onto the end of the open document: one page change, undoable. */
+  const appendScan = async (file: File, pages: number) => {
+    const base = await session.currentBytes();
+    const rotations = session.rotations();
+    const plan = [
+      ...rotations.map((rotation, page) => ({ src: 0, page, rotation })),
+      ...Array.from({ length: pages }, (_, page) => ({ src: 1, page, rotation: 0 })),
+    ];
+    const { bytes } = await buildPages(base, [await file.arrayBuffer()], plan, 'in-place');
+    await session.applyPages(bytes, base, plan.map((p) => p.rotation), rotations.length + 1);
+    setScanning(false);
+  };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -112,6 +130,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
         onToggleRight={() => setRightOpen((v) => !v)}
         onOpen={openPicker}
         onScan={() => setScanning(true)}
+        onPages={() => setOrganizing(true)}
         onSearch={openSearch}
         onExport={session.exportPdf}
         onClose={() => void session.closeDocument()}
@@ -173,7 +192,11 @@ export function Workspace({ documentId }: { documentId: string | null }) {
             if (ok) setScanning(false);
             return ok;
           }}
+          onAppend={documentId && !session.switching ? appendScan : undefined}
         />
+      )}
+      {organizing && documentId && !session.switching && (
+        <PageOrganizer session={session} fileName={session.fileName} onClose={() => setOrganizing(false)} />
       )}
     </div>
   );
@@ -358,7 +381,8 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
   const setPointerTool = useSetPointerTool(documentId);
   const output = useOutput();
   const busyRef = useRef<() => boolean>(() => false);
-  busyRef.current = () => !!placement?.placing || !!textEdit?.active || !!pictures?.signatureOpen;
+  busyRef.current = () =>
+    !!placement?.placing || !!textEdit?.active || !!pictures?.signatureOpen || !!document.querySelector('[data-ez-overlay]');
   const spaceBlocked = useCallback(() => busyRef.current(), []);
   useSpaceToPan(documentId, spaceBlocked);
   useEffect(() => {
@@ -367,6 +391,8 @@ function useShortcuts(documentId: string, actions: { open: () => void; search: (
     const undo = () => (hist?.canUndo() ? hist.undo() : textEdit?.contentUndo.canUndo && void textEdit.contentUndo.undo());
     const redo = () => (hist?.canRedo() ? hist.redo() : textEdit?.contentUndo.canRedo && void textEdit.contentUndo.redo());
     const onKey = (e: KeyboardEvent) => {
+      // a full-screen tool on top (scan, page organizer) has its own keys
+      if (document.querySelector('[data-ez-overlay]')) return;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       // App-level shortcuts that also work while typing in the search box

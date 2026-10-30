@@ -18,6 +18,9 @@
  *     picked PDF opens, the export is written where the user chose
  *  7. the window closed (WM_DELETE_WINDOW, as the close button does) right
  *     after an edit: the draft is saved before the window goes
+ *  2c. the page organizer in the shell's web view: thumbnails drawn, a split
+ *     built in the PDFium worker, the rearranged document saved as the draft,
+ *     and undone
  *  2b. sharing through the shell (src-tauri/src/share.rs): the share button
  *     sends the finished PDF over the IPC as raw bytes; the shell writes a
  *     temporary copy under the document's name (Vietnamese marks) and shows
@@ -183,6 +186,56 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
     );
     check('share: a way this system does not have (clipboard on Linux) is refused with a message', refused.startsWith('refused: Máy này không chia sẻ được'), refused);
     fs.rmSync(shareRoot, { recursive: true, force: true });
+
+    // 2c. the page organizer in the shell's own web view (WebKitGTK here)
+    {
+      const draftPdf = () => {
+        const d = fs.readdirSync(path.join(STORE, 'drafts'))[0];
+        const f = fs.readdirSync(path.join(STORE, 'drafts', d)).find((x) => x.startsWith('draft-'));
+        return path.join(STORE, 'drafts', d, f);
+      };
+      const order = (file) =>
+        execFileSync('python3', ['-c', 'import pymupdf,sys; print(" ".join(p.get_text().split()[1] for p in pymupdf.open(sys.argv[1])))', file], { encoding: 'utf8' }).trim();
+      const draftMeta = () => {
+        const d = fs.readdirSync(path.join(STORE, 'drafts'))[0];
+        const f = fs.readdirSync(path.join(STORE, 'drafts', d)).find((x) => x.startsWith('meta-'));
+        return JSON.parse(fs.readFileSync(path.join(STORE, 'drafts', d, f), 'utf8')).record;
+      };
+      await s.js(`document.querySelector('${T('btn-pages')}').click()`);
+      await s.waitFor(
+        `const imgs = [...document.querySelectorAll('[data-testid="org-grid"] img')]; return imgs.length === 4 && imgs.every((i) => i.complete && i.naturalWidth > 0)`,
+        'the organizer to draw the 4 pages',
+        30000,
+      );
+      // page 1 (turned earlier) one place later, page 4 deleted
+      await s.js(`document.querySelector('${T('org-card-0')}').click()`);
+      await s.js(`document.querySelector('${T('org-right')}').click()`);
+      await s.js(`document.querySelector('${T('org-card-1')}').click()`);
+      await s.js(`document.querySelector('${T('org-card-3')}').click()`);
+      await s.js(`document.querySelector('${T('org-delete')}').click()`);
+      await s.shot('2c-organizer.png');
+      // a split, built by the worker inside the shell
+      await s.js(`document.querySelector('${T('org-split')}').click()`);
+      await s.waitFor(`return !!document.querySelector('${T('split-go')}')`, 'the split dialog');
+      await s.js(`document.querySelector('${T('split-go')}').click()`);
+      const parts = await s.waitFor(`return document.querySelectorAll('[data-testid^="org-output-save-"]').length`, 'the split files', 30000);
+      await s.js(`document.querySelector('${T('org-outputs-close')}').click()`);
+      await s.js(`document.querySelector('${T('org-apply')}').click()`);
+      await s.waitFor(has(T('page-total'), '/ 3'), 'the rearranged document', 30000);
+      for (let i = 0; i < 100 && draftMeta()?.pages !== 3; i++) await sleep(300);
+      const rec = draftMeta();
+      const got = order(draftPdf());
+      check(
+        'the page organizer in the desktop shell: pages drawn, split built, the rearranged document saved as the draft (page 1 still turned)',
+        parts === 2 && rec?.pages === 3 && got === '2 1 3' && rec?.rotations?.join(',') === '1,1,0',
+        `split ${parts} files · draft pages ${got} · rotations ${rec?.rotations?.join(',')}`,
+      );
+      // ↶: the 4 pages again, for the steps below
+      await s.js(`document.querySelector('${T('btn-undo')}').click()`);
+      await s.waitFor(has(T('page-total'), '/ 4'), 'the undo of the page change', 30000);
+      for (let i = 0; i < 100 && draftMeta()?.pages !== 4; i++) await sleep(300);
+      check('…and ↶ brings the 4 pages back into the draft', draftMeta()?.pages === 4 && order(draftPdf()) === '1 2 3 4' && draftMeta()?.rotations?.[0] === 1);
+    }
 
     // 3. what the page may not do
     const probe = async (cmd, args) =>

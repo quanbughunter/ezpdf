@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ClipboardCopy, FolderSearch, Loader2, MoreVertical, Printer, Share2, X } from 'lucide-react';
+import { ClipboardCopy, FolderSearch, LayoutGrid, Loader2, MoreVertical, Printer, Share2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -264,7 +264,7 @@ export function PrintButton() {
 }
 
 /** Phone top bar: printing and closing share one menu, so the bar keeps its width. */
-export function MoreMenu({ onClose }: { onClose: () => void }) {
+export function MoreMenu({ onClose, onPages }: { onClose: () => void; onPages: () => void }) {
   const out = useOutput();
   return (
     <DropdownMenu>
@@ -274,6 +274,9 @@ export function MoreMenu({ onClose }: { onClose: () => void }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">
+        <DropdownMenuItem data-testid="btn-pages" onSelect={onPages}>
+          <LayoutGrid /> Sắp xếp trang
+        </DropdownMenuItem>
         <DropdownMenuItem data-testid="btn-print" disabled={!!out?.busy} onSelect={() => void out?.print()}>
           <Printer /> In tài liệu
         </DropdownMenuItem>

@@ -70,10 +70,13 @@
 }
 
 /*
- * iPhone web app (on the home screen): iOS draws the top few pixels of the
- * page right under the status bar soft and blurred. A strip of plain toolbar
- * colour takes them, so the buttons sit below the blur. Only there: Safari
- * on iOS (-webkit-touch-callout) running standalone.
+ * iPhone web app (on the home screen). Safari 26 paints the strip under the
+ * status bar from the page: a full-width fixed or sticky bar touching the
+ * top edge gives it that bar's solid colour; without one it lays a soft,
+ * blurred edge over the top of the page, the toolbar included. So the top
+ * bar is sticky at the very top (it has nothing to scroll past, so it does
+ * not move), and on iOS standalone it is 16 px taller at the top
+ * (--ez-top-gap), its buttons a little further from the status bar.
  */
 @supports (-webkit-touch-callout: none) {
   @media (display-mode: standalone) {
@@ -81,6 +84,10 @@
       --ez-top-gap: 16px;
     }
   }
+}
+.ez-topbar {
+  padding-top: var(--ez-top-gap, 0px);
+  height: calc(3rem + var(--ez-top-gap, 0px));
 }
 
 @layer base {
@@ -91,10 +98,6 @@
   body,
   #root {
     height: 100%;
-  }
-  #root {
-    box-sizing: border-box;
-    padding-top: var(--ez-top-gap, 0px);
   }
   body {
     margin: 0;

@@ -47,12 +47,27 @@ const fileName = (d = new Date()) => {
   return `Bản quét ${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}.${p(d.getMinutes())}.pdf`;
 };
 
-export function ScanDialog({ onClose, onDone }: { onClose: () => void; onDone: (file: File) => Promise<boolean> }) {
+/**
+ * onDone: the scan as a PDF (a new document, or pages for the organizer:
+ * doneLabel names the button then). onAppend: with a document open, the
+ * scan can go onto its end instead.
+ */
+export function ScanDialog({
+  onClose,
+  onDone,
+  onAppend,
+  doneLabel,
+}: {
+  onClose: () => void;
+  onDone: (file: File) => Promise<boolean>;
+  onAppend?: (file: File, pages: number) => Promise<void>;
+  doneLabel?: string;
+}) {
   const platform = usePlatform();
   const [pages, setPages] = useState<ScanPage[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [mode, setMode] = useState<'adjust' | 'review'>('review');
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<null | 'new' | 'append'>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const camera = useRef<HTMLInputElement>(null);
@@ -161,9 +176,9 @@ export function ScanDialog({ onClose, onDone }: { onClose: () => void; onDone: (
   };
 
   const ready = pages.length > 0 && pages.every((p) => p.result && !p.busy);
-  const create = async () => {
+  const create = async (how: 'new' | 'append' = 'new') => {
     if (!ready) return;
-    setCreating(true);
+    setCreating(how);
     setError(null);
     try {
       const out = await Promise.all(
@@ -174,12 +189,17 @@ export function ScanDialog({ onClose, onDone }: { onClose: () => void; onDone: (
       );
       const name = fileName();
       const bytes = jpegPagesToPdf(out, { title: name.replace(/\.pdf$/, '') });
-      const ok = await onDone(new File([bytes as BlobPart], name, { type: 'application/pdf' }));
+      const file = new File([bytes as BlobPart], name, { type: 'application/pdf' });
+      if (how === 'append' && onAppend) {
+        await onAppend(file, pages.length);
+        return;
+      }
+      const ok = await onDone(file);
       if (!ok) setError('Chưa mở được bản quét: tài liệu đang mở còn thay đổi chưa lưu được vào nháp. Hãy xuất tài liệu đó trước.');
     } catch (e) {
-      setError(`Không tạo được PDF: ${e instanceof Error ? e.message : String(e)}`);
+      setError(how === 'append' ? `Chưa thêm được vào tài liệu: ${e instanceof Error ? e.message : String(e)}` : `Không tạo được PDF: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setCreating(false);
+      setCreating(null);
     }
   };
 
@@ -211,6 +231,7 @@ export function ScanDialog({ onClose, onDone }: { onClose: () => void; onDone: (
       aria-label="Quét tài liệu"
       data-testid="scan-dialog"
       data-mode={pages.length ? mode : 'empty'}
+      data-ez-overlay=""
       className="fixed inset-0 z-[60] flex flex-col bg-[#1b1f21] pt-[var(--ez-top-gap,0px)] text-[#eef1f0]"
     >
       <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" data-testid="scan-camera-input" onChange={onFiles} />
@@ -373,9 +394,15 @@ export function ScanDialog({ onClose, onDone }: { onClose: () => void; onDone: (
           </div>
           <footer className="flex shrink-0 items-center justify-end gap-2 px-3 pt-1 pb-3">
             <p className="mr-auto text-[12px] leading-snug text-[#a6b0ae]">Ảnh chỉ được xử lý trên máy này.</p>
-            <DarkButton primary disabled={!ready || creating} onClick={() => void create()} testId="scan-create">
-              {creating ? <Loader2 className="animate-spin" /> : <Check />}
-              Tạo PDF ({pages.length} trang)
+            {onAppend && (
+              <DarkButton primary disabled={!ready || !!creating} onClick={() => void create('append')} testId="scan-append">
+                {creating === 'append' ? <Loader2 className="animate-spin" /> : <Check />}
+                Thêm vào tài liệu này
+              </DarkButton>
+            )}
+            <DarkButton primary={!onAppend} disabled={!ready || !!creating} onClick={() => void create()} testId="scan-create">
+              {creating === 'new' ? <Loader2 className="animate-spin" /> : <Check />}
+              {doneLabel ?? (onAppend ? 'Tạo PDF mới' : 'Tạo PDF')} ({pages.length} trang)
             </DarkButton>
           </footer>
         </>

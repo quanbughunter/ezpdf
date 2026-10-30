@@ -58,12 +58,20 @@ interface ViewRestore {
 }
 
 /**
- * Text edits change the page content, so the document is reopened from the
- * edited bytes and EmbedPDF's history starts empty. Their undo keeps whole
- * snapshots, bounded in count and size.
+ * Text edits and page changes (order, added, removed pages) change the
+ * document itself, so it is reopened from the new bytes and EmbedPDF's
+ * history starts empty. Their undo keeps whole snapshots, bounded in count
+ * and size. A snapshot carries the page rotations with it: they live in the
+ * viewer until the export writes them, and after a page change the same
+ * index is another page.
  */
 const CONTENT_UNDO_MAX = 20;
 const CONTENT_UNDO_BYTES = 300e6;
+
+interface Snapshot {
+  bytes: ArrayBuffer;
+  rotations: number[];
+}
 
 interface Current {
   draftId: string;
@@ -111,7 +119,7 @@ export function useDocumentSession(documentId: string | null) {
   const [switching, setSwitching] = useState<null | 'open' | 'close' | 'update'>(null);
   const current = useRef<Current | null>(null);
   const restore = useRef<ViewRestore | null>(null);
-  const contentStack = useRef<{ undo: ArrayBuffer[]; redo: ArrayBuffer[] }>({ undo: [], redo: [] });
+  const contentStack = useRef<{ undo: Snapshot[]; redo: Snapshot[] }>({ undo: [], redo: [] });
   const [contentDepth, setContentDepth] = useState({ undo: 0, redo: 0 });
   /** another document opened, or closed */
   const [docEpoch, setDocEpoch] = useState(0);
@@ -162,6 +170,8 @@ export function useDocumentSession(documentId: string | null) {
       stopWatching();
     };
     if (r.zoom !== undefined || r.scroll) {
+      // no scroll position to come back to (the pages changed): the page instead
+      const toPage = !r.scroll && r.lastPage > 1 ? r.lastPage : 0;
       // Zoom requests are ignored until the viewport has a size; the default
       // zoom is applied when it first gets one.
       let tries = 80;
@@ -181,6 +191,15 @@ export function useDocumentSession(documentId: string | null) {
             if (r.zoom !== undefined) zoom?.forDocument(id).requestZoom(r.zoom);
           } catch {}
           const sc = r.scroll;
+          if (!sc && toPage) {
+            setTimeout(() => {
+              try {
+                if (!moved) scroll?.forDocument(id).scrollToPage({ pageNumber: toPage, behavior: 'instant' });
+              } catch {}
+              finish();
+            }, 120);
+            return;
+          }
           if (!sc) return finish();
           setTimeout(() => {
             try {
@@ -486,12 +505,21 @@ export function useDocumentSession(documentId: string | null) {
     return { rotations: getPageRotations(registry, documentId), lastPage, zoom: z, scroll: sc };
   }, [registry, documentId, scroll, zoom, viewport]);
 
-  /** Reopen the same document (same draft) from new bytes, keeping the view. */
+  /**
+   * Reopen the same document (same draft) from new bytes. The view stays as
+   * it was when the pages are the same ones; after a page change it goes to
+   * `page` at the same zoom. `rotations` are those of the new bytes' pages.
+   */
   const reopenContent = useCallback(
-    async (bytes: ArrayBuffer) => {
+    async (bytes: ArrayBuffer, rotations: number[], page?: number) => {
       const cur = current.current;
       if (!docs || !cur) return;
-      const view = captureView();
+      const before = captureView();
+      const view: ViewRestore | null = before && {
+        ...before,
+        rotations,
+        ...(page !== undefined ? { lastPage: page, scroll: undefined } : {}),
+      };
       await unmountViewer('update');
       try {
         await asPromise(docs.closeAllDocuments());
@@ -506,21 +534,36 @@ export function useDocumentSession(documentId: string | null) {
     [docs, captureView, unmountViewer],
   );
 
+  const rotationsNow = useCallback(() => (registry && documentId ? getPageRotations(registry, documentId) : []), [registry, documentId]);
+
   /**
-   * A change made outside EmbedPDF (editing existing text): `next` becomes
-   * the document, `previous` is what undo brings back.
+   * A change made outside EmbedPDF: `next` becomes the document, `previous`
+   * is what undo brings back. Editing text keeps the pages as they are; a
+   * page change gives the new pages' rotations and the page to show.
    */
+  /** one content change at a time (a double click on ↶ must not pop two snapshots) */
+  const contentBusy = useRef(false);
+
   const replaceContent = useCallback(
-    async (next: ArrayBuffer, previous: ArrayBuffer) => {
-      const st = contentStack.current;
-      st.undo.push(previous);
-      st.redo = [];
-      let total = st.undo.reduce((n, b) => n + b.byteLength, 0);
-      while (st.undo.length > CONTENT_UNDO_MAX || (st.undo.length > 1 && total > CONTENT_UNDO_BYTES)) total -= st.undo.shift()!.byteLength;
-      syncDepth();
-      await reopenContent(next.slice(0));
+    async (next: ArrayBuffer, previous: ArrayBuffer, pages?: { rotations: number[]; previousRotations: number[]; page: number }) => {
+      if (contentBusy.current) throw new Error('Tài liệu đang được cập nhật, hãy thử lại sau giây lát.');
+      contentBusy.current = true;
+      try {
+        const st = contentStack.current;
+        const now = rotationsNow();
+        st.undo.push({ bytes: previous, rotations: pages?.previousRotations ?? now });
+        st.redo = [];
+        let total = st.undo.reduce((n, b) => n + b.bytes.byteLength, 0);
+        while (st.undo.length > CONTENT_UNDO_MAX || (st.undo.length > 1 && total > CONTENT_UNDO_BYTES)) total -= st.undo.shift()!.bytes.byteLength;
+        syncDepth();
+        // other pages: whatever kept a copy of the old ones (editing text) lets go of it
+        if (pages) setContentEpoch((n) => n + 1);
+        await reopenContent(next.slice(0), pages?.rotations ?? now, pages?.page);
+      } finally {
+        contentBusy.current = false;
+      }
     },
-    [reopenContent],
+    [reopenContent, rotationsNow],
   );
 
   const currentBytes = useCallback(async () => {
@@ -532,18 +575,53 @@ export function useDocumentSession(documentId: string | null) {
   /** Undo/redo of content changes, used once EmbedPDF's own history has nothing left. */
   const stepContent = useCallback(
     async (dir: 'undo' | 'redo') => {
+      if (contentBusy.current) return false;
       const st = contentStack.current;
       const from = dir === 'undo' ? st.undo : st.redo;
       const to = dir === 'undo' ? st.redo : st.undo;
       const target = from.pop();
       if (!target) return false;
-      to.push(await currentBytes());
+      contentBusy.current = true;
       syncDepth();
-      setContentEpoch((n) => n + 1);
-      await reopenContent(target.slice(0));
-      return true;
+      try {
+        const now = rotationsNow();
+        try {
+          to.push({ bytes: await currentBytes(), rotations: now });
+        } catch (e) {
+          from.push(target); // nothing changed: the step stays where it was
+          syncDepth();
+          throw e;
+        }
+        syncDepth();
+        setContentEpoch((n) => n + 1);
+        // other pages (a page change undone): stay on the same page number
+        let page: number | undefined;
+        if (target.rotations.length !== now.length) {
+          try {
+            page = Math.min(target.rotations.length, scroll?.forDocument(documentId!).getCurrentPage() ?? 1);
+          } catch {
+            page = 1;
+          }
+        }
+        await reopenContent(target.bytes.slice(0), target.rotations, page);
+        return true;
+      } finally {
+        contentBusy.current = false;
+      }
     },
-    [currentBytes, reopenContent],
+    [currentBytes, reopenContent, rotationsNow, scroll, documentId],
+  );
+
+  /**
+   * Pages rearranged, added or removed (page organizer, a scan added to the
+   * document): `next` is the new document, `rotations` its pages' rotations,
+   * `page` (1-based) the page to show. One undo step.
+   */
+  const applyPages = useCallback(
+    async (next: ArrayBuffer, previous: ArrayBuffer, rotations: number[], page: number) => {
+      await replaceContent(next, previous, { rotations, previousRotations: rotationsNow(), page });
+    },
+    [replaceContent, rotationsNow],
   );
 
   /**
@@ -609,6 +687,8 @@ export function useDocumentSession(documentId: string | null) {
     contentEpoch,
     currentBytes,
     replaceContent,
+    applyPages,
+    rotations: rotationsNow,
     contentUndo: {
       canUndo: contentDepth.undo > 0,
       canRedo: contentDepth.redo > 0,

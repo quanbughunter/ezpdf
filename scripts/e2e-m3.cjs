@@ -749,7 +749,7 @@ print(json.dumps([pix.pixel(int(x), int(y)) for x, y in pts]))`, fexp, JSON.stri
   const M2_COVERED = /^(btn-toggle-left|btn-toggle-right|btn-open|tool-select|tool-text|tool-highlight|tool-note|btn-undo|btn-redo|btn-page-prev|btn-page-next|zoom-menu|btn-zoom-in|btn-zoom-out|btn-search|btn-export|btn-delete|tab-pages|tab-search|thumb-\d+|ft-.*|hl-color-\d|note-color-\d|search-.*|btn-open-empty)$/;
   // editing existing text: scripts/e2e-edit.cjs; scanning: scripts/e2e-scan.cjs
   // covered by e2e-edit, e2e-scan and e2e-share-print
-  const LATER_COVERED = /^(tool-edit-text|btn-scan|btn-scan-empty|tool-hand|btn-share|btn-print|btn-more|share-(copy|sheet|reveal))$/;
+  const LATER_COVERED = /^(tool-edit-text|btn-scan|btn-scan-empty|tool-hand|btn-share|btn-print|btn-more|btn-pages|share-(copy|sheet|reveal))$/;
   const untested = [...seenButtons].filter((id) => !covered.has(id) && !M2_COVERED.test(id) && !LATER_COVERED.test(id) && !/^(sig-saved|sig-delete|draft-open|draft-delete|draft-delete-confirm|draft-delete-cancel)-\d+$/.test(id.replace(/-\d+$/, '-0')) );
   const families = ['sig-saved', 'sig-delete', 'draft-open', 'draft-delete', 'draft-delete-confirm', 'draft-delete-cancel'].filter(
     (f) => [...seenButtons].some((id) => new RegExp(`^${f}-\\d+$`).test(id)) && ![...covered].some((id) => new RegExp(`^${f}-\\d+$`).test(id)),

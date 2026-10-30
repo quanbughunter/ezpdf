@@ -1,10 +1,11 @@
-import type { EditRequest, EditResponse, ExportRequest, ExportResponse, RenderRequest, RenderResponse } from './export.worker';
+import type { EditRequest, EditResponse, ExportRequest, ExportResponse, PagesRequest, PagesResponse, RenderRequest, RenderResponse } from './export.worker';
+import type { PageInfo, PlanPage } from './page-ops';
 import type { FinalizeReport } from './vn-freetext-export';
 import type { EditReport, TextLine } from './text-edit';
 import { PDFIUM_WASM_URL, VN_FONT_URL, VN_BOLD_FONT_URL } from './config';
 
-type Response = ExportResponse | EditResponse | RenderResponse;
-type Request = ExportRequest | EditRequest | RenderRequest;
+type Response = ExportResponse | EditResponse | RenderResponse | PagesResponse;
+type Request = ExportRequest | EditRequest | RenderRequest | PagesRequest;
 
 let worker: Worker | null = null;
 let seq = 0;
@@ -84,20 +85,42 @@ export function closeTextEditSession(session: number): Promise<unknown> {
 
 // ---- printing ---------------------------------------------------------------
 
-/** Opens a copy for rendering (the caller's buffer is detached); page sizes in points, /Rotate applied. */
+/**
+ * Opens a copy for rendering (the caller's buffer is detached). pages: sizes
+ * in points with /Rotate applied; infos: unrotated sizes and each /Rotate.
+ */
 export async function openRenderSession(bytes: ArrayBuffer) {
-  const r = await call<{ id: number; ok: true; session: number; pages: { w: number; h: number }[] }>(
+  const r = await call<{ id: number; ok: true; session: number; pages: { w: number; h: number }[]; infos: PageInfo[] }>(
     { kind: 'render-open', bytes, wasmUrl: PDFIUM_WASM_URL },
     [bytes],
   );
-  return { session: r.session, pages: r.pages };
+  return { session: r.session, pages: r.pages, infos: r.infos };
 }
 
-export async function renderPageImage(session: number, pageIndex: number, dpi: number) {
-  const r = await call<{ id: number; ok: true; image: Blob; width: number; height: number }>({ kind: 'render-page', session, pageIndex, dpi });
+/** A page as JPEG; unrotated: without its /Rotate. */
+export async function renderPageImage(session: number, pageIndex: number, dpi: number, unrotated = false) {
+  const r = await call<{ id: number; ok: true; image: Blob; width: number; height: number }>({ kind: 'render-page', session, pageIndex, dpi, unrotated });
   return { image: r.image, width: r.width, height: r.height };
 }
 
 export function closeRenderSession(session: number): Promise<unknown> {
   return call({ kind: 'render-close', session }).catch(() => undefined);
+}
+
+// ---- pages ------------------------------------------------------------------
+
+/**
+ * A document put together from pages (page-ops.ts). `base` is the open
+ * document (src 0), `extras` the other PDFs (src 1…); copies are sent, the
+ * caller keeps its buffers. in-place: the open document rearranged; new: a
+ * file with only the planned pages, finished like an export.
+ */
+export async function buildPages(base: ArrayBuffer, extras: ArrayBuffer[], plan: PlanPage[], mode: 'in-place' | 'new') {
+  const bytes = base.slice(0);
+  const copies = extras.map((e) => e.slice(0));
+  const r = await call<{ id: number; ok: true; bytes: ArrayBuffer; ms: number }>(
+    { kind: 'pages-build', bytes, extras: copies, plan, mode, wasmUrl: PDFIUM_WASM_URL, fontUrl: VN_FONT_URL },
+    [bytes, ...copies],
+  );
+  return { bytes: r.bytes, ms: r.ms };
 }

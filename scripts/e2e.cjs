@@ -632,7 +632,7 @@ const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.tes
   // editing existing text: scripts/e2e-edit.cjs; scanning: scripts/e2e-scan.cjs
   const M3_COVERED = /^(tool-image|tool-signature|btn-close-doc)$/;
   // covered by e2e-edit, e2e-scan and e2e-share-print
-  const LATER_COVERED = /^(tool-edit-text|btn-scan|btn-scan-empty|tool-hand|btn-share|btn-print|btn-more|share-(copy|sheet|reveal))$/;
+  const LATER_COVERED = /^(tool-edit-text|btn-scan|btn-scan-empty|tool-hand|btn-share|btn-print|btn-more|btn-pages|share-(copy|sheet|reveal))$/;
   const untested = [...seenButtons].filter(
     (id) => !familyCovered.has(family(id)) && !M3_COVERED.test(id) && !LATER_COVERED.test(id) && !/^(ft-color|ft-bg|hl-color|note-color)-\d$/.test(id),
   );

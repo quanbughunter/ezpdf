@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Hand,
   Highlighter,
+  LayoutGrid,
   ImagePlus,
   Loader2,
   MessageSquareText,
@@ -70,6 +71,8 @@ interface Props {
   onToggleRight: () => void;
   onOpen: () => void;
   onScan: () => void;
+  /** the page organizer: rearrange, add, remove, extract, split pages */
+  onPages: () => void;
   onSearch: () => void;
   onExport: () => void;
   onClose: () => void;
@@ -79,7 +82,10 @@ interface Props {
 
 export function TopBar(p: Props) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-background px-2 [scrollbar-width:none]">
+    <header
+      data-testid="top-bar"
+      className="ez-topbar sticky top-0 z-30 flex shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-background px-2 [scrollbar-width:none]"
+    >
       {p.documentId && (
         <IconAction
           label={p.leftOpen ? 'Ẩn cột trang' : 'Hiện cột trang'}
@@ -95,6 +101,11 @@ export function TopBar(p: Props) {
       <IconAction label="Quét tài liệu thành PDF" onClick={p.onScan} testId="btn-scan">
         <ScanLine />
       </IconAction>
+      {p.documentId && !p.compact && (
+        <IconAction label="Sắp xếp trang: thêm, xóa, đổi chỗ, tách tệp" onClick={p.onPages} testId="btn-pages">
+          <LayoutGrid />
+        </IconAction>
+      )}
       {p.documentId && !p.compact && <DocumentTools documentId={p.documentId} onSearch={p.onSearch} />}
       {p.documentId && p.compact && (
         <IconAction label="Tìm trong tài liệu" shortcut="Ctrl F" onClick={p.onSearch} testId="btn-search">
@@ -117,7 +128,7 @@ export function TopBar(p: Props) {
           {p.compact ? (
             <>
               <ShareButton />
-              <MoreMenu onClose={p.onClose} />
+              <MoreMenu onClose={p.onClose} onPages={p.onPages} />
             </>
           ) : (
             <IconAction label="Đóng tài liệu (nháp đã lưu trên máy)" onClick={p.onClose} testId="btn-close-doc">

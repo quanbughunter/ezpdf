@@ -90,6 +90,141 @@
   height: calc(3rem + var(--ez-top-gap, 0px));
 }
 
+/*
+ * The Word screen (app/word/WordScreen.tsx). A page in the document's own
+ * width and margins (narrower screens: the margins shrink with the page and
+ * the text reflows); formatting comes inline from the file (src/word).
+ */
+.ez-wcanvas {
+  container-type: inline-size;
+}
+.ez-wpage {
+  margin: 0 auto;
+  background: #fff;
+  color: #000;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.06),
+    0 1px 3px rgb(0 0 0 / 0.12);
+  font-family: 'ezPDF Sans VN', sans-serif;
+  font-size: 11pt;
+}
+.ez-wdoc .ProseMirror {
+  outline: none;
+  tab-size: 4;
+  min-height: 2em;
+  caret-color: #000;
+}
+.ez-wp {
+  min-height: 1.15em;
+  overflow-wrap: break-word;
+}
+.ez-wtable {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.ez-wtable table {
+  margin: 2pt 0;
+}
+/* narrow screens: a table fits the page and its text wraps, instead of scrolling sideways */
+@container (max-width: 640px) {
+  .ez-wtable table {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+  .ez-wtable td {
+    width: auto !important;
+  }
+}
+.ez-wimg {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  vertical-align: bottom;
+}
+.ez-wfield {
+  background: rgb(0 0 0 / 0.05);
+  border-radius: 2px;
+}
+.ez-wnote {
+  color: var(--primary);
+}
+.ez-wmark {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 0 4px;
+  border: 1px dashed #b8c0c8;
+  border-radius: 3px;
+  color: #6b7280;
+  font: 11px/1.5 var(--font-sans);
+  text-indent: 0;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.ez-whidden {
+  display: inline;
+}
+/* the end of a section (a break Word keeps in this paragraph's mark) */
+.ez-wsect::after {
+  content: 'ngắt section';
+  display: block;
+  margin-top: 2pt;
+  border-top: 1px dashed #b8c0c8;
+  color: #6b7280;
+  font: 10px/1.6 var(--font-sans);
+  text-align: center;
+  text-indent: 0;
+}
+.ez-wmarker {
+  display: inline-block;
+  text-indent: 0;
+  user-select: none;
+}
+.ez-wlocked {
+  position: relative;
+  margin: 2pt 0;
+  padding: 2pt 44px 2pt 8pt;
+  border-left: 3px solid #cbd2d9;
+  background: #f7f8f9;
+  cursor: default;
+}
+.ez-wlocked::after {
+  content: 'Chỉ xem';
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  color: #6b7280;
+  font: 10px/1.4 var(--font-sans);
+}
+.ez-wlocked.ProseMirror-selectednode {
+  outline: 2px solid var(--primary);
+}
+.ez-wins {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.ez-wdel {
+  color: #b42318;
+  text-decoration: line-through;
+}
+.ez-wmath {
+  font-style: italic;
+}
+.ez-whf {
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+.ez-whf-top {
+  margin-bottom: 12pt;
+  padding-bottom: 4pt;
+  border-bottom: 1px dashed #d4d9de;
+}
+.ez-whf-bottom {
+  margin-top: 12pt;
+  padding-top: 4pt;
+  border-top: 1px dashed #d4d9de;
+}
+
 @layer base {
   * {
     @apply border-border;

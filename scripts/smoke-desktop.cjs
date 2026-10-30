@@ -16,6 +16,10 @@
  *     (single instance) and that PDF opens there
  *  6. the system open and save dialogs (GTK, driven with xdotool): the
  *     picked PDF opens, the export is written where the user chose
+ *  6b. a Word file (0.8.0): a second launch with a .docx path opens the Word
+ *     screen in the running window; typed with real keys in WebKitGTK (the
+ *     engine of Safari, so of the iPhone web app too), a word bolded, saved
+ *     through the system save dialog; python-docx reads the edits
  *  7. the window closed (WM_DELETE_WINDOW, as the close button does) right
  *     after an edit: the draft is saved before the window goes
  *  2c. the page organizer in the shell's web view: thumbnails drawn, a split
@@ -94,7 +98,12 @@ async function session(args = []) {
   };
   const shot = async (name) => (await sleep(2500), fs.writeFileSync(path.join(OUT, name), Buffer.from(await wd('GET', `/session/${id}/screenshot`), 'base64')));
   const close = () => wd('DELETE', `/session/${id}`).catch(() => {});
-  return { id, js, jsAsync, waitFor, shot, close };
+  /** real key presses into an element (WebDriver "send keys") */
+  const keys = async (selector, text) => {
+    const el = await wd('POST', `/session/${id}/element`, { using: 'css selector', value: selector });
+    await wd('POST', `/session/${id}/element/${Object.values(el)[0]}/value`, { text });
+  };
+  return { id, js, jsAsync, waitFor, shot, close, keys };
 }
 
 const T = (id) => `[data-testid="${id}"]`;
@@ -344,7 +353,7 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
       const third = path.join(OUT, 'chon-qua-hop-thoai.pdf');
       fs.copyFileSync(FIX('foreign-stamp.pdf'), third);
       await s.js(`document.querySelector('${T('btn-open')}').click()`);
-      await dialog('Mở tệp PDF', third, '6-open-dialog.png');
+      await dialog('Mở tệp PDF hoặc Word', third, '6-open-dialog.png');
       await s.waitFor(`return document.body.textContent.includes('chon-qua-hop-thoai.pdf') && (document.querySelector('${T('page-total')}')?.textContent ?? '').includes('/ 4')`, 'the PDF picked in the open dialog', 30000);
       check('the open dialog (system file chooser) opens the PDF picked there', true);
       await sleep(1500);
@@ -370,6 +379,53 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
       check('...and the app says where it went', where.includes(OUT) && where.includes('xuat-qua-hop-thoai.pdf'), where.split('\n')[0]);
       check('the PDF picked in the dialog is untouched', sha(fs.readFileSync(third)) === sha(fs.readFileSync(FIX('foreign-stamp.pdf'))));
       await s.shot('6-exported.png');
+
+      // 6b. a Word file, handed to the running app like "Open with ezPDF"
+      const docx = path.join(OUT, 'Hợp đồng Word.docx');
+      fs.copyFileSync(FIX('word-a.docx'), docx);
+      const p3 = spawn(BIN, [docx], { env, stdio: 'ignore' });
+      procs.push(p3);
+      await s.waitFor(`return !!document.querySelector('${T('word-editor')}') && document.querySelectorAll('.ez-wmarker').length === 5`, 'the Word screen', 30000);
+      const para2 = `return document.querySelectorAll('.ez-wdoc p')[1].textContent`;
+      const firstText = await s.js(para2);
+      // real keys: the caret starts at the beginning of the document (the bold heading); ↓ Home to the paragraph below
+      await s.keys('.ez-wdoc .ProseMirror', '\uE015\uE011Sửa trên máy tính. ');
+      await sleep(400);
+      const typed = await s.js(para2);
+      // select "máy tính" with the DOM selection, then the Bold button
+      await s.js(`
+        const p = document.querySelectorAll('.ez-wdoc p')[1];
+        const walk = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        let n; while ((n = walk.nextNode())) { const i = n.data.indexOf('máy tính'); if (i >= 0) { const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 8); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); break; } }
+        document.dispatchEvent(new Event('selectionchange'));`);
+      await sleep(300);
+      await s.js(`document.querySelector('${T('word-bold')}').click()`);
+      await sleep(300);
+      const boldShown = await s.js(`return [...document.querySelectorAll('.ez-wdoc p')[1].querySelectorAll('strong')].some((b) => b.textContent.includes('máy tính'))`);
+      await s.shot('6b-word.png');
+      check('Word: a .docx from "Open with" opens on the Word screen; real keys type in WebKitGTK; Bold works', /^Đoạn mở đầu/.test(firstText) && typed.startsWith('Sửa trên máy tính. Đoạn mở đầu') && boldShown, `${typed} · bold ${boldShown}`);
+      const savedDocx = path.join(OUT, 'luu-word.docx');
+      await s.js(`document.querySelector('${T('word-save')}').click()`);
+      await dialog('Lưu tệp Word', savedDocx, '6b-save-dialog.png');
+      await s.waitFor(`return !!document.querySelector('${T('word-saved')}')`, 'the Word file to be saved', 30000);
+      let wordRead = '';
+      try {
+        wordRead = execFileSync(
+          'python3',
+          ['-c', 'import sys,docx; d=docx.Document(sys.argv[1]); p=d.paragraphs[1]; print(p.text + " | " + ",".join(r.text for r in p.runs if r.bold)); print(len(d.tables[0].rows), d.element.body.find(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}ins") is not None)', savedDocx],
+          { encoding: 'utf8' },
+        ).trim();
+      } catch (e) {
+        wordRead = String(e.stderr || e).slice(0, 200);
+      }
+      check(
+        'Word: saved through the system dialog; python-docx reads the typed text and the bold word, the rest of the file kept',
+        wordRead.startsWith('Sửa trên máy tính. Đoạn mở đầu') && /máy tính/.test(wordRead.split('\n')[0].split('|')[1] ?? '') && wordRead.split('\n')[1] === '3 True',
+        wordRead.replace('\n', ' / '),
+      );
+      check('the Word file given to the app is untouched', sha(fs.readFileSync(docx)) === sha(fs.readFileSync(FIX('word-a.docx'))));
+      await s.js(`document.querySelector('${T('word-close')}').click()`);
+      await s.waitFor(`return !document.querySelector('${T('word-screen')}')`, 'the Word screen to close', 10000);
     } else {
       check('system dialogs: skipped (xdotool not installed)', true);
     }

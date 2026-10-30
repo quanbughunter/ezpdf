@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ezPDF",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "identifier": "app.ezpdf.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -40,6 +40,14 @@
         "name": "PDF",
         "description": "PDF document",
         "mimeType": "application/pdf",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["docx"],
+        "name": "Word",
+        "description": "Word document",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "role": "Editor",
         "rank": "Alternate"
       }

@@ -455,8 +455,8 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
     const menu = await ph.$$eval('[role="menu"] [data-testid]', (els) => els.map((e) => e.dataset.testid));
     await ph.screenshot({ path: path.join(OUT, 'phone-more-menu.png') });
     check(
-      'phone: no hand (a finger scrolls), select is on; share in the top bar; pages, print and close in ⋮; the bar fits the screen',
-      !hasHand && selectOn === 'true' && (await ph.isVisible(tid('btn-share'))) && menu.join() === 'btn-pages,btn-print,btn-close-doc' && header.sw <= header.cw + 1,
+      'phone: no hand (a finger scrolls), select is on; share and Bộ công cụ in the top bar; print and close in ⋮; the bar fits the screen',
+      !hasHand && selectOn === 'true' && (await ph.isVisible(tid('btn-share'))) && (await ph.isVisible(tid('btn-pages'))) && menu.join() === 'btn-print,btn-close-doc' && header.sw <= header.cw + 1,
       `hand ${hasHand}, select ${selectOn}, menu ${menu.join(' ')}, header ${header.sw}/${header.cw}`,
     );
     await ph.tap(`[role="menu"] ${tid('btn-print')}`);

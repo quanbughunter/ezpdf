@@ -1,7 +1,7 @@
 {
   "name": "ezpdf",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,7 +20,7 @@
     "e2e:preview": "BASE=http://localhost:4173 SKIP_PDFJS=1 node scripts/e2e.cjs",
     "e2e:m3": "node scripts/e2e-m3.cjs",
     "e2e:m3:preview": "BASE=http://localhost:4173 SKIP_PDFJS=1 node scripts/e2e-m3.cjs",
-    "e2e:all": "node scripts/e2e.cjs && node scripts/e2e-m3.cjs && node scripts/e2e-m4.cjs && node scripts/e2e-edit.cjs && node scripts/e2e-scan.cjs && node scripts/e2e-share-print.cjs && node scripts/e2e-pages.cjs",
+    "e2e:all": "node scripts/e2e.cjs && node scripts/e2e-m3.cjs && node scripts/e2e-m4.cjs && node scripts/e2e-edit.cjs && node scripts/e2e-scan.cjs && node scripts/e2e-share-print.cjs && node scripts/e2e-pages.cjs && node scripts/e2e-word.cjs",
     "fixtures": "python3 scripts/make_fixture.py tests/fixtures/sample.pdf && python3 scripts/make_long_fixture.py tests/fixtures/long-300.pdf && python3 scripts/make_image_fixtures.py tests/fixtures && node scripts/make_edit_fixture.cjs && python3 scripts/make_scan_fixtures.py tests/fixtures/scan",
     "test:storage": "tsx tests/storage.test.ts",
     "e2e:m4": "node scripts/e2e-m4.cjs",
@@ -35,7 +35,10 @@
     "e2e:share:preview": "BASE=http://localhost:4173 node scripts/e2e-share-print.cjs",
     "e2e:pages": "node scripts/e2e-pages.cjs",
     "e2e:pages:preview": "BASE=http://localhost:4173 node scripts/e2e-pages.cjs",
-    "test:pages": "tsx tests/page-ops-probe.ts && tsx tests/ranges.test.ts"
+    "test:pages": "tsx tests/page-ops-probe.ts && tsx tests/ranges.test.ts",
+    "test:word": "tsx tests/word-probe.ts",
+    "e2e:word": "node scripts/e2e-word.cjs",
+    "e2e:word:preview": "BASE=http://localhost:4173 node scripts/e2e-word.cjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",
@@ -64,7 +67,15 @@
     "@tauri-apps/plugin-fs": "2.7.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "fflate": "0.8.3",
     "lucide-react": "^1.63.0",
+    "prosemirror-commands": "1.7.2",
+    "prosemirror-history": "1.5.1",
+    "prosemirror-keymap": "1.2.3",
+    "prosemirror-model": "1.25.12",
+    "prosemirror-state": "1.4.4",
+    "prosemirror-transform": "1.12.2",
+    "prosemirror-view": "1.42.6",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -78,6 +89,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "@xmldom/xmldom": "0.9.12",
     "pdfjs-dist": "6.4.299",
     "playwright": "1.63.0",
     "tailwindcss": "^4.3.3",

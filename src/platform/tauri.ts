@@ -18,12 +18,14 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { createTauriBackend } from './storage/tauri-fs';
-import { asPdfFile, baseName, dirName, incomingQueue, type Platform, type ShareWay } from './types';
+import { asDocFile, baseName, dirName, incomingQueue, type Platform, type ShareWay } from './types';
 
 const PDF = [{ name: 'PDF', extensions: ['pdf'] }];
+const WORD = [{ name: 'Word', extensions: ['docx'] }];
+const ANY = [{ name: 'PDF hoặc Word', extensions: ['pdf', 'docx'] }, ...PDF, ...WORD];
 
 async function fileAt(path: string) {
-  return asPdfFile(await readFile(path), baseName(path));
+  return asDocFile(await readFile(path), baseName(path));
 }
 
 export async function createTauriPlatform(): Promise<Platform> {
@@ -39,6 +41,26 @@ export async function createTauriPlatform(): Promise<Platform> {
 
   const shareWays = await invoke<ShareWay[]>('share_ways').catch(() => [] as ShareWay[]);
 
+  // One listener for the window's close: the guards may keep it open; otherwise every
+  // callback runs to the end, then Tauri closes the window.
+  const guards = new Set<() => Promise<boolean>>();
+  const closing = new Set<() => Promise<void>>();
+  void getCurrentWindow().onCloseRequested(async (e) => {
+    for (const g of [...guards]) {
+      let stay = false;
+      try {
+        stay = !(await g());
+      } catch {
+        stay = false; // a failing check must not trap the window
+      }
+      if (stay) {
+        e.preventDefault();
+        return;
+      }
+    }
+    for (const cb of [...closing]) await cb().catch(() => {});
+  });
+
   return {
     kind: 'desktop',
     canCapture: false,
@@ -47,9 +69,19 @@ export async function createTauriPlatform(): Promise<Platform> {
       const path = await open({ multiple: false, directory: false, filters: PDF, title: 'Mở tệp PDF' });
       return typeof path === 'string' ? fileAt(path) : null;
     },
+    async pickFile() {
+      const path = await open({ multiple: false, directory: false, filters: ANY, title: 'Mở tệp PDF hoặc Word' });
+      return typeof path === 'string' ? fileAt(path) : null;
+    },
     async savePdf(bytes, suggestedName) {
       // Written exactly where the user chose: only that path is in the fs scope.
       const path = await save({ defaultPath: suggestedName, filters: PDF, title: 'Xuất PDF' });
+      if (!path) return null;
+      await writeFile(path, bytes);
+      return { how: 'file', name: baseName(path), folder: dirName(path) };
+    },
+    async saveWord(bytes, suggestedName) {
+      const path = await save({ defaultPath: suggestedName, filters: WORD, title: 'Lưu tệp Word' });
       if (!path) return null;
       await writeFile(path, bytes);
       return { how: 'file', name: baseName(path), folder: dirName(path) };
@@ -62,9 +94,12 @@ export async function createTauriPlatform(): Promise<Platform> {
     printPdf: null,
     onIncomingFiles: incoming.subscribe,
     onCloseRequested(cb) {
-      // Tauri closes the window once this handler has finished.
-      const off = getCurrentWindow().onCloseRequested(() => cb());
-      return () => void off.then((f) => f());
+      closing.add(cb);
+      return () => void closing.delete(cb);
+    },
+    guardClose(check) {
+      guards.add(check);
+      return () => void guards.delete(check);
     },
   };
 }

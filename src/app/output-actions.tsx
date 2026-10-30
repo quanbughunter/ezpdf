@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ClipboardCopy, FolderSearch, LayoutGrid, Loader2, MoreVertical, Printer, Share2, X } from 'lucide-react';
+import { ClipboardCopy, FolderSearch, Loader2, MoreVertical, Printer, Share2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -187,7 +187,7 @@ export function OutputProvider({ session, children }: { session: DocumentSession
   return <OutputContext.Provider value={api}>{children}</OutputContext.Provider>;
 }
 
-const WAYS: Record<ShareWay, { label: string; detail: string; icon: typeof Share2 }> = {
+export const WAYS: Record<ShareWay, { label: string; detail: string; icon: typeof Share2 }> = {
   copy: {
     label: 'Chép tệp để dán vào Zalo, Telegram, thư',
     detail: 'Rồi bấm Ctrl V trong khung chat hay thư',
@@ -198,7 +198,7 @@ const WAYS: Record<ShareWay, { label: string; detail: string; icon: typeof Share
   download: { label: 'Tải về để gửi', detail: '', icon: Share2 },
 };
 
-const SHARE_LABEL = 'Chia sẻ tệp (Zalo, Telegram, thư…)';
+export const SHARE_LABEL = 'Chia sẻ tệp (Zalo, Telegram, thư…)';
 
 /** One button where the platform has one way (phone, browser), a menu on the desktop. */
 export function ShareButton() {
@@ -264,7 +264,7 @@ export function PrintButton() {
 }
 
 /** Phone top bar: printing and closing share one menu, so the bar keeps its width. */
-export function MoreMenu({ onClose, onPages }: { onClose: () => void; onPages: () => void }) {
+export function MoreMenu({ onClose }: { onClose: () => void }) {
   const out = useOutput();
   return (
     <DropdownMenu>
@@ -274,9 +274,6 @@ export function MoreMenu({ onClose, onPages }: { onClose: () => void; onPages: (
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">
-        <DropdownMenuItem data-testid="btn-pages" onSelect={onPages}>
-          <LayoutGrid /> Sắp xếp trang
-        </DropdownMenuItem>
         <DropdownMenuItem data-testid="btn-print" disabled={!!out?.busy} onSelect={() => void out?.print()}>
           <Printer /> In tài liệu
         </DropdownMenuItem>

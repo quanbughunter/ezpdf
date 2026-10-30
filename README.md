@@ -1,10 +1,11 @@
 # ezPDF
 
-Ứng dụng đọc và chỉnh PDF chạy trên trình duyệt, desktop và Android. Mọi xử lý diễn ra trên thiết bị: tài liệu không bao giờ bị tải lên đâu cả.
+Ứng dụng đọc và chỉnh PDF (và sửa nhẹ tệp Word) chạy trên trình duyệt, desktop và Android. Mọi xử lý diễn ra trên thiết bị: tài liệu không bao giờ bị tải lên đâu cả.
 
-**Trạng thái: bản 0.7.0.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra) và trên Windows. Web app (cả trên iPhone): **https://quanbughunter.github.io/ezpdf/**. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và:
+**Trạng thái: bản 0.8.0.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra) và trên Windows. Web app (cả trên iPhone): **https://quanbughunter.github.io/ezpdf/**. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và:
 
-- **Sắp xếp trang** (bản 0.7.0): thêm trang từ PDF khác, từ ảnh quét hay trang trắng; kéo thả để đổi chỗ (trên điện thoại: giữ rồi kéo); xoay, xóa; trích các trang chọn ra tệp mới; tách tài liệu thành nhiều tệp. Áp dụng một lần, hoàn tác được. Quét xong có thể **Thêm vào tài liệu này**. Xem `docs/10-sap-xep-trang.md`.
+- **Tệp Word** (bản 0.8.0): mở `.docx` ngay trên máy, sửa chữ, đậm/nghiêng/gạch chân, thêm và xóa đoạn, sửa chữ trong bảng, rồi lưu ra `… (ezPDF).docx`. Phần không sửa được ghi lại y như cũ; đoạn theo dõi thay đổi, công thức, ô điều khiển nội dung chỉ xem. Xem `docs/11-word.md`.
+- **Bộ công cụ** (bản 0.7.0, tên cũ “Sắp xếp trang”; từ 0.8.0 nằm cạnh nút Chia sẻ): thêm trang từ PDF khác, từ ảnh quét hay trang trắng; kéo thả để đổi chỗ (trên điện thoại: giữ rồi kéo); xoay, xóa; trích các trang chọn ra tệp mới; tách tài liệu thành nhiều tệp. Áp dụng một lần, hoàn tác được. Quét xong có thể **Thêm vào tài liệu này**. Xem `docs/10-sap-xep-trang.md`.
 - **Kéo trang bằng chuột** (bản 0.6.0, phím P, giữ Space để kéo tạm): mặc định trên máy có chuột. Trên điện thoại, một ngón cuộn trang như trước.
 - **Chia sẻ** (bản 0.6.0): gửi đúng tệp “Xuất PDF” qua Zalo, Telegram, thư… Windows: chép tệp để dán (Ctrl V), cửa sổ chia sẻ của Windows, hiện tệp trong thư mục. Android và trình duyệt: bảng chia sẻ của hệ điều hành.
 - **In** (bản 0.6.0, Ctrl P): Android in thẳng tệp PDF qua dịch vụ in của máy; Windows và trình duyệt in ảnh trang 300 dpi qua hộp thoại in. Xem `docs/08-keo-trang-chia-se-in.md`.
@@ -15,8 +16,8 @@
 Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
 
 - **Web app cài được (PWA):** chạy offline sau lần mở đầu, đăng ký làm trình mở PDF khi cài trên Chrome/Edge máy tính. Đây cũng là bản cho iPhone và iPad: mở bằng Safari rồi Thêm vào MH chính (bản 0.6.1; 0.6.2 sửa thanh công cụ bị mờ và bước quét trên iPhone; xem `docs/09-web-app-iphone.md`).
-- **Desktop (Tauri 2):** hộp thoại Mở/Lưu của hệ điều hành, “Mở bằng ezPDF” khi bấm chuột phải vào tệp PDF, một cửa sổ duy nhất, bản nháp nằm trong thư mục của ứng dụng.
-- **Android (Capacitor 8):** chọn và lưu tệp qua Storage Access Framework, nhận PDF khi người dùng mở bằng hoặc chia sẻ sang ezPDF, bản nháp nằm trong bộ nhớ riêng của ứng dụng.
+- **Desktop (Tauri 2):** hộp thoại Mở/Lưu của hệ điều hành, “Mở bằng ezPDF” khi bấm chuột phải vào tệp PDF hay Word, một cửa sổ duy nhất, bản nháp nằm trong thư mục của ứng dụng.
+- **Android (Capacitor 8):** chọn và lưu tệp qua Storage Access Framework, nhận PDF và tệp Word khi người dùng mở bằng hoặc chia sẻ sang ezPDF, bản nháp nằm trong bộ nhớ riêng của ứng dụng.
 
 Xem `docs/06-ket-qua-moc-4.md`.
 

@@ -47,10 +47,11 @@ import java.util.UUID;
  * ezPDF's access to documents outside the app, all through Android's
  * Storage Access Framework, so the app needs no storage permission:
  *
- *  - openDocument    system picker (ACTION_OPEN_DOCUMENT) for one PDF
+ *  - openDocument    system picker (ACTION_OPEN_DOCUMENT) for one PDF, or for
+ *                    one PDF or Word file when the page passes `mimes`
  *  - createDocument  system "save as" (ACTION_CREATE_DOCUMENT)
  *  - openWrite/write/closeWrite  stream the exported bytes into that document
- *  - takeIncoming + "incoming" event  PDFs opened with ezPDF (ACTION_VIEW)
+ *  - takeIncoming + "incoming" event  PDFs and Word files opened with ezPDF (ACTION_VIEW)
  *                    or shared to it (ACTION_SEND)
  *  - clearCaptures   delete the photos the camera app wrote for a scan
  *                    (Capacitor's file chooser has it save JPEG_*.jpg into the
@@ -71,6 +72,12 @@ import java.util.UUID;
 public class EzFilesPlugin extends Plugin {
 
     private static final String PDF = "application/pdf";
+    private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+    /** the type of a file ezPDF wrote, by its name */
+    static String mimeOf(String name) {
+        return name != null && name.toLowerCase().endsWith(".docx") ? DOCX : PDF;
+    }
 
     private final List<JSObject> incoming = new ArrayList<>();
     private final Map<String, OutputStream> writers = new HashMap<>();
@@ -120,7 +127,22 @@ public class EzFilesPlugin extends Plugin {
     public void openDocument(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType(PDF);
+        String[] mimes = null;
+        JSArray asked = call.getArray("mimes");
+        if (asked != null && asked.length() > 0) {
+            try {
+                java.util.List<String> list = asked.toList();
+                mimes = list.toArray(new String[0]);
+            } catch (Exception ignored) {
+                // malformed list: PDFs only
+            }
+        }
+        if (mimes != null && mimes.length > 1) {
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes);
+        } else {
+            intent.setType(mimes != null ? mimes[0] : PDF);
+        }
         startActivityForResult(call, intent, "openDocumentResult");
     }
 
@@ -299,13 +321,14 @@ public class EzFilesPlugin extends Plugin {
         for (int i = keep; i < dirs.length; i++) deleteTree(dirs[i]);
     }
 
-    /** A file name that every app accepts: no path, no reserved characters, ends in .pdf. */
+    /** A file name that every app accepts: no path, no reserved characters, ends in .pdf (or .docx). */
     static String safeName(String name) {
         String n = name == null ? "" : name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").trim();
         while (n.startsWith(".")) n = n.substring(1);
         if (n.isEmpty()) n = "tai-lieu.pdf";
-        if (!n.toLowerCase().endsWith(".pdf")) n = n + ".pdf";
-        if (n.length() > 120) n = n.substring(0, 116) + ".pdf";
+        String ext = n.toLowerCase().endsWith(".docx") ? ".docx" : ".pdf";
+        if (!n.toLowerCase().endsWith(ext)) n = n + ext;
+        if (n.length() > 120) n = n.substring(0, 120 - ext.length()) + ext;
         return n;
     }
 
@@ -360,13 +383,13 @@ public class EzFilesPlugin extends Plugin {
         try {
             Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", file);
             Intent send = new Intent(Intent.ACTION_SEND);
-            send.setType(PDF);
+            send.setType(mimeOf(file.getName()));
             send.putExtra(Intent.EXTRA_STREAM, uri);
             send.putExtra(Intent.EXTRA_SUBJECT, file.getName());
             // the receiving app may only read this one file, and only through this share
             send.setClipData(ClipData.newRawUri(file.getName(), uri));
             send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            Intent chooser = Intent.createChooser(send, "Gửi PDF");
+            Intent chooser = Intent.createChooser(send, "Gửi tệp");
             // not back to ezPDF itself (it accepts shared PDFs); Intent.EXTRA_EXCLUDE_COMPONENTS, API 24
             chooser.putExtra("android.intent.extra.EXCLUDE_COMPONENTS", new ComponentName[] { new ComponentName(getContext(), MainActivity.class) });
             activity.startActivity(chooser);
@@ -502,7 +525,8 @@ public class EzFilesPlugin extends Plugin {
         }
         if (name == null || name.isEmpty()) {
             String last = uri.getLastPathSegment();
-            name = last != null && last.toLowerCase().endsWith(".pdf") ? last : "tai-lieu.pdf";
+            String low = last != null ? last.toLowerCase() : "";
+            name = low.endsWith(".pdf") || low.endsWith(".docx") ? last : "tai-lieu.pdf";
         }
         doc.put("name", name);
         if (size >= 0) doc.put("size", size);

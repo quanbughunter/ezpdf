@@ -13,14 +13,14 @@
  *    Safari does not clear them after a while without use
  */
 import { createIdbBackend } from './storage/idb';
-import { incomingQueue, type Platform, type ShareWay } from './types';
+import { DOCX_MIME, incomingQueue, mimeOf, type Platform, type ShareWay } from './types';
 
 interface LaunchParams {
   files?: { kind: string; getFile(): Promise<File> }[];
 }
 
-export function downloadPdf(bytes: Uint8Array, name: string) {
-  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+export function downloadPdf(bytes: Uint8Array, name: string, type = mimeOf(name)) {
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type }));
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
@@ -46,7 +46,7 @@ export const isIos = () =>
   /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 async function shareFile(bytes: Uint8Array, name: string) {
-  const file = new File([bytes as BlobPart], name, { type: 'application/pdf' });
+  const file = new File([bytes as BlobPart], name, { type: mimeOf(name) });
   try {
     await navigator.share({ files: [file], title: name });
     return true;
@@ -86,8 +86,13 @@ export function createWebPlatform(): Platform {
     // a phone browser opens its camera for <input capture>; a desktop one shows a file dialog
     canCapture: window.matchMedia('(pointer: coarse)').matches,
     pickPdf: null,
+    pickFile: null,
     async savePdf(bytes, name) {
       downloadPdf(bytes, name);
+      return { how: 'download', name };
+    },
+    async saveWord(bytes, name) {
+      downloadPdf(bytes, name, DOCX_MIME);
       return { how: 'download', name };
     },
     shareWays: (sheet ? ['sheet'] : ['download']) as ShareWay[],

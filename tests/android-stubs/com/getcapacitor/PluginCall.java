@@ -11,4 +11,5 @@ public class PluginCall {
     public Integer getInt(String name, Integer defaultValue) { return null; }
     public Boolean getBoolean(String name) { return null; }
     public Boolean getBoolean(String name, Boolean defaultValue) { return null; }
+    public JSArray getArray(String name) { return null; }
 }

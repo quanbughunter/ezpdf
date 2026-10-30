@@ -1,5 +1,5 @@
 /**
- * "Sắp xếp trang": the document's pages as a grid, to rearrange before
+ * "Bộ công cụ" (the page tools): the document's pages as a grid, to rearrange before
  * applying them in one step.
  *  - select by tapping (several at once), move them by dragging (mouse: drag;
  *    touch: hold, then drag) or with the move buttons, turn, delete;
@@ -45,6 +45,7 @@ import type { DocumentSession } from '../use-document-session';
 import { ScanDialog } from '../scan/ScanDialog';
 import { closeSource, openSource, ThumbQueue, useThumb, type SourceDoc } from './thumbs';
 import { everyN, pagesLabel, parseRanges, partFileName, partLabel, type Part } from './ranges';
+import { ToolboxIcon } from './toolbox-icon';
 
 interface Card {
   key: string;
@@ -180,7 +181,7 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
     const s = await openSource(src, name, bytes);
     if (!alive.current) {
       closeSource(s);
-      throw new Error('đã đóng màn sắp xếp trang');
+      throw new Error('đã đóng Bộ công cụ');
     }
     sourcesRef.current = [...sourcesRef.current, s];
     setSources(sourcesRef.current);
@@ -352,7 +353,7 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Sắp xếp trang"
+      aria-label="Bộ công cụ"
       data-ez-overlay=""
       data-testid="organizer"
       className="fixed inset-0 z-50 flex flex-col bg-background pt-[var(--ez-top-gap,0px)]"
@@ -374,8 +375,9 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
         <Button variant="ghost" size="icon-sm" aria-label="Đóng, không áp dụng" onClick={leave} disabled={!!busy} data-testid="org-close">
           <X />
         </Button>
-        <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-[15px] font-bold">Sắp xếp trang</p>
+        <ToolboxIcon className="ml-1 size-5 shrink-0 text-primary" />
+        <div className="min-w-0 flex-1 pl-1 leading-tight">
+          <p className="truncate text-[15px] font-bold">Bộ công cụ</p>
           <p className="truncate text-xs text-muted-foreground tabular-nums" data-testid="org-summary">
             {cards.length} trang{some ? ` · đã chọn ${selected.size}` : ''}
             {changed ? ' · chưa áp dụng' : ''}

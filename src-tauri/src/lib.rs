@@ -16,14 +16,14 @@ use tauri_plugin_fs::FsExt;
 #[derive(Default)]
 struct LaunchFiles(Mutex<Vec<PathBuf>>);
 
-/// PDF files among command-line arguments, as absolute paths.
+/// PDF and Word (.docx) files among command-line arguments, as absolute paths.
 fn pdf_args<I: IntoIterator<Item = String>>(args: I, cwd: &Path) -> Vec<PathBuf> {
     args.into_iter()
         .filter(|a| !a.starts_with('-'))
         .map(PathBuf::from)
         .map(|p| if p.is_relative() { cwd.join(p) } else { p })
         .filter(|p| {
-            p.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) && p.is_file()
+            p.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf") || e.eq_ignore_ascii_case("docx")) && p.is_file()
         })
         .filter_map(|p| std::path::absolute(p).ok())
         .collect()
@@ -141,10 +141,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.PDF"), b"%PDF").unwrap();
         std::fs::write(dir.join("b.txt"), b"x").unwrap();
+        std::fs::write(dir.join("c.docx"), b"PK").unwrap();
         let got = pdf_args(
-            ["a.PDF", "b.txt", "missing.pdf", "--flag"].map(String::from),
+            ["a.PDF", "b.txt", "missing.pdf", "c.docx", "--flag"].map(String::from),
             &dir,
         );
-        assert_eq!(got, vec![dir.join("a.PDF")]);
+        assert_eq!(got, vec![dir.join("a.PDF"), dir.join("c.docx")]);
     }
 }

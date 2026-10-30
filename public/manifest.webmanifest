@@ -1,7 +1,7 @@
 {
   "name": "ezPDF",
   "short_name": "ezPDF",
-  "description": "Đọc, ghi chú, ký và xuất PDF ngay trên máy. Tài liệu không rời thiết bị.",
+  "description": "Đọc, ghi chú, ký và xuất PDF, sửa nhẹ tệp Word ngay trên máy. Tài liệu không rời thiết bị.",
   "lang": "vi",
   "id": "./",
   "start_url": "./",
@@ -15,7 +15,7 @@
     { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "file_handlers": [
-    { "action": "./", "accept": { "application/pdf": [".pdf"] }, "launch_type": "single-client" }
+    { "action": "./", "accept": { "application/pdf": [".pdf"], "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"] }, "launch_type": "single-client" }
   ],
   "launch_handler": { "client_mode": "focus-existing" }
 }

@@ -63,7 +63,8 @@ const RESERVED: [&str; 22] = [
 ];
 
 /// A file name every app accepts: no folder part, no character Windows
-/// refuses, not a device name, ending in .pdf, at most 120 characters.
+/// refuses, not a device name, ending in .pdf (or .docx: a Word file
+/// shared from the Word screen), at most 120 characters.
 pub fn safe_name(name: &str) -> String {
     let mut n: String = name
         .chars()
@@ -73,16 +74,17 @@ pub fn safe_name(name: &str) -> String {
     if n.is_empty() {
         n = "tai-lieu".into();
     }
-    if !n.to_lowercase().ends_with(".pdf") {
-        n.push_str(".pdf");
+    let ext = if n.to_lowercase().ends_with(".docx") { ".docx" } else { ".pdf" };
+    if !n.to_lowercase().ends_with(ext) {
+        n.push_str(ext);
     }
-    let stem = &n[..n.len() - 4];
+    let stem = &n[..n.len() - ext.len()];
     if RESERVED.iter().any(|r| stem.eq_ignore_ascii_case(r)) {
         n = format!("_{n}");
     }
     if n.chars().count() > 120 {
-        let keep: String = n.chars().take(116).collect();
-        n = format!("{}.pdf", keep.trim_end_matches(['.', ' ']));
+        let keep: String = n.chars().take(120 - ext.len()).collect();
+        n = format!("{}{ext}", keep.trim_end_matches(['.', ' ']));
     }
     n
 }
@@ -265,6 +267,11 @@ mod tests {
         let n = safe_name(&long);
         assert_eq!(n.chars().count(), 120);
         assert!(n.ends_with(".pdf"));
+        assert_eq!(safe_name("Hợp đồng (ezPDF).docx"), "Hợp đồng (ezPDF).docx");
+        assert_eq!(safe_name("nul.docx"), "_nul.docx");
+        let w = safe_name(&format!("{}.docx", "Ơ".repeat(300)));
+        assert_eq!(w.chars().count(), 120);
+        assert!(w.ends_with(".docx"));
     }
 
     #[test]

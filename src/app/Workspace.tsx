@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { FileText, FolderOpen, Loader2, ScanLine } from 'lucide-react';
 import { PdfAnnotationSubtype } from '@embedpdf/models';
 import { DocumentContent } from '@embedpdf/plugin-document-manager/react';
@@ -28,6 +28,8 @@ import { ScanDialog } from './scan/ScanDialog';
 import { useRestingModes, useSetPointerTool, useSpaceToPan } from './viewer/hand';
 import { OutputProvider, PrintProgressOverlay, useOutput } from './output-actions';
 import { PageOrganizer } from './pages/PageOrganizer';
+import type { WordScreenHandle } from './word/WordScreen';
+import { DOCX_MIME } from '@/platform/types';
 import { buildPages } from '@/engine/export-client';
 
 function useMedia(query: string) {
@@ -40,6 +42,23 @@ function useMedia(query: string) {
   }, [query]);
   return match;
 }
+
+/**
+ * A Word file, by its first bytes (a zip, or an old .doc), then by name or
+ * type; a PDF by its first bytes whatever its name (Android may hand over a
+ * file without a name, called “tai-lieu.pdf” then).
+ */
+async function isWordFile(file: File) {
+  const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+  if (head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46) return false;
+  if ((head[0] === 0x50 && head[1] === 0x4b) || (head[0] === 0xd0 && head[1] === 0xcf)) return true;
+  return /\.(docx|docm|dotx|doc)$/i.test(file.name) || file.type === DOCX_MIME || file.type === 'application/msword';
+}
+
+const OPEN_ACCEPT = `application/pdf,.pdf,.docx,${DOCX_MIME}`;
+
+/** the Word screen and its editor load only when a Word file is opened */
+const WordScreen = lazy(() => import('./word/WordScreen').then((m) => ({ default: m.WordScreen })));
 
 /**
  * Resting modes (hand, select) are registered before any page mounts. On
@@ -59,21 +78,56 @@ export function Workspace({ documentId }: { documentId: string | null }) {
   const [searchFocusKey, setSearchFocusKey] = useState(0);
   const [scanning, setScanning] = useState(false);
   const [organizing, setOrganizing] = useState(false);
+  /** the Word file open on the Word screen (over the PDF workspace) */
+  const [word, setWord] = useState<File | null>(null);
+  const wordRef = useRef<WordScreenHandle>(null);
   useEffect(() => setLeftOpen(!phone), [phone]);
   // another document, or none: the organizer was for the old one
   useEffect(() => setOrganizing(false), [session.docEpoch]);
   useEffect(() => setRightOpen(!narrow), [narrow]);
 
-  const { openPicked } = session;
-  const openPicker = useCallback(
-    () => (platform.pickPdf ? void openPicked(platform.pickPdf) : fileInput.current?.click()),
-    [platform, openPicked],
+  const { openPicked, openFile } = session;
+  /**
+   * Any file to open: Word goes to the Word screen, a PDF to the workspace.
+   * Unsaved changes on the Word screen are confirmed first.
+   */
+  const openAny = useCallback(
+    async (file: File) => {
+      const toWord = await isWordFile(file);
+      const go = () => {
+        if (toWord) setWord(file);
+        else {
+          setWord(null);
+          void openFile(file);
+        }
+      };
+      if (wordRef.current) wordRef.current.leave(go);
+      else go();
+    },
+    [openFile],
   );
+  const openPicker = useCallback(() => {
+    const pick = platform.pickFile;
+    if (!pick) return fileInput.current?.click();
+    // a picked Word file is handled here; a PDF goes on to the session
+    void openPicked(async () => {
+      const f = await pick();
+      if (f && (await isWordFile(f))) {
+        void openAny(f);
+        return null;
+      }
+      if (f && wordRef.current) {
+        void openAny(f);
+        return null;
+      }
+      return f;
+    });
+  }, [platform, openPicked, openAny]);
 
   // Files handed over from outside: Open with, share sheet, command line.
-  const openFileRef = useRef(session.openFile);
-  openFileRef.current = session.openFile;
-  useEffect(() => platform.onIncomingFiles((files) => void openFileRef.current(files[0])), [platform]);
+  const openAnyRef = useRef(openAny);
+  openAnyRef.current = openAny;
+  useEffect(() => platform.onIncomingFiles((files) => void openAnyRef.current(files[0])), [platform]);
   const openSearch = useCallback(() => {
     setLeftOpen(true);
     setLeftTab('search');
@@ -101,7 +155,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const f = e.dataTransfer.files?.[0];
-    if (f) void session.openFile(f);
+    if (f) void openAny(f);
   };
 
   const frame = (
@@ -109,13 +163,13 @@ export function Workspace({ documentId }: { documentId: string | null }) {
       <input
         ref={fileInput}
         type="file"
-        accept="application/pdf,.pdf"
+        accept={OPEN_ACCEPT}
         className="hidden"
         data-testid="file-input"
         onChange={(e) => {
           const f = e.target.files?.[0];
           e.target.value = '';
-          if (f) void session.openFile(f);
+          if (f) void openAny(f);
         }}
       />
       <TopBar
@@ -197,6 +251,11 @@ export function Workspace({ documentId }: { documentId: string | null }) {
       )}
       {organizing && documentId && !session.switching && (
         <PageOrganizer session={session} fileName={session.fileName} onClose={() => setOrganizing(false)} />
+      )}
+      {word && (
+        <Suspense fallback={<div className="fixed inset-0 z-50 bg-canvas" data-ez-overlay="" data-testid="word-loading" />}>
+          <WordScreen ref={wordRef} file={word} phone={phone} onClose={() => setWord(null)} onOpen={openPicker} />
+        </Suspense>
       )}
     </div>
   );
@@ -498,8 +557,8 @@ function useTestProbe(documentId: string) {
 
 const OPEN_HINT = {
   web: 'Kéo thả tệp vào đây hoặc chọn tệp.',
-  desktop: 'Kéo thả tệp vào đây, chọn tệp, hoặc bấm chuột phải vào một tệp PDF và chọn Mở bằng ezPDF.',
-  android: 'Chọn tệp, hoặc mở hay chia sẻ một PDF sang ezPDF từ ứng dụng khác.',
+  desktop: 'Kéo thả tệp vào đây, chọn tệp, hoặc bấm chuột phải vào một tệp PDF hay Word và chọn Mở bằng ezPDF.',
+  android: 'Chọn tệp, hoặc mở hay chia sẻ một tệp PDF, Word sang ezPDF từ ứng dụng khác.',
 } as const;
 
 function EmptyState({ onOpen, onScan, session }: { onOpen: () => void; onScan: () => void; session: DocumentSession }) {
@@ -514,14 +573,14 @@ function EmptyState({ onOpen, onScan, session }: { onOpen: () => void; onScan: (
             <FileText className="size-7 text-muted-foreground" aria-hidden />
           )}
           <div className="space-y-1">
-            <p className="font-bold">Mở một tệp PDF trên máy</p>
+            <p className="font-bold">Mở một tệp PDF hoặc Word trên máy</p>
             <p className="text-[13px] text-muted-foreground" data-testid="empty-hint">
               {OPEN_HINT[platform.kind]} Tài liệu chỉ được xử lý trên thiết bị này.
             </p>
           </div>
           <div className="flex flex-wrap justify-center gap-2">
             <Button onClick={onOpen} data-testid="btn-open-empty" disabled={session.busy}>
-              <FolderOpen /> Chọn tệp PDF
+              <FolderOpen /> Chọn tệp
             </Button>
             <Button variant="outline" onClick={onScan} data-testid="btn-scan-empty" disabled={session.busy}>
               <ScanLine /> Quét tài liệu

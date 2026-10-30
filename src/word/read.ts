@@ -1,0 +1,727 @@
+/**
+ * .docx → the editor's model. Reads the main document part (body, tables,
+ * runs), the styles, lists, theme fonts and pictures it refers to, and the
+ * default header and footer for display. Whatever ezPDF cannot edit safely is
+ * kept as it is: a paragraph with tracked changes, an equation or a content
+ * control becomes a `locked` block; pictures, fields, footnote marks and
+ * bookmarks are inline items holding their original XML.
+ */
+import type { Node as PMNode, Mark } from 'prosemirror-model';
+import { schema } from './schema';
+import { openPackage, rId, type DocxPackage } from './package';
+import { formatNumber, Numbering } from './numbering';
+import {
+  borderCss,
+  emuToPt,
+  paraCss,
+  readBorder,
+  readParaProps,
+  readRunProps,
+  runCss,
+  Styles,
+  Theme,
+  type Border,
+  type ParaProps,
+  type RunProps,
+} from './styles';
+import {
+  attrNS,
+  defaultDom,
+  elements,
+  escapeHtml,
+  isW,
+  num,
+  NS,
+  parseXml,
+  textOf,
+  wAttr,
+  wChild,
+  wChildren,
+  wVal,
+  type DomImpl,
+} from './xml';
+
+export interface PageBox {
+  /** points */
+  width: number;
+  height: number;
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+export interface WordModel {
+  name: string;
+  pkg: DocxPackage;
+  dom: DomImpl;
+  /** the original word/document.xml, parsed; `store` holds elements of it */
+  xml: Document;
+  store: Node[];
+  /** ref → the node as read, to tell an untouched paragraph or table on save */
+  origin: Map<number, PMNode>;
+  /** body-level items after the last block (before the final w:sectPr) */
+  tail: number[];
+  doc: PMNode;
+  styles: Styles;
+  numbering: Numbering;
+  page: PageBox;
+  headerHtml: string;
+  footerHtml: string;
+  /** how many blocks are shown read-only, and why */
+  locked: { count: number; reasons: string[] };
+  /** blob: URLs made for pictures (revoked when the document closes) */
+  urls: string[];
+  /** CSS of a plain paragraph in the default style (new paragraphs) */
+  defaultCss: string;
+}
+
+export interface ReadOptions {
+  dom?: DomImpl;
+  /** a URL to show picture bytes (the browser: blob URLs) */
+  imageUrl?: (bytes: Uint8Array, mime: string) => string | null;
+}
+
+const MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+};
+
+const merge = <T extends object>(...layers: (T | undefined)[]): T => Object.assign({}, ...layers.filter(Boolean)) as T;
+
+/** Paragraph-level items that only mark a place (kept, never shown). */
+const MARKERS = new Set([
+  'bookmarkStart',
+  'bookmarkEnd',
+  'commentRangeStart',
+  'commentRangeEnd',
+  'permStart',
+  'permEnd',
+  'moveFromRangeStart',
+  'moveFromRangeEnd',
+  'moveToRangeStart',
+  'moveToRangeEnd',
+  'customXmlInsRangeStart',
+  'customXmlInsRangeEnd',
+  'customXmlDelRangeStart',
+  'customXmlDelRangeEnd',
+]);
+
+/** Inline containers that make a paragraph read-only, with the reason shown. */
+const LOCKING: Record<string, string> = {
+  ins: 'có theo dõi thay đổi',
+  del: 'có theo dõi thay đổi',
+  moveFrom: 'có theo dõi thay đổi',
+  moveTo: 'có theo dõi thay đổi',
+  customXml: 'có trường dữ liệu đặc biệt',
+  smartTag: 'có thẻ thông minh',
+  sdt: 'có ô điều khiển nội dung',
+  subDoc: 'có tài liệu con',
+  dir: 'có chữ viết từ phải sang trái',
+  bdo: 'có chữ viết từ phải sang trái',
+};
+
+class Locked extends Error {
+  constructor(public reason: string) {
+    super(reason);
+  }
+}
+
+interface Ctx {
+  model: WordModel;
+  part: string;
+  opts: ReadOptions;
+  footnote: number;
+  endnote: number;
+  /** current table style (cell paragraphs) */
+  inTable: number;
+}
+
+const store = (ctx: Ctx, n: Node) => ctx.model.store.push(n) - 1;
+
+export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOptions = {}): Promise<WordModel> {
+  const dom = opts.dom ?? defaultDom();
+  const pkg = openPackage(bytes, dom);
+  const xmlText = pkg.text(pkg.main)!;
+  const xml = parseXml(dom, xmlText, pkg.main);
+  const root = xml.documentElement;
+  if (root.namespaceURI === NS.strictW) {
+    throw new Error('Tệp Word lưu theo chuẩn “Strict Open XML” chưa mở được. Hãy lưu lại trong Word dạng “Word Document (.docx)”.');
+  }
+  const body = wChild(root, 'body');
+  if (!body) throw new Error('Tệp Word không có phần thân văn bản.');
+
+  const rels = pkg.rels(pkg.main);
+  const partByType = (suffix: string) => [...rels.values()].find((r) => r.type.endsWith(suffix) && !r.external)?.target;
+  const partDoc = (path: string | undefined) => {
+    const t = path ? pkg.text(path) : null;
+    return t ? parseXml(dom, t, path!) : null;
+  };
+  const theme = new Theme(partDoc(partByType('/theme')));
+  const styles = new Styles(partDoc(partByType('/styles')), theme);
+  const numbering = new Numbering(partDoc(partByType('/numbering')), theme, (id) => styles.numIdOf(id));
+
+  const model: WordModel = {
+    name,
+    pkg,
+    dom,
+    xml,
+    store: [],
+    origin: new Map(),
+    tail: [],
+    doc: null as unknown as PMNode,
+    styles,
+    numbering,
+    page: { width: 595.3, height: 841.9, top: 72, bottom: 72, left: 72, right: 72 },
+    headerHtml: '',
+    footerHtml: '',
+    locked: { count: 0, reasons: [] },
+    urls: [],
+    defaultCss: paraCss(styles.paragraph(undefined).p, styles.paragraph(undefined).r),
+  };
+  const ctx: Ctx = { model, part: pkg.main, opts, footnote: 0, endnote: 0, inTable: 0 };
+
+  const children = elements(body);
+  const sectPr = children.length && isW(children[children.length - 1], 'sectPr') ? children[children.length - 1] : null;
+  const blocks = readBlocks(ctx, sectPr ? children.slice(0, -1) : children, (pending) => (model.tail = pending));
+  if (!blocks.length) blocks.push(schema.nodes.paragraph.create({ css: model.defaultCss }));
+  model.doc = schema.nodes.doc.create(null, blocks);
+
+  if (sectPr) {
+    const pg = wChild(sectPr, 'pgSz');
+    const mar = wChild(sectPr, 'pgMar');
+    const t = (el: Element | null, a: string, d: number) => {
+      const v = num(wAttr(el, a));
+      return v === undefined ? d : Math.abs(v) / 20;
+    };
+    model.page = {
+      width: t(pg, 'w', 595.3),
+      height: t(pg, 'h', 841.9),
+      top: t(mar, 'top', 72),
+      bottom: t(mar, 'bottom', 72),
+      left: t(mar, 'left', 72),
+      right: t(mar, 'right', 72),
+    };
+    const hf = (kind: 'header' | 'footer') => {
+      const refs = wChildren(sectPr, `${kind}Reference`);
+      const ref = refs.find((r) => wAttr(r, 'type') === 'default') ?? refs[0];
+      const target = ref ? rels.get(rId(ref) ?? '')?.target : undefined;
+      const doc = partDoc(target);
+      if (!doc || !target) return '';
+      const sub: Ctx = { ...ctx, part: target };
+      return elements(doc.documentElement).map((el) => previewBlock(sub, el)).join('');
+    };
+    model.headerHtml = hf('header');
+    model.footerHtml = hf('footer');
+  }
+  return model;
+}
+
+/** Body-level (or cell-level) elements → blocks. Stray items go to the next block's `before`. */
+function readBlocks(ctx: Ctx, els: Element[], leftover: (pending: number[]) => void): PMNode[] {
+  const out: PMNode[] = [];
+  let pending: number[] = [];
+  const take = () => {
+    const b = pending.length ? pending : null;
+    pending = [];
+    return b;
+  };
+  for (const el of els) {
+    if (isW(el, 'p')) out.push(readParagraph(ctx, el, take()));
+    else if (isW(el, 'tbl')) out.push(readTable(ctx, el, take()));
+    else if (el.namespaceURI === NS.w && (MARKERS.has(el.localName) || el.localName === 'proofErr')) pending.push(store(ctx, el));
+    else out.push(lockedBlock(ctx, el, take(), isW(el, 'sdt') ? 'là ô điều khiển nội dung (ví dụ mục lục)' : 'là nội dung đặc biệt'));
+  }
+  if (pending.length && leftover) leftover(pending);
+  return out;
+}
+
+function lockedBlock(ctx: Ctx, el: Element, before: number[] | null, reason: string): PMNode {
+  const ref = store(ctx, el);
+  ctx.model.locked.count++;
+  if (!ctx.model.locked.reasons.includes(reason)) ctx.model.locked.reasons.push(reason);
+  const node = schema.nodes.locked.create({ ref, html: previewBlock(ctx, el), reason: `Chỉ xem: đoạn này ${reason}`, before });
+  ctx.model.origin.set(ref, node);
+  return node;
+}
+
+// ---- paragraphs ---------------------------------------------------------
+
+interface ParaInfo {
+  props: ParaProps;
+  /** run formatting a run inherits: defaults + paragraph style */
+  styleRun: RunProps;
+  /** the paragraph mark's formatting (an empty line's height) */
+  markRun: RunProps;
+  list: { numId: string; ilvl: number } | null;
+}
+
+export function paraInfo(model: WordModel, pPr: Element | null, noList = false): ParaInfo {
+  const direct = readParaProps(pPr);
+  const style = model.styles.paragraph(direct.styleId);
+  const numId = direct.numId ?? style.p.numId;
+  const ilvl = direct.ilvl ?? style.p.ilvl ?? 0;
+  const lvl = noList ? null : model.numbering.level(numId, ilvl);
+  const directClean = Object.fromEntries(Object.entries(direct).filter(([k]) => k !== 'styleId')) as ParaProps;
+  const props = merge<ParaProps>(lvl?.p, style.p, directClean);
+  if (noList) {
+    // out of the list: no list indent left over
+    props.left = direct.left ?? style.p.left;
+    props.hanging = direct.hanging ?? style.p.hanging;
+  }
+  const markRun = merge<RunProps>(style.r, readRunProps(wChild(pPr, 'rPr'), model.styles.theme));
+  return { props, styleRun: style.r, markRun, list: lvl && numId ? { numId, ilvl } : null };
+}
+
+function lockReason(p: Element): string | null {
+  const pPr = wChild(p, 'pPr');
+  if (wChild(pPr, 'pPrChange')) return 'có theo dõi thay đổi';
+  // the paragraph mark itself inserted, deleted or reformatted with tracking on
+  const mark = wChild(pPr, 'rPr');
+  if (['ins', 'del', 'moveFrom', 'moveTo', 'rPrChange'].some((n) => wChild(mark, n))) return 'có theo dõi thay đổi';
+  for (const el of elements(p)) {
+    if (el.namespaceURI === NS.m) return 'có công thức toán';
+    if (el.namespaceURI !== NS.w) continue;
+    if (LOCKING[el.localName]) return LOCKING[el.localName];
+    if (el.localName === 'r' && wChild(wChild(el, 'rPr'), 'rPrChange')) return 'có theo dõi thay đổi';
+    if (el.localName === 'hyperlink') {
+      for (const k of elements(el)) {
+        if (isW(k, 'r')) {
+          if (wChild(wChild(k, 'rPr'), 'rPrChange')) return 'có theo dõi thay đổi';
+        } else if (!(k.namespaceURI === NS.w && (MARKERS.has(k.localName) || k.localName === 'proofErr'))) return 'có liên kết phức tạp';
+      }
+    }
+  }
+  return null;
+}
+
+function readParagraph(ctx: Ctx, p: Element, before: number[] | null): PMNode {
+  const reason = lockReason(p);
+  if (reason) return lockedBlock(ctx, p, before, reason);
+  const model = ctx.model;
+  const pPr = wChild(p, 'pPr');
+  const info = paraInfo(model, pPr);
+  const ref = store(ctx, p);
+  const items: PMNode[] = [];
+  try {
+    for (const el of elements(p)) {
+      if (isW(el, 'pPr')) continue;
+      readInline(ctx, el, info, items, null);
+    }
+  } catch (e) {
+    if (e instanceof Locked) {
+      model.store.pop();
+      return lockedBlock(ctx, p, before, e.reason);
+    }
+    throw e;
+  }
+  const styleId = readParaProps(pPr).styleId;
+  const node = schema.nodes.paragraph.create(
+    {
+      ref,
+      ppr: pPr ? store(ctx, pPr) : null,
+      css: paraCss(info.props, info.markRun),
+      list: info.list,
+      before,
+      sect: !!wChild(pPr, 'sectPr'),
+      heading: model.styles.headingLevel(styleId) ?? null,
+    },
+    items,
+  );
+  model.origin.set(ref, node);
+  return node;
+}
+
+function readInline(ctx: Ctx, el: Element, info: ParaInfo, items: PMNode[], link: Mark | null) {
+  const model = ctx.model;
+  const withLink = (marks: readonly Mark[]) => (link ? link.addToSet(marks) : marks);
+  if (el.namespaceURI === NS.w) {
+    const n = el.localName;
+    if (n === 'r') return readRun(ctx, el, info, items, link);
+    if (n === 'proofErr') return;
+    if (MARKERS.has(n)) {
+      items.push(schema.nodes.inl.create({ ref: store(ctx, el), kind: 'hidden' }, null, withLink([])));
+      return;
+    }
+    if (n === 'hyperlink') {
+      const rid = rId(el);
+      const rel = rid ? model.pkg.rels(ctx.part).get(rid) : undefined;
+      const anchor = wAttr(el, 'anchor');
+      const mark = schema.marks.link.create({ ref: store(ctx, el), href: rel?.target ?? (anchor ? `#${anchor}` : '') });
+      for (const k of elements(el)) readInline(ctx, k, info, items, mark);
+      return;
+    }
+    if (n === 'fldSimple') {
+      items.push(schema.nodes.inl.create({ ref: store(ctx, el), kind: 'text', label: textOf(el) || ' ' }, null, withLink([])));
+      return;
+    }
+  }
+  if (el.namespaceURI === NS.mc && el.localName === 'AlternateContent') {
+    items.push(atomFor(ctx, el, el, withLink([])));
+    return;
+  }
+  throw new Locked('có nội dung đặc biệt');
+}
+
+/** marks for a run: link, its own formatting (rp), and b/i/u as they look after styles */
+function runMarks(ctx: Ctx, rPr: Element | null, info: ParaInfo, link: Mark | null): { marks: readonly Mark[]; eff: RunProps } {
+  const model = ctx.model;
+  const direct = readRunProps(rPr, model.styles.theme);
+  const inherited = merge<RunProps>(info.styleRun, model.styles.character(wVal(rPr, 'rStyle') ?? undefined));
+  const eff = merge<RunProps>(inherited, direct);
+  let marks: readonly Mark[] = [];
+  if (link) marks = link.addToSet(marks);
+  if (rPr) marks = schema.marks.rp.create({ ref: store(ctx, rPr), css: runCss(eff) }).addToSet(marks);
+  if (eff.b) marks = schema.marks.b.create().addToSet(marks);
+  if (eff.i) marks = schema.marks.i.create().addToSet(marks);
+  if (eff.u && eff.u !== 'none') marks = schema.marks.u.create({ val: eff.u }).addToSet(marks);
+  return { marks, eff };
+}
+
+function readRun(ctx: Ctx, r: Element, info: ParaInfo, items: PMNode[], link: Mark | null) {
+  const rPr = wChild(r, 'rPr');
+  const { marks } = runMarks(ctx, rPr, info, link);
+  let buf = '';
+  const flush = () => {
+    if (buf) items.push(schema.text(buf, marks));
+    buf = '';
+  };
+  /** a run holding just this child (and the run's formatting), kept as XML */
+  const synth = (child: Element) => {
+    const r2 = r.cloneNode(false) as Element;
+    if (rPr) r2.appendChild(rPr.cloneNode(true));
+    r2.appendChild(child.cloneNode(true));
+    return store(ctx, r2);
+  };
+  const atom = (child: Element, attrs: Record<string, unknown>) => {
+    flush();
+    items.push(schema.nodes.inl.create({ ref: synth(child), ...attrs }, null, link ? link.addToSet([]) : []));
+  };
+  for (const c of elements(r)) {
+    if (c.namespaceURI !== NS.w) {
+      if (c.namespaceURI === NS.mc && c.localName === 'AlternateContent') {
+        flush();
+        items.push(atomFor(ctx, c, null, link ? link.addToSet([]) : [], synth(c)));
+      } else atom(c, { kind: 'hidden' });
+      continue;
+    }
+    switch (c.localName) {
+      case 'rPr':
+      case 'lastRenderedPageBreak':
+        break;
+      case 't':
+        buf += c.textContent ?? '';
+        break;
+      case 'tab':
+        buf += '\t';
+        break;
+      case 'noBreakHyphen':
+        buf += '‑';
+        break;
+      case 'softHyphen':
+        buf += '­';
+        break;
+      case 'cr':
+        flush();
+        items.push(schema.nodes.br.create({ ref: synth(c) }, null, marks));
+        break;
+      case 'br': {
+        const type = wAttr(c, 'type');
+        if (type === 'page' || type === 'column') atom(c, { kind: 'mark', label: type === 'page' ? 'ngắt trang' : 'ngắt cột' });
+        else {
+          flush();
+          items.push(schema.nodes.br.create({ ref: synth(c) }, null, marks));
+        }
+        break;
+      }
+      case 'sym': {
+        const code = parseInt(wAttr(c, 'char') ?? '', 16);
+        atom(c, { kind: 'text', label: Number.isFinite(code) ? symbolText(code) : '□' });
+        break;
+      }
+      case 'drawing':
+      case 'pict':
+      case 'object':
+        flush();
+        items.push(atomFor(ctx, c, null, link ? link.addToSet([]) : [], synth(c)));
+        break;
+      case 'footnoteReference':
+        atom(c, { kind: 'note', label: String(++ctx.footnote) });
+        break;
+      case 'endnoteReference':
+        atom(c, { kind: 'note', label: roman(++ctx.endnote) });
+        break;
+      case 'ruby': {
+        // phonetic guide: the base text shows, the guide is kept in the file
+        const base = wChild(c, 'rubyBase');
+        atom(c, { kind: 'text', label: base ? textOf(base) : '' });
+        break;
+      }
+      case 'ptab':
+        atom(c, { kind: 'text', label: '\t' });
+        break;
+      case 'fldChar':
+      case 'instrText':
+        atom(c, { kind: 'hidden' });
+        break;
+      case 'pgNum':
+        atom(c, { kind: 'text', label: '#' });
+        break;
+      default:
+        atom(c, { kind: 'hidden' });
+    }
+  }
+  flush();
+}
+
+const roman = (n: number) => formatNumber(n, 'lowerRoman');
+
+function symbolText(code: number) {
+  const c = String.fromCharCode(code >= 0xf000 ? code : code + 0xf000);
+  const map: Record<string, string> = { '': '•', '': '▪', '': '✓', '': '✗', '': '→', '': '➢', '': '●', '': '■' };
+  return map[c] ?? String.fromCharCode(code >= 0xf000 ? code - 0xf000 : code);
+}
+
+/** A picture (or other drawing) as an inline item; `ref` given, or the element stored as is. */
+function atomFor(ctx: Ctx, el: Element, whole: Element | null, marks: readonly Mark[], ref?: number): PMNode {
+  const model = ctx.model;
+  const r = ref ?? store(ctx, whole ?? el);
+  const blip = el.getElementsByTagNameNS(NS.a, 'blip')[0];
+  const imageData = el.getElementsByTagNameNS(NS.v, 'imagedata')[0];
+  const rid = blip ? (attrNS(blip, NS.r, 'embed') ?? attrNS(blip, NS.r, 'link')) : imageData ? attrNS(imageData, NS.r, 'id') : null;
+  let w = 0;
+  let h = 0;
+  const extent = el.getElementsByTagNameNS(NS.wp, 'extent')[0];
+  if (extent) {
+    w = emuToPt(Number(extent.getAttribute('cx') ?? 0));
+    h = emuToPt(Number(extent.getAttribute('cy') ?? 0));
+  } else {
+    const shape = el.getElementsByTagNameNS(NS.v, 'shape')[0];
+    const style = shape?.getAttribute('style') ?? '';
+    const m = (k: string) => {
+      const x = new RegExp(`${k}:\\s*([\\d.]+)(pt|in|px)?`).exec(style);
+      if (!x) return 0;
+      const v = Number(x[1]);
+      return x[2] === 'in' ? v * 72 : x[2] === 'px' ? v * 0.75 : v;
+    };
+    w = m('width');
+    h = m('height');
+  }
+  if (rid) {
+    const rel = model.pkg.rels(ctx.part).get(rid);
+    const ext = rel?.target.split('.').pop()?.toLowerCase() ?? '';
+    const bytes = rel && !rel.external ? model.pkg.files[rel.target] : undefined;
+    const mime = MIME[ext];
+    if (bytes && mime && ctx.opts.imageUrl) {
+      const src = ctx.opts.imageUrl(bytes, mime);
+      if (src) {
+        model.urls.push(src);
+        return schema.nodes.inl.create({ ref: r, kind: 'image', src, w: +w.toFixed(1), h: +h.toFixed(1), label: 'Hình' }, null, marks);
+      }
+    }
+    return schema.nodes.inl.create({ ref: r, kind: 'mark', label: ext ? `Hình (${ext.toUpperCase()})` : 'Hình' }, null, marks);
+  }
+  const textbox = el.getElementsByTagNameNS(NS.w, 'txbxContent')[0];
+  return schema.nodes.inl.create({ ref: r, kind: 'mark', label: textbox ? 'Hộp chữ' : 'Hình vẽ' }, null, marks);
+}
+
+// ---- tables -------------------------------------------------------------
+
+type Side = 'top' | 'bottom' | 'left' | 'right' | 'insideH' | 'insideV';
+
+function readTable(ctx: Ctx, tbl: Element, before: number[] | null): PMNode {
+  const model = ctx.model;
+  const tblPr = wChild(tbl, 'tblPr');
+  const rows = elements(tbl).filter((e) => isW(e, 'tr'));
+  // rows wrapped in content controls or custom XML: shown, not edited
+  if (elements(tbl).some((e) => isW(e, 'sdt') || isW(e, 'customXml')) || rows.some((tr) => elements(tr).some((e) => isW(e, 'sdt') || isW(e, 'customXml')))) {
+    return lockedBlock(ctx, tbl, before, 'là bảng có ô điều khiển nội dung');
+  }
+  const ref = store(ctx, tbl);
+  const styleId = wVal(tblPr, 'tblStyle') ?? undefined;
+  const borders: Partial<Record<Side, Border>> = { ...model.styles.tableBorders(styleId) };
+  const direct = wChild(tblPr, 'tblBorders');
+  if (direct) {
+    for (const side of ['top', 'bottom', 'left', 'right', 'insideH', 'insideV'] as const) {
+      const b = readBorder(wChild(direct, side) ?? wChild(direct, side === 'left' ? 'start' : side === 'right' ? 'end' : side));
+      if (b) borders[side] = b;
+    }
+  }
+  const grid = wChildren(wChild(tbl, 'tblGrid'), 'gridCol').map((g) => (num(wAttr(g, 'w')) ?? 0) / 20);
+  const tblW = wChild(tblPr, 'tblW');
+  const wType = wAttr(tblW, 'type');
+  const wVal_ = num(wAttr(tblW, 'w'));
+  const css = ['border-collapse:collapse', 'table-layout:auto'];
+  if (wType === 'dxa' && wVal_) css.push(`width:${wVal_ / 20}pt`);
+  else if (wType === 'pct' && wVal_) css.push(`width:${wVal_ / 50}%`);
+  else if (grid.length && grid.every((g) => g > 0)) css.push(`width:${grid.reduce((a, b) => a + b, 0)}pt`);
+  const jc = wVal(tblPr, 'jc');
+  if (jc === 'center') css.push('margin-left:auto;margin-right:auto');
+  const indent = num(wAttr(wChild(tblPr, 'tblInd'), 'w'));
+  if (indent && wAttr(wChild(tblPr, 'tblInd'), 'type') !== 'pct') css.push(`margin-left:${indent / 20}pt`);
+
+  // which grid columns continue a vertical merge, row by row
+  const shape = rows.map((tr) =>
+    wChildren(tr, 'tc').map((tc) => {
+      const tcPr = wChild(tc, 'tcPr');
+      const vm = wChild(tcPr, 'vMerge');
+      return { span: num(wVal(tcPr, 'gridSpan')) ?? 1, vmerge: vm ? (wAttr(vm, 'val') ?? 'continue') : null };
+    }),
+  );
+  const continues = (ri: number, col: number) => {
+    const row = shape[ri];
+    if (!row) return false;
+    let c = 0;
+    for (const cell of row) {
+      if (c === col) return cell.vmerge === 'continue';
+      c += cell.span;
+    }
+    return false;
+  };
+  const totalCols = Math.max(grid.length, ...shape.map((r) => r.reduce((a, c) => a + c.span, 0)));
+
+  ctx.inTable++;
+  const rowNodes = rows.map((tr, ri) => {
+    const trPr = wChild(tr, 'trPr');
+    const hEl = wChild(trPr, 'trHeight');
+    const height = num(wAttr(hEl, 'val'));
+    const rowCss = height ? `height:${height / 20}pt` : '';
+    let col = 0;
+    const cells = wChildren(tr, 'tc').map((tc, ci) => {
+      const { span, vmerge } = shape[ri][ci];
+      const tcPr = wChild(tc, 'tcPr');
+      const cellCss: string[] = ['padding:0 5.4pt', 'vertical-align:top'];
+      const w = wChild(tcPr, 'tcW');
+      if (wAttr(w, 'type') === 'dxa' && num(wAttr(w, 'w'))) cellCss.push(`width:${num(wAttr(w, 'w'))! / 20}pt`);
+      else if (grid.length) {
+        const sum = grid.slice(col, col + span).reduce((a, b) => a + b, 0);
+        if (sum) cellCss.push(`width:${sum}pt`);
+      }
+      const va = wVal(tcPr, 'vAlign');
+      if (va === 'center') cellCss[1] = 'vertical-align:middle';
+      else if (va === 'bottom') cellCss[1] = 'vertical-align:bottom';
+      const fill = wAttr(wChild(tcPr, 'shd'), 'fill');
+      if (fill && fill !== 'auto' && /^[0-9a-f]{6}$/i.test(fill)) cellCss.push(`background-color:#${fill}`);
+      const own = wChild(tcPr, 'tcBorders');
+      const side = (s: 'top' | 'bottom' | 'left' | 'right', fallback: Side) => {
+        const b = readBorder(wChild(own, s) ?? wChild(own, s === 'left' ? 'start' : s === 'right' ? 'end' : s)) ?? borders[fallback];
+        return borderCss(b) ?? 'none';
+      };
+      const top = vmerge === 'continue' ? 'none' : side('top', ri === 0 ? 'top' : 'insideH');
+      const bottom = continues(ri + 1, col) ? 'none' : side('bottom', ri === rows.length - 1 ? 'bottom' : 'insideH');
+      cellCss.push(`border-top:${top}`, `border-bottom:${bottom}`);
+      cellCss.push(`border-left:${side('left', col === 0 ? 'left' : 'insideV')}`);
+      cellCss.push(`border-right:${side('right', col + span >= totalCols ? 'right' : 'insideV')}`);
+      col += span;
+      let tail: number[] | null = null;
+      const content = readBlocks(
+        ctx,
+        elements(tc).filter((e) => !isW(e, 'tcPr')),
+        (pending) => (tail = pending),
+      );
+      if (!content.length) content.push(schema.nodes.paragraph.create({ css: model.defaultCss }));
+      return schema.nodes.table_cell.create({ colspan: span, css: cellCss.join(';'), tail }, content);
+    });
+    return schema.nodes.table_row.create({ css: rowCss }, cells);
+  });
+  ctx.inTable--;
+  const node = schema.nodes.table.create({ ref, css: css.join(';'), before }, rowNodes);
+  model.origin.set(ref, node);
+  return node;
+}
+
+// ---- read-only preview (locked blocks, header, footer) -------------------
+
+function previewBlock(ctx: Ctx, el: Element): string {
+  const model = ctx.model;
+  if (isW(el, 'p')) {
+    const info = paraInfo(model, wChild(el, 'pPr'));
+    return `<p style="${escapeHtml(paraCss(info.props, info.markRun))}">${previewInline(ctx, el, info) || '<br>'}</p>`;
+  }
+  if (isW(el, 'tbl')) {
+    const rows = elements(el)
+      .filter((e) => isW(e, 'tr'))
+      .map(
+        (tr) =>
+          `<tr>${wChildren(tr, 'tc')
+            .map((tc) => {
+              const span = num(wVal(wChild(tc, 'tcPr'), 'gridSpan')) ?? 1;
+              return `<td${span > 1 ? ` colspan="${span}"` : ''} style="border:0.5pt solid #999;padding:0 5.4pt;vertical-align:top">${elements(tc)
+                .filter((e) => !isW(e, 'tcPr'))
+                .map((e) => previewBlock(ctx, e))
+                .join('')}</td>`;
+            })
+            .join('')}</tr>`,
+      )
+      .join('');
+    return `<table style="border-collapse:collapse">${rows}</table>`;
+  }
+  if (isW(el, 'sdt')) return elements(wChild(el, 'sdtContent')).map((e) => previewBlock(ctx, e)).join('');
+  if (isW(el, 'customXml')) return elements(el).map((e) => previewBlock(ctx, e)).join('');
+  return '';
+}
+
+function previewInline(ctx: Ctx, container: Element, info: ParaInfo): string {
+  let html = '';
+  for (const el of elements(container)) {
+    if (el.namespaceURI === NS.m) {
+      html += `<span class="ez-wmath">${escapeHtml(el.textContent ?? '')}</span>`;
+      continue;
+    }
+    if (el.namespaceURI === NS.mc) {
+      html += '<span class="ez-wmark">Hình vẽ</span>';
+      continue;
+    }
+    if (el.namespaceURI !== NS.w) continue;
+    switch (el.localName) {
+      case 'r': {
+        const rPr = wChild(el, 'rPr');
+        const direct = readRunProps(rPr, ctx.model.styles.theme);
+        const eff = merge<RunProps>(info.styleRun, ctx.model.styles.character(wVal(rPr, 'rStyle') ?? undefined), direct);
+        let css = runCss(eff);
+        if (eff.b) css += ';font-weight:bold';
+        if (eff.i) css += ';font-style:italic';
+        if (eff.u && eff.u !== 'none') css += ';text-decoration-line:underline';
+        let text = '';
+        for (const c of elements(el)) {
+          if (isW(c, 't') || isW(c, 'delText') || isW(c, 'instrText')) text += isW(c, 'instrText') ? '' : escapeHtml(c.textContent ?? '');
+          else if (isW(c, 'tab')) text += '\t';
+          else if (isW(c, 'br') || isW(c, 'cr')) text += '<br>';
+          else if (isW(c, 'drawing') || isW(c, 'pict')) {
+            const a = atomFor({ ...ctx, model: { ...ctx.model, store: [] } as WordModel }, c, null, []);
+            text += a.attrs.src
+              ? `<img class="ez-wimg" src="${escapeHtml(a.attrs.src)}" style="width:${a.attrs.w}pt;height:${a.attrs.h}pt" alt="">`
+              : '<span class="ez-wmark">Hình</span>';
+          }
+        }
+        html += text ? `<span style="${escapeHtml(css)}">${text}</span>` : '';
+        break;
+      }
+      case 'ins':
+      case 'moveTo':
+        html += `<ins class="ez-wins">${previewInline(ctx, el, info)}</ins>`;
+        break;
+      case 'del':
+      case 'moveFrom':
+        html += `<del class="ez-wdel">${previewInline(ctx, el, info)}</del>`;
+        break;
+      case 'hyperlink':
+      case 'smartTag':
+      case 'customXml':
+      case 'fldSimple':
+      case 'dir':
+      case 'bdo':
+        html += previewInline(ctx, el, info);
+        break;
+      case 'sdt':
+        html += previewInline(ctx, wChild(el, 'sdtContent') ?? el, info);
+        break;
+    }
+  }
+  return html;
+}

@@ -13,7 +13,7 @@
  */
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { createCapacitorBackend, base64Of } from './storage/capacitor-fs';
-import { asPdfFile, incomingQueue, type Platform } from './types';
+import { asDocFile, DOCX_MIME, incomingQueue, type Platform } from './types';
 
 interface DocRef {
   uri: string;
@@ -23,7 +23,7 @@ interface DocRef {
 
 interface EzFilesPlugin {
   clearCaptures(): Promise<{ removed: number }>;
-  openDocument(): Promise<{ cancelled: boolean; file?: DocRef }>;
+  openDocument(o?: { mimes?: string[] }): Promise<{ cancelled: boolean; file?: DocRef }>;
   createDocument(o: { name: string; mime: string }): Promise<{ cancelled: boolean; file?: DocRef }>;
   openWrite(o: { uri: string }): Promise<{ handle: string }>;
   write(o: { handle: string; data: string }): Promise<void>;
@@ -64,7 +64,7 @@ async function cacheCopy(bytes: Uint8Array, name: string) {
 async function fileOf(ref: DocRef) {
   const res = await fetch(Capacitor.convertFileSrc(ref.uri));
   if (!res.ok) throw new Error(`Không đọc được “${ref.name}” (${res.status}).`);
-  return asPdfFile(await res.blob(), ref.name || 'tai-lieu.pdf');
+  return asDocFile(await res.blob(), ref.name || 'tai-lieu.pdf');
 }
 
 export async function createAndroidPlatform(): Promise<Platform> {
@@ -92,8 +92,19 @@ export async function createAndroidPlatform(): Promise<Platform> {
       const r = await EzFiles.openDocument();
       return r.cancelled || !r.file ? null : fileOf(r.file);
     },
+    async pickFile() {
+      const r = await EzFiles.openDocument({ mimes: ['application/pdf', DOCX_MIME] });
+      return r.cancelled || !r.file ? null : fileOf(r.file);
+    },
     async savePdf(bytes, suggestedName) {
       const r = await EzFiles.createDocument({ name: suggestedName, mime: 'application/pdf' });
+      if (r.cancelled || !r.file) return null;
+      const { handle } = await EzFiles.openWrite({ uri: r.file.uri });
+      await writeAll(handle, bytes);
+      return { how: 'file', name: r.file.name || suggestedName };
+    },
+    async saveWord(bytes, suggestedName) {
+      const r = await EzFiles.createDocument({ name: suggestedName, mime: DOCX_MIME });
       if (r.cancelled || !r.file) return null;
       const { handle } = await EzFiles.openWrite({ uri: r.file.uri });
       await writeAll(handle, bytes);

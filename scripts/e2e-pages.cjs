@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Acceptance run for page management ("Sắp xếp trang", a scan added to the
+ * Acceptance run for page management ("Bộ công cụ", formerly "Sắp xếp trang"; a scan added to the
  * open document), in real Chromium, on tests/fixtures/pages-a.pdf (5 pages
  * marked A-1…A-5: a sticky note on A-2, /Rotate 90 on A-3, a form field on
  * A-4, A-5 landscape) and pages-b.pdf (B-1…B-3, Letter).
@@ -156,6 +156,14 @@ let onCrash = async () => {};
   await page.setInputFiles(tid('file-input'), FIX('pages-a.pdf'));
   await waitPages(5);
   await sleep(600);
+  {
+    // "Bộ công cụ" (0.8.0): in the top bar right after Share, its own icon
+    const where = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="top-bar"] [data-testid="btn-pages"]');
+      return b && { prev: b.previousElementSibling?.dataset.testid, name: b.getAttribute('aria-label'), svg: !!b.querySelector('svg rect') };
+    });
+    check('“Bộ công cụ” sits right after Share in the top bar, with its toolbox icon', where && where.prev === 'btn-share' && where.name === 'Bộ công cụ' && where.svg, JSON.stringify(where));
+  }
   // page 1 turned in the viewer (kept by the viewer until export)
   await page.click(tid('btn-rotate-page'));
   await page.waitForFunction(() => window.__ezpdf.pages()[0].rotation === 1);
@@ -449,7 +457,12 @@ let onCrash = async () => {};
     await ph.setInputFiles(tid('file-input'), FIX('pages-a.pdf'));
     await ph.waitForFunction(() => window.__ezpdf?.pages().length === 5, null, { timeout: 60000 });
     await sleep(500);
-    await ph.tap(tid('btn-more'));
+    const phoneBar = await ph.evaluate(() => {
+      const b = document.querySelector('[data-testid="top-bar"] [data-testid="btn-pages"]');
+      const r = b?.getBoundingClientRect();
+      const h = document.querySelector('[data-testid="top-bar"]');
+      return b && { next: b.nextElementSibling?.dataset.testid, onScreen: r.left >= 0 && r.right <= innerWidth, fits: h.scrollWidth <= h.clientWidth + 1 };
+    });
     await ph.tap(tid('btn-pages'));
     await ph.waitForSelector(tid('org-card-4'), { timeout: 30000 });
     await ph.waitForFunction(() => document.querySelectorAll('[data-testid="org-grid"] img').length === 5, null, { timeout: 30000 });
@@ -461,7 +474,12 @@ let onCrash = async () => {};
         return r && r.right <= innerWidth && r.left >= 0 && r.width > 0;
       }),
     );
-    check('phone: “Sắp xếp trang” in the ⋮ menu; a tap selects; every action fits on screen', pressed === 'true' && allVisible);
+    const title = await ph.textContent(`${tid('organizer')} header`);
+    check(
+      'phone: “Bộ công cụ” in the top bar beside Share (bar fits), opens the screen of that name; a tap selects; every action fits on screen',
+      phoneBar && phoneBar.next === 'btn-share' && phoneBar.onScreen && phoneBar.fits && /Bộ công cụ/.test(title) && pressed === 'true' && allVisible,
+      JSON.stringify(phoneBar),
+    );
     await ph.tap(tid('org-card-0')); // unselect
     // hold A-5 for a moment, then drag it before A-1 (touch events through the DevTools protocol)
     const cdp = await pctx.newCDPSession(ph);

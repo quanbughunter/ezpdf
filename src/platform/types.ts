@@ -31,10 +31,14 @@ export type ShareOutcome = 'done' | 'cancelled' | 'copied' | 'downloaded';
 export interface Platform {
   readonly kind: PlatformKind;
   readonly storage: StorageBackend;
-  /** the system's open dialog; null means the page's own file input is used */
+  /** the system's open dialog for PDFs; null means the page's own file input is used */
   readonly pickPdf: (() => Promise<File | null>) | null;
+  /** the system's open dialog for a PDF or a Word (.docx) file: the Open button */
+  readonly pickFile: (() => Promise<File | null>) | null;
   /** write an exported PDF; null when the user cancelled the save dialog */
   savePdf(bytes: Uint8Array, suggestedName: string): Promise<SaveResult | null>;
+  /** write a Word file saved from the Word screen; null when the user cancelled */
+  saveWord(bytes: Uint8Array, suggestedName: string): Promise<SaveResult | null>;
   /**
    * Files handed to ezPDF from outside: "Open with", a file given on the
    * command line, the Android share sheet, an installed web app's file
@@ -48,6 +52,12 @@ export interface Platform {
    */
   onCloseRequested?(cb: () => Promise<void>): () => void;
   /**
+   * A check before the desktop window closes, run before the callbacks
+   * above: resolving false keeps the window open (unsaved changes on the
+   * Word screen, the user chose to stay).
+   */
+  guardClose?(check: () => Promise<boolean>): () => void;
+  /**
    * Photos the camera app wrote for a scan (Android: the camera saves into
    * the app's own folder and the copy would otherwise stay there). Called
    * when a scan ends and when the app starts.
@@ -58,8 +68,9 @@ export interface Platform {
   /** how this platform can share a PDF; empty: no share button */
   readonly shareWays: readonly ShareWay[];
   /**
-   * Hand `bytes` to another app as a file called `name`. Only after the user
-   * asked for it: ezPDF never sends a document anywhere by itself.
+   * Hand `bytes` to another app as a file called `name` (a PDF, or a Word
+   * file when the name ends in .docx). Only after the user asked for it:
+   * ezPDF never sends a document anywhere by itself.
    */
   sharePdf(bytes: Uint8Array, name: string, way: ShareWay): Promise<ShareOutcome>;
   /**
@@ -99,4 +110,9 @@ export const dirName = (path: string) => {
   return i > 0 ? path.slice(0, i) : undefined;
 };
 
-export const asPdfFile = (data: BlobPart, name: string) => new File([data], name, { type: 'application/pdf' });
+export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** the type of a file by its name: Word for .docx, PDF otherwise */
+export const mimeOf = (name: string) => (/\.docx$/i.test(name) ? DOCX_MIME : 'application/pdf');
+
+export const asDocFile = (data: BlobPart, name: string) => new File([data], name, { type: mimeOf(name) });

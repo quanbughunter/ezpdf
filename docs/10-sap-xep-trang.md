@@ -1,15 +1,17 @@
-# 10 · Sắp xếp trang: thêm, xóa, đổi chỗ, trích, tách (bản 0.7.0)
+# 10 · Bộ công cụ: thêm, xóa, đổi chỗ, trích, tách trang (bản 0.7.0, đổi tên ở 0.8.0)
+
+Bản 0.7.0 gọi màn này là **Sắp xếp trang**. Từ bản 0.8.0 nó tên là **Bộ công cụ**, có biểu tượng riêng (hộp đồ nghề có một trang giấy nhô lên, `src/app/pages/toolbox-icon.tsx`) và nằm ngay cạnh nút Chia sẻ trên thanh trên cùng, cả trên máy tính lẫn điện thoại. Cách dùng không đổi.
 
 Tính năng này dùng chung một mã cho Windows, web (cả iPhone) và Android.
 
 Tình huống gợi ra tính năng: quét xong một trang, quên bấm thêm trang mà bấm luôn Tạo PDF. Giờ có hai cách nối tiếp:
 - **Quét tiếp vào tài liệu đang mở.** Khi đang mở tài liệu, màn quét có nút **Thêm vào tài liệu này**: các trang vừa quét được nối vào cuối tài liệu, và app chuyển ngay tới trang đầu tiên vừa thêm.
-- **Ghép với tệp khác** trong màn Sắp xếp trang.
+- **Ghép với tệp khác** trong Bộ công cụ.
 
-## Mở màn Sắp xếp trang
+## Mở Bộ công cụ
 
-- **Máy tính:** nút lưới ô vuông trên thanh công cụ, cạnh nút quét.
-- **Điện thoại:** menu ⋮ → **Sắp xếp trang**.
+- **Máy tính:** nút **Bộ công cụ** ngay sau nút Chia sẻ, trước nút Xuất PDF. Màn hình rộng từ 1360 px thì nút có cả chữ; hẹp hơn thì chỉ có biểu tượng.
+- **Điện thoại:** biểu tượng hộp đồ nghề ngay trước nút Chia sẻ trên thanh trên cùng. Để thanh vẫn vừa màn hình 390 px (iPhone thường), nút ẩn/hiện cột trang được gộp vào số trang: chạm vào “2/4” để hiện hoặc ẩn cột trang.
 
 Màn này hiện mọi trang dưới dạng ảnh nhỏ, đúng chiều xoay như trong trình xem. Mọi thao tác chỉ là bản nháp trong màn này. Tài liệu chỉ đổi khi bấm **Áp dụng**. Đóng màn này khi còn thay đổi chưa áp dụng thì app hỏi lại trước.
 
@@ -29,13 +31,13 @@ Màn này hiện mọi trang dưới dạng ảnh nhỏ, đúng chiều xoay nh�
 - trình duyệt: tải về từng tệp; Chrome có thể hỏi một lần có cho tải nhiều tệp không;
 - Windows và Android: mỗi tệp một hộp thoại lưu. Bấm Hủy ở một hộp thoại thì dừng ở tệp đó.
 
-Khi màn Sắp xếp trang hay màn quét đang mở, các phím tắt của trình xem (R xoay trang, Delete xóa chú thích, Ctrl Z…) tạm tắt, để không đổi tài liệu ở phía sau.
+Khi Bộ công cụ hay màn quét đang mở, các phím tắt của trình xem (R xoay trang, Delete xóa chú thích, Ctrl Z…) tạm tắt, để không đổi tài liệu ở phía sau.
 
 ## Cách làm
 
 Tất cả chạy trong worker PDFium riêng của ezPDF, trên máy (`src/engine/page-ops.ts`). Tài liệu không rời thiết bị.
 
-- **Ảnh nhỏ.** Khi mở màn Sắp xếp trang, tài liệu hiện tại (kèm chú thích) và mỗi tệp thêm vào được mở một lần trong worker. Ảnh nhỏ được vẽ không kèm góc xoay của trang; màn hình xoay ảnh theo góc đang chọn. Ảnh chỉ được vẽ khi trang sắp hiện ra, cái vừa cần thì vẽ trước.
+- **Ảnh nhỏ.** Khi mở Bộ công cụ, tài liệu hiện tại (kèm chú thích) và mỗi tệp thêm vào được mở một lần trong worker. Ảnh nhỏ được vẽ không kèm góc xoay của trang; màn hình xoay ảnh theo góc đang chọn. Ảnh chỉ được vẽ khi trang sắp hiện ra, cái vừa cần thì vẽ trước.
 - **Áp dụng: sửa ngay trên tài liệu đang mở.**
   - Trang không còn dùng thì xóa (`FPDFPage_Delete`).
   - Trang từ tệp khác thì chép vào (`FPDF_ImportPagesByIndex`). Một trang của chính tài liệu dùng hai lần thì lần thứ hai cũng là bản chép.
@@ -65,9 +67,9 @@ Bộ `e2e:pages` kiểm:
 - ↶ trả 5 trang gốc, ↷ lại thứ tự mới. Tải lại trang rồi mở bản nháp: vẫn thứ tự mới.
 - Trích (tên tệp theo số trang); tách mỗi 3 trang và **Lưu tất cả** (3 tệp đúng trang); tách theo khoảng (từ chối `9-`, nhận `2, 4-`). Tài liệu đang mở không đổi.
 - Thoát khi còn thay đổi thì app hỏi lại. Phím tắt của trình xem tắt khi màn đang mở.
-- Quét → **Thêm vào tài liệu này**: thành trang 9, app chuyển tới trang đó; ↶ gỡ ra. Quét ngay trong màn Sắp xếp trang.
+- Quét → **Thêm vào tài liệu này**: thành trang 9, app chuyển tới trang đó; ↶ gỡ ra. Quét ngay trong Bộ công cụ.
 - Đang bật công cụ sửa chữ mà sắp xếp trang, rồi sửa một dòng trên trang 1 mới: dòng được sửa, thứ tự mới vẫn giữ.
-- Điện thoại: mục trong menu ⋮; chạm để chọn; mọi nút nằm trong màn hình; giữ rồi kéo bằng ngón tay đổi được chỗ, vuốt nhanh thì không; áp dụng xong A-5 thành trang 1.
+- Điện thoại: nút Bộ công cụ trên thanh trên cùng, cạnh Chia sẻ (bản 0.8.0; trước đó trong menu ⋮); chạm để chọn; mọi nút nằm trong màn hình; giữ rồi kéo bằng ngón tay đổi được chỗ, vuốt nhanh thì không; áp dụng xong A-5 thành trang 1.
 - Không gửi gì ra ngoài, không có lỗi trên trang.
 
 Thêm `scripts/smoke-desktop.cjs` (bản desktop thật, WebView WebKitGTK trên Linux, **22/22**). Bước mới chạy màn Sắp xếp trang trong vỏ desktop:
@@ -75,6 +77,8 @@ Thêm `scripts/smoke-desktop.cjs` (bản desktop thật, WebView WebKitGTK trên
 - tách được tệp;
 - áp dụng xong thì bản nháp có đúng thứ tự mới và giữ góc xoay;
 - ↶ trả lại 4 trang ban đầu.
+
+Bản 0.8.0 thêm vào `e2e:pages` hai bước cho nút Bộ công cụ: trên máy tính nút đứng ngay sau Chia sẻ, có biểu tượng hộp đồ nghề; trên điện thoại nút đứng ngay trước Chia sẻ, thanh vẫn vừa màn hình, màn mở ra mang tên Bộ công cụ (28/28 cả dev lẫn production). Kết quả đầy đủ của bản 0.8.0: `docs/11-word.md`.
 
 Toàn bộ bộ kiểm của bản 0.7.0 (đã gồm bước kiểm thêm sau lần chạy CI đầu tiên, xem dưới):
 
@@ -124,7 +128,7 @@ CI đỏ ở `e2e:preview`, tức bộ `e2e` chạy trên bản build production
 
 ## Tự kiểm
 
-1. Mở một PDF nhiều trang → Sắp xếp trang. Kéo một trang sang chỗ khác, xoay một trang, xóa một trang, rồi Áp dụng. Thử ↶ rồi ↷.
+1. Mở một PDF nhiều trang → Bộ công cụ. Kéo một trang sang chỗ khác, xoay một trang, xóa một trang, rồi Áp dụng. Thử ↶ rồi ↷.
 2. Thêm trang → Từ tệp PDF khác, rồi Áp dụng và Xuất PDF. Mở tệp xuất bằng một app khác để xem thứ tự.
 3. Chọn 2 trang → Trích ra tệp mới → Lưu.
 4. Tách tệp → Mỗi tệp 1 trang → Lưu tất cả.

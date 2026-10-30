@@ -8,7 +8,6 @@ import {
   FolderOpen,
   Hand,
   Highlighter,
-  LayoutGrid,
   ImagePlus,
   Loader2,
   MessageSquareText,
@@ -41,7 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { BarDivider, IconAction, ToolToggle } from './controls';
+import { BarDivider, IconAction, Tip, ToolToggle } from './controls';
 import type { DraftStatus, ExportStatus } from './use-document-session';
 import { usePictures } from './images/pictures';
 import { usePlacement } from './images/placement';
@@ -50,6 +49,7 @@ import { isTouchFirst, useTextEdit } from './text-edit';
 import { usePointerTool, useSetPointerTool } from './viewer/hand';
 import { MoreMenu, PrintButton, ShareButton } from './output-actions';
 import { useDraftText } from './use-draft-text';
+import { ToolboxIcon } from './pages/toolbox-icon';
 
 export const TOOLS = [
   { id: null, label: 'Chọn chữ và đối tượng', shortcut: 'V', icon: MousePointer2, testId: 'tool-select' },
@@ -72,7 +72,7 @@ interface Props {
   onToggleRight: () => void;
   onOpen: () => void;
   onScan: () => void;
-  /** the page organizer: rearrange, add, remove, extract, split pages */
+  /** "Bộ công cụ", the page tools: rearrange, add, remove, extract, split pages */
   onPages: () => void;
   onSearch: () => void;
   onExport: () => void;
@@ -87,7 +87,7 @@ export function TopBar(p: Props) {
       data-testid="top-bar"
       className="ez-topbar sticky top-0 z-30 flex shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-background px-2 [scrollbar-width:none]"
     >
-      {p.documentId && (
+      {p.documentId && !p.compact && (
         <IconAction
           label={p.leftOpen ? 'Ẩn cột trang' : 'Hiện cột trang'}
           onClick={p.onToggleLeft}
@@ -96,25 +96,20 @@ export function TopBar(p: Props) {
           <PanelLeft />
         </IconAction>
       )}
-      <IconAction label="Mở tệp PDF" shortcut="Ctrl O" onClick={p.onOpen} testId="btn-open">
+      <IconAction label="Mở tệp PDF hoặc Word" shortcut="Ctrl O" onClick={p.onOpen} testId="btn-open">
         <FolderOpen />
       </IconAction>
       <IconAction label="Quét tài liệu thành PDF" onClick={p.onScan} testId="btn-scan">
         <ScanLine />
       </IconAction>
-      {p.documentId && !p.compact && (
-        <IconAction label="Sắp xếp trang: thêm, xóa, đổi chỗ, tách tệp" onClick={p.onPages} testId="btn-pages">
-          <LayoutGrid />
-        </IconAction>
-      )}
       {p.documentId && !p.compact && <DocumentTools documentId={p.documentId} onSearch={p.onSearch} />}
       {p.documentId && p.compact && (
         <IconAction label="Tìm trong tài liệu" shortcut="Ctrl F" onClick={p.onSearch} testId="btn-search">
           <Search />
         </IconAction>
       )}
-      {p.documentId && p.compact && <CompactPage documentId={p.documentId} />}
-      <div className="min-w-4 flex-1" />
+      {p.documentId && p.compact && <CompactPage documentId={p.documentId} leftOpen={p.leftOpen} onToggleLeft={p.onToggleLeft} />}
+      <div className={p.compact ? 'min-w-1 flex-1' : 'min-w-4 flex-1'} />
       {p.documentId && (
         <>
           <div className="mr-1 hidden max-w-64 min-w-0 flex-col items-end leading-tight md:flex">
@@ -128,8 +123,9 @@ export function TopBar(p: Props) {
           </span>
           {p.compact ? (
             <>
+              <ToolsButton onClick={p.onPages} compact />
               <ShareButton />
-              <MoreMenu onClose={p.onClose} onPages={p.onPages} />
+              <MoreMenu onClose={p.onClose} />
             </>
           ) : (
             <IconAction label="Đóng tài liệu (nháp đã lưu trên máy)" onClick={p.onClose} testId="btn-close-doc">
@@ -148,6 +144,7 @@ export function TopBar(p: Props) {
               <BarDivider />
               <PrintButton />
               <ShareButton />
+              <ToolsButton onClick={p.onPages} />
             </>
           )}
           <Button
@@ -167,19 +164,53 @@ export function TopBar(p: Props) {
   );
 }
 
-/** Phone layout: which page is "this page" for the rotate button, without the page box. */
-function CompactPage({ documentId }: { documentId: string }) {
+const TOOLS_LABEL = 'Bộ công cụ: thêm, xóa, đổi chỗ, xoay trang; trích, tách tệp';
+
+/**
+ * "Bộ công cụ" beside Share: with its name where the bar has room (wide
+ * screens), the icon alone elsewhere.
+ */
+function ToolsButton({ onClick, compact }: { onClick: () => void; compact?: boolean }) {
+  return (
+    <Tip label={TOOLS_LABEL}>
+      <Button
+        variant={compact ? 'ghost' : 'outline'}
+        size={compact ? 'icon-sm' : 'sm'}
+        aria-label="Bộ công cụ"
+        data-testid="btn-pages"
+        onClick={onClick}
+        className={compact ? 'shrink-0 text-foreground/80 hover:text-foreground' : 'ml-1 shrink-0 gap-1.5 px-2 xl:px-2.5'}
+      >
+        <ToolboxIcon />
+        {!compact && <span className="hidden xl:inline">Bộ công cụ</span>}
+      </Button>
+    </Tip>
+  );
+}
+
+/**
+ * Phone layout: which page is "this page" (for the rotate button), without
+ * the page box. A tap shows or hides the column of pages, so the bar needs
+ * no separate button for it and keeps room for Bộ công cụ.
+ */
+function CompactPage({ documentId, leftOpen, onToggleLeft }: { documentId: string; leftOpen: boolean; onToggleLeft: () => void }) {
   const { state } = useScroll(documentId);
   // the scroll state counts pages only once it has laid them out
   const total = useDocumentState(documentId)?.document?.pageCount || state.totalPages;
   return (
-    <span
-      className="ml-1 shrink-0 text-[13px] text-muted-foreground tabular-nums"
-      data-testid="page-compact"
-      aria-label={`Đang xem trang ${state.currentPage} trên ${total}`}
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-pressed={leftOpen}
+      aria-label={`Trang ${state.currentPage} trên ${total}. ${leftOpen ? 'Ẩn' : 'Hiện'} cột trang`}
+      data-testid="btn-toggle-left"
+      onClick={onToggleLeft}
+      className="shrink-0 px-1.5 text-[13px] font-normal text-muted-foreground tabular-nums aria-pressed:bg-accent aria-pressed:text-foreground"
     >
-      {state.currentPage}/{total}
-    </span>
+      <span data-testid="page-compact">
+        {state.currentPage}/{total}
+      </span>
+    </Button>
   );
 }
 

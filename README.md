@@ -2,18 +2,18 @@
 
 Ứng dụng đọc và chỉnh PDF chạy trên trình duyệt, desktop và Android. Mọi xử lý diễn ra trên thiết bị: tài liệu không bao giờ bị tải lên đâu cả.
 
-**Trạng thái: bản 0.6.1.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra) và trên Windows. Web app (cả trên iPhone): **https://quanbughunter.github.io/ezpdf/**. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và:
+**Trạng thái: bản 0.6.2.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra) và trên Windows. Web app (cả trên iPhone): **https://quanbughunter.github.io/ezpdf/**. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và:
 
 - **Kéo trang bằng chuột** (bản 0.6.0, phím P, giữ Space để kéo tạm): mặc định trên máy có chuột. Trên điện thoại, một ngón cuộn trang như trước.
 - **Chia sẻ** (bản 0.6.0): gửi đúng tệp “Xuất PDF” qua Zalo, Telegram, thư… Windows: chép tệp để dán (Ctrl V), cửa sổ chia sẻ của Windows, hiện tệp trong thư mục. Android và trình duyệt: bảng chia sẻ của hệ điều hành.
 - **In** (bản 0.6.0, Ctrl P): Android in thẳng tệp PDF qua dịch vụ in của máy; Windows và trình duyệt in ảnh trang 300 dpi qua hộp thoại in. Xem `docs/08-keo-trang-chia-se-in.md`.
 
 - **Sửa chữ có sẵn trong PDF** (bản 0.5.0, phím E): sửa từng dòng, và chỉ phần đã đổi bị viết lại (nhãn đậm đứng trước vẫn giữ nguyên). Chữ cũ được xóa khỏi nội dung trang rồi viết chữ mới vào, không phủ đè. Giữ phông gốc khi phông đó vẽ được mọi chữ mới; nếu không thì dùng phông ezSans (Latin, tiếng Việt, tiếng Nga, Hy Lạp) và báo trước. Xem `docs/07-sua-chu-va-quet.md`.
-- **Quét tài liệu** (bản 0.5.0): chụp hoặc chọn ảnh giấy tờ. App tìm mép giấy; người dùng kéo 4 góc nếu cần (có kính lúp). App làm phẳng và làm sáng ảnh với màu tự nhiên, rồi tạo PDF. Xử lý hoàn toàn trên máy.
+- **Quét tài liệu** (bản 0.5.0): chụp hoặc chọn ảnh giấy tờ. App tìm mép giấy, kể cả tờ nằm đè lên tờ khác (bản 0.6.2); người dùng kéo 4 góc nếu cần (có kính lúp). App làm phẳng và làm sáng ảnh với màu tự nhiên, rồi tạo PDF. Xử lý hoàn toàn trên máy.
 
 Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
 
-- **Web app cài được (PWA):** chạy offline sau lần mở đầu, đăng ký làm trình mở PDF khi cài trên Chrome/Edge máy tính. Đây cũng là bản cho iPhone và iPad: mở bằng Safari rồi Thêm vào MH chính (bản 0.6.1, xem `docs/09-web-app-iphone.md`).
+- **Web app cài được (PWA):** chạy offline sau lần mở đầu, đăng ký làm trình mở PDF khi cài trên Chrome/Edge máy tính. Đây cũng là bản cho iPhone và iPad: mở bằng Safari rồi Thêm vào MH chính (bản 0.6.1; 0.6.2 sửa thanh công cụ bị mờ và bước quét trên iPhone; xem `docs/09-web-app-iphone.md`).
 - **Desktop (Tauri 2):** hộp thoại Mở/Lưu của hệ điều hành, “Mở bằng ezPDF” khi bấm chuột phải vào tệp PDF, một cửa sổ duy nhất, bản nháp nằm trong thư mục của ứng dụng.
 - **Android (Capacitor 8):** chọn và lưu tệp qua Storage Access Framework, nhận PDF khi người dùng mở bằng hoặc chia sẻ sang ezPDF, bản nháp nằm trong bộ nhớ riêng của ứng dụng.
 

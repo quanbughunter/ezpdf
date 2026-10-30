@@ -101,9 +101,13 @@ function solve(A: number[][], b: number[]): number[] {
  * Side lengths alone are skewed by perspective (the far edge looks short).
  * With a pinhole camera whose principal point is the image centre, the
  * rectangle's true aspect follows from the vanishing geometry (Zhang & He,
- * "Whiteboard scanning and image enhancement", 2007). When the photo is
- * nearly frontal the formula is ill-conditioned and the side lengths are
- * used instead.
+ * "Whiteboard scanning and image enhancement", 2007).
+ *
+ * The focal length comes from the two vanishing points. When one of them is
+ * far off (the phone tilted one way only, or held nearly flat) it cannot be
+ * measured: a 2-pixel nudge of a corner swings it wildly. Then a phone's
+ * main camera is assumed (26 mm equivalent: 0.75 of the long side), which
+ * matters little exactly when the tilt is small.
  */
 export function sheetAspect(q: Quad, imageW: number, imageH: number): number {
   const [tl, tr, br, bl] = q;
@@ -118,17 +122,24 @@ export function sheetAspect(q: Quad, imageW: number, imageH: number): number {
   const k3 = dot(cross(m[0], m[3]), m[1]) / dot(cross(m[2], m[3]), m[1]);
   const n2 = m[1].map((v, i) => k2 * v - m[0][i]);
   const n3 = m[2].map((v, i) => k3 * v - m[0][i]);
-  const f2 = -((n2[0] * n3[0] + n2[1] * n3[1]) / (n2[2] * n3[2]));
-  if (!(f2 > 0) || !Number.isFinite(f2) || Math.abs(n2[2]) < 1e-6 || Math.abs(n3[2]) < 1e-6) return sides;
-  const f = Math.sqrt(f2);
-  // a plausible phone focal length: 0.5 to 3 image widths
+  if (![...n2, ...n3].every(Number.isFinite)) return sides;
   const big = Math.max(imageW, imageH);
-  if (f < 0.5 * big || f > 3 * big) return sides;
-  const num = n2[0] * n2[0] + n2[1] * n2[1] + (n2[2] * n2[2] * f2);
-  const den = n3[0] * n3[0] + n3[1] * n3[1] + (n3[2] * n3[2] * f2);
+  let f2 = (PHONE_FOCAL * big) ** 2;
+  // a vanishing point within 8 photo sizes of the centre: close enough to measure by
+  const near = (n: number[]) => Math.hypot(n[0], n[1]) < 8 * big * Math.abs(n[2]);
+  if (near(n2) && near(n3)) {
+    const est = -((n2[0] * n3[0] + n2[1] * n3[1]) / (n2[2] * n3[2]));
+    // a plausible phone focal length: 0.5 to 3 times the long side
+    if (est > 0 && Number.isFinite(est) && Math.sqrt(est) >= 0.5 * big && Math.sqrt(est) <= 3 * big) f2 = est;
+  }
+  const num = n2[0] * n2[0] + n2[1] * n2[1] + n2[2] * n2[2] * f2;
+  const den = n3[0] * n3[0] + n3[1] * n3[1] + n3[2] * n3[2] * f2;
   const r = Math.sqrt(num / den);
   return Number.isFinite(r) && r > 0.2 && r < 5 ? r : sides;
 }
+
+/** A phone's main camera: focal length over the photo's long side (26 mm equivalent, 4:3). */
+const PHONE_FOCAL = 0.75;
 
 /** ISO A4 proportions (portrait height / width). */
 export const A4_RATIO = Math.SQRT2;

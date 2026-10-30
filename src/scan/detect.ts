@@ -1,7 +1,7 @@
 /**
  * Finding the sheet of paper in a photo: its four corners.
  *
- * Works on a small copy of the photo (about 400 px). Paper is bright and
+ * Works on a small copy of the photo (about 500 px). Paper is bright and
  * nearly colourless next to most tables, hands and backgrounds, so:
  *  1. score each pixel by brightness minus colourfulness, threshold the
  *     score (Otsu), close the holes the writing leaves;
@@ -11,9 +11,14 @@
  *  4. refine each side by fitting a straight line through the region's edge
  *     next to it, and intersect neighbouring lines, so a bent or covered
  *     corner still lands where the paper's edges meet.
+ * That outline is one sheet's only when the paper region is one sheet. The
+ * sheet's four straight sides (edges.ts) are looked for too: they decide
+ * when the outline is weak, or holds a strip of a second sheet the page
+ * lies on.
  * When nothing convincing is found the whole photo is proposed: the user
  * drags the corners anyway.
  */
+import { quadByEdges } from './edges';
 import { orderQuad, quadArea, type Pt, type Quad } from './geometry';
 
 export interface Gray {
@@ -25,10 +30,12 @@ export interface Gray {
 export interface Detection {
   /** corners in the small image's pixels */
   quad: Quad;
-  /** false: the whole photo, nothing convincing found */
+  /** false: nothing convincing found; the quad is the whole photo, or a weak guess to start from */
   found: boolean;
   /** share of the photo the sheet covers */
   coverage: number;
+  /** which way found it: the paper region's outline, or the sheet's straight sides */
+  how?: 'outline' | 'sides';
 }
 
 /** Paper score: bright and colourless high, dark or colourful low. */
@@ -68,33 +75,42 @@ export function otsu(g: Gray): number {
   return t;
 }
 
-/** Square max/min filter (radius r), separable. */
+/**
+ * Square max/min filter (radius r), separable: a pixel is set when a set
+ * pixel lies within r along the row, then along the column (two sweeps
+ * each way, whatever r). Erosion is the dilation of the gaps; pixels off the
+ * photo count for neither.
+ */
 function morph(mask: Uint8Array, w: number, h: number, r: number, dilate: boolean): Uint8Array {
+  const want = dilate ? 1 : 0;
   const tmp = new Uint8Array(mask.length);
   const out = new Uint8Array(mask.length);
-  const want = dilate ? 1 : 0;
   for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let last = -Infinity;
     for (let x = 0; x < w; x++) {
-      let v = dilate ? 0 : 1;
-      for (let k = -r; k <= r && v !== want; k++) {
-        const xx = x + k;
-        if (xx < 0 || xx >= w) continue;
-        if (mask[y * w + xx] === want) v = want;
-      }
-      tmp[y * w + x] = v;
+      if (mask[row + x] === want) last = x;
+      tmp[row + x] = x - last <= r ? 1 : 0;
+    }
+    last = Infinity;
+    for (let x = w - 1; x >= 0; x--) {
+      if (mask[row + x] === want) last = x;
+      if (last - x <= r) tmp[row + x] = 1;
     }
   }
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let v = dilate ? 0 : 1;
-      for (let k = -r; k <= r && v !== want; k++) {
-        const yy = y + k;
-        if (yy < 0 || yy >= h) continue;
-        if (tmp[yy * w + x] === want) v = want;
-      }
-      out[y * w + x] = v;
+  for (let x = 0; x < w; x++) {
+    let last = -Infinity;
+    for (let y = 0; y < h; y++) {
+      if (tmp[y * w + x]) last = y;
+      out[y * w + x] = y - last <= r ? 1 : 0;
+    }
+    last = Infinity;
+    for (let y = h - 1; y >= 0; y--) {
+      if (tmp[y * w + x]) last = y;
+      if (last - y <= r) out[y * w + x] = 1;
     }
   }
+  if (!dilate) for (let i = 0; i < out.length; i++) out[i] = out[i] ? 0 : 1;
   return out;
 }
 
@@ -252,20 +268,23 @@ function intersect(a: { p: Pt; d: Pt }, b: { p: Pt; d: Pt }): Pt | null {
   return { x: a.p.x + t * a.d.x, y: a.p.y + t * a.d.y };
 }
 
+/** A line through the region's edge pixels close to segment a–b, away from its ends. */
+function fitNear(a: Pt, b: Pt, edge: Pt[], w: number, h: number) {
+  const diag = Math.hypot(w, h);
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  const near = edge.filter((p) => {
+    const t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / (len * len);
+    if (t < 0.15 || t > 0.85) return false;
+    const d = Math.abs((b.y - a.y) * p.x - (b.x - a.x) * p.y + b.x * a.y - b.y * a.x) / len;
+    return d < diag * 0.015;
+  });
+  return fitLine(near);
+}
+
 /** Each side: a line through the region's edge pixels close to it, away from the corners. */
 function refine(q: Quad, edge: Pt[], w: number, h: number): Quad {
   const diag = Math.hypot(w, h);
-  const lines = [0, 1, 2, 3].map((i) => {
-    const a = q[i], b = q[(i + 1) % 4];
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    const near = edge.filter((p) => {
-      const t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / (len * len);
-      if (t < 0.15 || t > 0.85) return false;
-      const d = Math.abs((b.y - a.y) * p.x - (b.x - a.x) * p.y + b.x * a.y - b.y * a.x) / len;
-      return d < diag * 0.015;
-    });
-    return fitLine(near);
-  });
+  const lines = [0, 1, 2, 3].map((i) => fitNear(q[i], q[(i + 1) % 4], edge, w, h));
   const out = q.map((c, i) => {
     const prev = lines[(i + 3) % 4];
     const next = lines[i];
@@ -388,12 +407,18 @@ function edgeStrength(s: Float32Array, w: number, h: number, q: Quad): number {
   return weakest === Infinity ? 0 : weakest;
 }
 
-function quadFromMask(mask0: Uint8Array, width: number, height: number, grownShort = 0): { quad: Quad; area: number } | null {
+/** Specks off, gaps shut, the writing's holes filled. */
+function cleanMask(mask0: Uint8Array, width: number, height: number): Uint8Array {
   let mask = mask0;
   const r = Math.max(1, Math.round(Math.max(width, height) / 200));
   mask = morph(morph(mask, width, height, r, false), width, height, r, true); // open: specks off
   mask = morph(morph(mask, width, height, r * 2, true), width, height, r * 2, false); // close: gaps shut
   fillHoles(mask, width, height);
+  return mask;
+}
+
+function quadFromMask(mask0: Uint8Array, width: number, height: number, grownShort = 0, cleaned = false): { quad: Quad; area: number; sides: { p: Pt; d: Pt }[] } | null {
+  let mask = cleaned ? mask0 : cleanMask(mask0, width, height);
   // growth stops at the wall pixels just inside the edge: give that back
   if (grownShort) mask = morph(mask, width, height, grownShort, true);
   const region = mainRegion(mask, width, height);
@@ -412,7 +437,21 @@ function quadFromMask(mask0: Uint8Array, width: number, height: number, grownSho
   let poly = hull;
   for (let eps = Math.max(width, height) * 0.005; poly.length > 12; eps *= 1.5) poly = simplify(hull, eps);
   const quad = refine(orderQuad(largestQuad(poly)), edge, width, height);
-  return { quad, area: region.area };
+  // The outline's long straight runs, as lines: each one fitted to the
+  // outline along it, and the chord between its ends. Simplified coarsely
+  // too, so a curled side is one run, its chord from corner to corner.
+  const sides: { p: Pt; d: Pt }[] = [];
+  const size = Math.max(width, height);
+  for (const run of [poly, simplify(hull, size * 0.03)])
+    for (let i = 0; i < run.length; i++) {
+      const a = run[i], b = run[(i + 1) % run.length];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < size * 0.12) continue;
+      sides.push({ p: a, d: { x: (b.x - a.x) / len, y: (b.y - a.y) / len } });
+      const fit = fitNear(a, b, edge, width, height);
+      if (fit) sides.push(fit);
+    }
+  return { quad, area: region.area, sides };
 }
 
 /** For tests: what each method proposes. */
@@ -438,14 +477,17 @@ export function detectSheet(rgba: Uint8ClampedArray, width: number, height: numb
   const score = paperScore(rgba, width, height);
   const sm = smooth(score, 1);
   const total = width * height;
+  const paper = cleanMask(maskByThreshold(score), width, height);
   let best: { quad: Quad; strength: number } | null = null;
+  const outlineSides: { p: Pt; d: Pt }[] = [];
   const wallWidth = Math.max(1, Math.round(Math.max(width, height) / 160));
-  for (const [mask, short] of [
-    [maskByThreshold(score), 0],
-    [maskByGrowth(score), wallWidth],
+  for (const [mask, short, cleaned] of [
+    [paper, 0, true],
+    [maskByGrowth(score), wallWidth, false],
   ] as const) {
-    const c = quadFromMask(mask, width, height, short);
+    const c = quadFromMask(mask, width, height, short, cleaned);
     if (!c) continue;
+    outlineSides.push(...c.sides);
     const coverage = quadArea(c.quad) / total;
     if (coverage > 0.97 || coverage < 0.08) continue;
     // the region should fill its quad: a leak or a stray blob does not
@@ -453,7 +495,19 @@ export function detectSheet(rgba: Uint8ClampedArray, width: number, height: numb
     const strength = edgeStrength(sm, width, height, c.quad);
     if (!best || strength > best.strength) best = { quad: c.quad, strength };
   }
+  const outline = best && best.strength >= 8 ? best.quad : null;
+  // The sheet's four straight sides. Where the paper region is one sheet
+  // they are its outline again; where it is more (a page lying on another,
+  // a cloth with pale squares) they are the top sheet's.
+  const sides = quadByEdges(sm, width, height, paper, otsu(score), outlineSides, outline);
+  const diag = Math.hypot(width, height);
+  const same = (a: Quad, b: Quad) => a.every((p, i) => Math.hypot(p.x - b[i].x, p.y - b[i].y) < diag * 0.015);
+  if (outline && (!sides.quad || same(outline, sides.quad.quad) || !sides.outlineHasStrip))
+    return { quad: outline, found: true, coverage: quadArea(outline) / total, how: 'outline' };
+  // A weak quad (corners out on the table, sides off the edges: an
+  // overexposed photo where the top sheet's shadow is gone) is still the
+  // best place to start dragging from, but not "found".
+  if (sides.quad) return { quad: sides.quad.quad, found: sides.quad.confidence >= 0.25, coverage: quadArea(sides.quad.quad) / total, how: 'sides' };
   // no side with a clear edge: nothing to go by
-  if (!best || best.strength < 8) return { quad: whole, found: false, coverage: 1 };
-  return { quad: best.quad, found: true, coverage: quadArea(best.quad) / total };
+  return { quad: whole, found: false, coverage: 1 };
 }

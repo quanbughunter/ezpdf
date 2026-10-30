@@ -1,4 +1,4 @@
-# 09 · Web app trên iPhone (bản 0.6.1)
+# 09 · Web app trên iPhone (bản 0.6.1, 0.6.2)
 
 Trên iPhone và iPad, ezPDF chạy dưới dạng **web app**. Đó là bản web, được thêm vào màn hình chính, mở như một app và chạy được khi không có mạng. Bản này dùng chung mã với bản trình duyệt.
 
@@ -74,6 +74,60 @@ Lần chạy CI đầu tiên của 0.6.1 bị đỏ ở `e2e:edit`. Lỗi nằm 
 - **App** (`use-document-session.ts`): nếu trong lúc chờ người dùng đã cuộn, gõ phím hay chạm, chỗ họ đang đứng được giữ nguyên.
 - **Bộ kiểm:** chuyển trang thì chờ đến khi trang đó nằm giữa khung xem. `CPU_SLOWDOWN=4 node scripts/e2e-edit.cjs` chạy với CPU chậm 4 lần, để giả lập máy chậm. Bộ này đạt 24/24 ở tốc độ thường, chậm 4 lần và chậm 6 lần.
 
+## Bản 0.6.2: thanh công cụ và quét trên iPhone
+
+Thử trên iPhone 15 Pro Max (30/10) thấy hai lỗi:
+- thanh công cụ sát mép trên và bị mờ;
+- quét: chụp xong load lâu, không thấy bước căn góc đúng, bấm tiếp thì ra cả ảnh.
+
+### Thanh công cụ
+
+Trong web app trên màn hình chính, iOS làm mờ vài điểm ảnh trên cùng của trang, ngay dưới thanh trạng thái. Thanh công cụ nằm đúng chỗ đó.
+
+Đã sửa (`src/styles.css`): chỉ khi là Safari iOS (`-webkit-touch-callout`) chạy ở chế độ web app (`display-mode: standalone`), cả app lùi xuống 16 px. Dải trống phía trên cùng màu với thanh công cụ, nên phần mờ rơi vào dải đó chứ không đè lên nút. Màn quét cũng lùi theo.
+
+Trình duyệt máy tính, Android và Safari thường không đổi. Đã kiểm ở cỡ màn iPhone 15 Pro Max: thanh công cụ xuống đúng 16 px và trang không bị cuộn thừa.
+
+### Quét: ba nguyên nhân
+
+1. **Load lâu.** Ảnh được giải mã trong worker bằng `createImageBitmap` kèm lệnh thu nhỏ. Safari bỏ qua lệnh thu nhỏ, nên ảnh 12–24 megapixel đi nguyên cỡ vào bước tìm mép.
+2. **Ảnh nằm ngang.** Safari không xoay ảnh theo EXIF ở bước đó, trong khi ảnh hiện trên màn hình thì đã xoay.
+3. **Ra cả ảnh: bộ tìm mép thua.** Đây là nguyên nhân chính. Trong ảnh thử, tờ đơn nằm đè lên một tờ khác. Tờ dưới lộ ra ở mép trên và mép phải. Nền là khăn hoa văn có ô màu be gần như giấy. Bước tìm mép cũ lấy đường viền của vùng sáng, nên thấy hai tờ như một khối không phải tứ giác, và trả về cả ảnh. Chạy lại ảnh đó trên Chromium cũng ra đúng như vậy, nên lỗi không riêng của Safari.
+
+### Đã sửa
+
+- **Giải mã ảnh trên trang** (`scan-client.ts`): dùng đúng bộ giải mã của thẻ `<img>` hiện ảnh, nên chiều xoay EXIF khớp với ảnh đang kéo góc, và mở được cả HEIC. Ảnh được thu nhỏ theo từng nửa một trước khi vào worker: 512 px để tìm mép, tối đa 3200 px để cắt trang.
+- **Cách tìm thứ hai: bốn cạnh thẳng** (`src/scan/edges.ts`):
+  - Tìm các đường thẳng bằng biến đổi Hough. Ứng viên là mép giấy với nền, và trong vùng giấy là bậc sáng giữa hai tờ giấy: tờ trên đổ một vệt bóng nhạt lên tờ dưới.
+  - Chữ và đường kẻ in trên giấy bị loại: phía tối của chữ là mực, chữ thì lổn nhổn theo chiều dọc mép, đường kẻ thì hai bên đều trắng như nhau.
+  - Mỗi bộ bốn đường tạo thành một tứ giác. Tứ giác hợp lệ khi mỗi cạnh bám mép ít nhất 60 % chiều dài và giấy phủ ít nhất 85 % diện tích bên trong.
+  - Điểm của tứ giác tính theo diện tích, độ sát của các cạnh với mép thật, và bị trừ khi một góc nằm ngoài giấy hoặc dọc một cạnh có dải của tờ khác.
+  - Giấy hơi cong vẫn tìm được: cạnh được phép lệch 2 % khỏi đường thẳng, và dây cung của đường viền cũng được thử.
+- **Chọn kết quả:** cách cũ (theo đường viền) vẫn được dùng khi cả hai cách cho cùng một tứ giác, hoặc khi đường viền không chứa dải của tờ khác. Cách mới quyết định khi đường viền yếu, hoặc khi có dải của tờ khác dọc một cạnh.
+- **Ảnh cháy sáng:** nếu ảnh cháy sáng làm mất vệt bóng giữa hai tờ, app vẫn đặt 4 góc ở chỗ gần đúng nhất làm điểm xuất phát, nhưng báo “Không thấy rõ mép giấy” để người dùng kiểm lại.
+- **Tỉ lệ trang** (`geometry.ts`): khi chỉ nghiêng máy theo một chiều, không đo được tiêu cự từ ảnh. Trước đây, nhích một góc 2 px có thể làm tỉ lệ nhảy từ 0,76 sang 0,41. Giờ app dùng tiêu cự của camera chính điện thoại (26 mm tương đương). Dưới các xê dịch 3 px, tỉ lệ A4 lệch tối đa 0,01.
+- Màn căn góc hiện “Đang tìm mép giấy…” trong lúc chờ.
+
+### Kiểm chứng
+
+- **Hai ảnh tổng hợp mới** trong `tests/fixtures/scan`:
+  - `photo-stack.jpg`: tờ trên tờ, tờ dưới lộ hai cạnh, có bóng của tờ trên, khăn hoa văn.
+  - `photo-tapestry.jpg`: khăn hoa văn có ô màu be.
+  - Bảy ảnh cũ giữ nguyên từng byte.
+- **`npm run e2e:scan`: 26/26** (trước là 24/24).
+  - `photo-stack`: góc lệch 0,1 % đường chéo, đúng tờ trên, ra A4.
+  - `photo-tapestry`: góc lệch 0,1 %.
+  - Ảnh lưu nằm ngang (EXIF) giờ ra A4 ổn định.
+- **Ảnh thật bạn gửi** chỉ dùng trên máy phát triển, không đưa vào repo vì repo đang công khai. App bắt đúng tờ trên, gồm cả mép dưới cong, trong mọi trường hợp đã thử:
+  - ảnh thu nhỏ bằng 4 cách khác nhau, có cả cách thu nhỏ của chính Chromium;
+  - lật ngang, lật dọc, xoay 90°;
+  - làm mờ, tối đi, ám vàng, thêm nhiễu, nén JPEG mạnh.
+  - Riêng khi làm sáng thêm 12 % đến mức giấy cháy trắng, vệt bóng giữa hai tờ mất hẳn: app đặt góc theo cả hai tờ và báo “Không thấy rõ mép giấy”.
+- **Không có giấy** (chỉ có khăn, bàn, gỗ) và **trang phủ kín khung ảnh**: app không bịa ra tứ giác, mà đề xuất cả ảnh.
+- **Thời gian tìm mép** trên máy phát triển: 0,1–0,3 giây mỗi ảnh.
+
+**Chưa kiểm:** camera thật của iPhone. Hãy thử lại đúng cảnh đã chụp: hai tờ chồng nhau trên khăn.
+
 ## Tự kiểm trên iPhone
 
 1. Mở trang bằng Safari, rồi Thêm vào MH chính. Mở từ biểu tượng, bật chế độ máy bay: app vẫn mở được.
@@ -82,4 +136,4 @@ Lần chạy CI đầu tiên của 0.6.1 bị đỏ ở `e2e:edit`. Lỗi nằm 
 4. **Chia sẻ** → Zalo hoặc Telegram. Người nhận thấy đủ chú thích.
 5. **⋮ → In tài liệu**: bảng chia sẻ mở ra, chọn In. Màn hình in của iOS hiện tài liệu; chọn máy in AirPrint hoặc chụm hai ngón trên ảnh xem trước để ra PDF.
 6. **Xuất PDF**: tệp có trong Tệp → Tải về.
-7. **Quét tài liệu** bằng camera, rồi Tạo PDF.
+7. **Quét tài liệu** bằng camera, rồi Tạo PDF. Thử cả hai tờ chồng lên nhau trên khăn: 4 góc phải nằm trên tờ trên cùng.

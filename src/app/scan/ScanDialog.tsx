@@ -211,7 +211,7 @@ export function ScanDialog({ onClose, onDone }: { onClose: () => void; onDone: (
       aria-label="Quét tài liệu"
       data-testid="scan-dialog"
       data-mode={pages.length ? mode : 'empty'}
-      className="fixed inset-0 z-[60] flex flex-col bg-[#1b1f21] text-[#eef1f0]"
+      className="fixed inset-0 z-[60] flex flex-col bg-[#1b1f21] pt-[var(--ez-top-gap,0px)] text-[#eef1f0]"
     >
       <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" data-testid="scan-camera-input" onChange={onFiles} />
       <input ref={gallery} type="file" accept="image/*" multiple className="hidden" data-testid="scan-file-input" onChange={onFiles} />
@@ -261,16 +261,21 @@ export function ScanDialog({ onClose, onDone }: { onClose: () => void; onDone: (
               />
             ) : (
               <Centered>
-                <Loader2 className="size-7 animate-spin text-[#a6b0ae]" />
+                <div className="flex flex-col items-center gap-3 text-[13px] text-[#a6b0ae]" role="status" data-testid="scan-finding">
+                  <Loader2 className="size-7 animate-spin" />
+                  Đang tìm mép giấy…
+                </div>
               </Centered>
             )}
           </div>
-          <p className="px-4 pt-2 text-center text-[13px] text-[#a6b0ae]" data-testid="scan-adjust-note">
-            {page.quad && !page.found
-              ? 'Không thấy rõ mép giấy. Hãy kéo 4 góc vào 4 góc tờ giấy.'
-              : page.quad && !isConvex(page.quad)
-                ? 'Bốn góc đang bắt chéo nhau. Hãy kéo lại cho đúng thứ tự.'
-                : 'Ứng dụng đã tìm mép giấy. Chỉnh lại góc nếu chưa khớp.'}
+          <p className="min-h-[1.5em] px-4 pt-2 text-center text-[13px] text-[#a6b0ae]" data-testid="scan-adjust-note">
+            {!page.quad
+              ? ''
+              : !page.found
+                ? 'Không thấy rõ mép giấy. Hãy kéo 4 góc vào 4 góc tờ giấy.'
+                : !isConvex(page.quad)
+                  ? 'Bốn góc đang bắt chéo nhau. Hãy kéo lại cho đúng thứ tự.'
+                  : 'Ứng dụng đã tìm mép giấy. Chỉnh lại góc nếu chưa khớp.'}
           </p>
           <footer className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-3 py-3">
             <DarkButton onClick={() => patch(page.id, () => ({ quad: WHOLE }))} testId="scan-whole">

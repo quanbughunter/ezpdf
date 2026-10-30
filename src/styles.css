@@ -69,6 +69,20 @@
   --radius-lg: calc(var(--radius) + 2px);
 }
 
+/*
+ * iPhone web app (on the home screen): iOS draws the top few pixels of the
+ * page right under the status bar soft and blurred. A strip of plain toolbar
+ * colour takes them, so the buttons sit below the blur. Only there: Safari
+ * on iOS (-webkit-touch-callout) running standalone.
+ */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    :root {
+      --ez-top-gap: 16px;
+    }
+  }
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -77,6 +91,10 @@
   body,
   #root {
     height: 100%;
+  }
+  #root {
+    box-sizing: border-box;
+    padding-top: var(--ez-top-gap, 0px);
   }
   body {
     margin: 0;

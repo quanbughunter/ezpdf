@@ -10,8 +10,10 @@ Writes:
                        the paper area to sample, notes
 
 The photos cover: a dark wood table, a grey desk, a light beige table (low
-contrast), a busy patterned cloth, a strong shadow across the page, and a
-photo stored sideways with EXIF Orientation 6 (as phones do).
+contrast), a busy patterned cloth, a strong shadow across the page, a
+photo stored sideways with EXIF Orientation 6 (as phones do), the page
+lying on another sheet that shows along two sides, and a woven cloth with
+pale squares.
 """
 import json, os, sys
 import numpy as np
@@ -142,6 +144,77 @@ truth = [
     ),
     photo('photo-exif.jpg', wood, camera_quad(22, 0, -5, 0.41), exif_rotate=True, note='ảnh lưu nằm ngang, EXIF Orientation 6'),
     photo('photo-flat.jpg', grey_desk, camera_quad(2, 1, 0, 0.36), note='chụp thẳng từ trên xuống'),
+]
+# ---- a busy woven cloth, and a page lying on another one ---------------------------
+def tapestry(w, h, turn=4.0):
+    """Brown woven cloth with pale squares, like a sofa throw: straight
+    lines everywhere, some of them nearly as light as paper."""
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    t = np.radians(turn)
+    u = xx * np.cos(t) + yy * np.sin(t)
+    v = -xx * np.sin(t) + yy * np.cos(t)
+    c = 110.0
+    iu, iv = np.floor(u / c), np.floor(v / c)
+    fu, fv = u / c - iu, v / c - iv
+    kind = ((iu * 7 + iv * 3) % 4).astype(np.int32)
+    dark = np.array([62, 40, 30], np.float32)
+    mid = np.array([118, 84, 60], np.float32)
+    pale = np.array([205, 186, 156], np.float32)
+    edge = np.minimum(np.minimum(fu, 1 - fu), np.minimum(fv, 1 - fv))
+    weave = 0.5 + 0.5 * np.sin(u * 1.9) * np.sin(v * 1.9)
+    img = np.empty((h, w, 3), np.float32)
+    for k in range(4):
+        m = kind == k
+        if k == 0:  # pale square with a dark frame inside
+            col = np.where(((edge > 0.12) & (edge < 0.2))[..., None], dark, pale)
+        elif k == 1:  # dark with pale stripes
+            col = np.where((np.sin(u * 0.45) > 0.55)[..., None], pale * 0.9, dark)
+        elif k == 2:  # mid brown, hatched
+            col = np.where((np.sin((u + v) * 0.5) > 0.6)[..., None], dark, mid)
+        else:  # pale centre in a dark square
+            col = np.where((edge > 0.28)[..., None], pale * 0.95, dark)
+        img[m] = col[m]
+    img = np.where((edge < 0.04)[..., None], dark * 0.8, img)
+    img = img * (0.85 + 0.15 * weave)[..., None]
+    return img + rng.normal(0, 10, (h, w, 3))
+
+def photo_stack(name, bg, quad, under, size=(1500, 2000), cast=(1.04, 1.0, 0.92), blur=0.8, note=''):
+    """The document lying on another sheet that shows along two sides, the
+    top sheet's shadow falling on it. The truth is the top sheet."""
+    from scipy.ndimage import distance_transform_edt
+    w, h = size
+    img = np.clip(bg(w, h), 0, 255).astype(np.float32)
+    blank = Image.new('RGB', (W, H), (250, 250, 248))
+    cu = perspective_coeffs([(0, 0), (W, 0), (W, H), (0, H)], under)
+    mu = np.asarray(Image.new('L', (W, H), 255).transform((w, h), Image.PERSPECTIVE, cu, Image.BILINEAR, fillcolor=0)).astype(np.float32)[..., None] / 255
+    paper_u = np.asarray(blank.transform((w, h), Image.PERSPECTIVE, cu, Image.BICUBIC, fillcolor=(0, 0, 0))).astype(np.float32) * 0.92
+    img = paper_u * mu + img * (1 - mu)
+    cf = perspective_coeffs([(0, 0), (W, 0), (W, H), (0, H)], quad)
+    mf = np.asarray(Image.new('L', (W, H), 255).transform((w, h), Image.PERSPECTIVE, cf, Image.BILINEAR, fillcolor=0)).astype(np.float32)[..., None] / 255
+    # the top sheet's shadow on the one under it: a few percent, fading out over ~2 % of the frame
+    dist = distance_transform_edt(mf[..., 0] < 0.5)
+    shadow = 1 - 0.06 * np.exp(-dist / 30.0)
+    img = img * np.where(mu > 0.5, shadow[..., None], 1)
+    paper_f = np.asarray(doc.transform((w, h), Image.PERSPECTIVE, cf, Image.BICUBIC, fillcolor=(0, 0, 0))).astype(np.float32) * 0.94
+    img = paper_f * mf + img * (1 - mf)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    shade = 0.86 + 0.14 * (1 - yy / h) - 0.05 * (xx / w)
+    img = img * shade[..., None] * np.array(cast, np.float32)
+    img = img + rng.normal(0, 4, img.shape)
+    out = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(blur))
+    out.save(os.path.join(OUT, name), quality=85)
+    return {'file': name, 'quad': [(x / w, y / h) for x, y in quad], 'width': w, 'height': h, 'note': note}
+
+# appended after the others, so the photos above (and the random numbers they use) stay the same
+truth += [
+    photo_stack(
+        'photo-stack.jpg',
+        tapestry,
+        camera_quad(10, -4, 2, 0.40, shift=(-0.006, 0.006)),
+        camera_quad(10, -4, 4.5, 0.40, shift=(0.012, -0.012)),
+        note='tờ trên tờ, tờ dưới lộ ra hai cạnh, khăn hoa văn',
+    ),
+    photo('photo-tapestry.jpg', tapestry, camera_quad(14, 5, -3, 0.39), note='khăn hoa văn có ô màu be sáng'),
 ]
 json.dump({'doc': 'doc.png', 'docSize': [W, H], 'photos': truth}, open(os.path.join(OUT, 'truth.json'), 'w'), ensure_ascii=False, indent=1)
 print('wrote', OUT, [t['file'] for t in truth])

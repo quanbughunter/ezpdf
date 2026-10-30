@@ -132,12 +132,12 @@ Trang 7 của tệp mẫu dựng lại đúng trường hợp này. Trước khi
 
 | Bước | Cách làm |
 |---|---|
-| Tìm tờ giấy (`detect.ts`) | Trên ảnh thu nhỏ còn 400 px, mỗi điểm ảnh được chấm điểm theo độ sáng trừ độ đậm màu: giấy sáng và ít màu. Có hai cách tách tờ giấy: (a) một ngưỡng chung (Otsu); (b) **loang từ giữa ảnh**, dừng ở chỗ độ sáng đổi gắt theo bất kỳ hướng nào. Bóng đổ đổi chậm nên loang qua được; mép giấy đổi gắt nên chặn lại. Vùng tìm được được lấp lỗ do chữ, rồi lấy bao lồi. Chọn 4 điểm bao diện tích lớn nhất, sau đó khớp từng cạnh bằng một đường thẳng qua mép thật, để góc gấp hay bị che vẫn đặt đúng chỗ. Trong hai cách, giữ kết quả có **cạnh yếu nhất vẫn rõ nhất** |
-| Tỉ lệ thật của tờ giấy (`geometry.ts`) | Ảnh chụp nghiêng làm cạnh xa trông ngắn hơn. Tỉ lệ thật được tính từ hình học phối cảnh của camera (Zhang & He, 2007). Gần tỉ lệ A4 (sai dưới 3 %) thì lấy đúng A4. Ảnh chụp gần như thẳng thì dùng độ dài cạnh |
+| Tìm tờ giấy (`detect.ts`) | Trên ảnh thu nhỏ còn 400 px (512 px từ bản 0.6.2), mỗi điểm ảnh được chấm điểm theo độ sáng trừ độ đậm màu: giấy sáng và ít màu. Có hai cách tách tờ giấy: (a) một ngưỡng chung (Otsu); (b) **loang từ giữa ảnh**, dừng ở chỗ độ sáng đổi gắt theo bất kỳ hướng nào. Bóng đổ đổi chậm nên loang qua được; mép giấy đổi gắt nên chặn lại. Vùng tìm được được lấp lỗ do chữ, rồi lấy bao lồi. Chọn 4 điểm bao diện tích lớn nhất, sau đó khớp từng cạnh bằng một đường thẳng qua mép thật, để góc gấp hay bị che vẫn đặt đúng chỗ. Trong hai cách, giữ kết quả có **cạnh yếu nhất vẫn rõ nhất**. Từ bản 0.6.2 có thêm cách thứ ba, tìm **4 cạnh thẳng của tờ trên cùng** (`edges.ts`), cho trường hợp tờ giấy nằm đè lên tờ khác hoặc trên khăn có ô màu gần giống giấy: xem `09-web-app-iphone.md` |
+| Tỉ lệ thật của tờ giấy (`geometry.ts`) | Ảnh chụp nghiêng làm cạnh xa trông ngắn hơn. Tỉ lệ thật được tính từ hình học phối cảnh của camera (Zhang & He, 2007). Gần tỉ lệ A4 (sai dưới 3 %) thì lấy đúng A4. Ảnh chụp gần như thẳng thì dùng độ dài cạnh. Từ bản 0.6.2: khi không đo được tiêu cự (máy chỉ nghiêng một chiều) thì dùng tiêu cự camera chính của điện thoại |
 | Làm phẳng (`process.ts`) | Phép biến đổi phối cảnh từ 4 góc, nội suy song tuyến tính. Cạnh dài nhất tối đa 2400 px, khoảng 200 dpi cho khổ A4, và không phóng to quá 1,25 lần ảnh gốc |
 | Làm sáng | Ước lượng ánh sáng rọi lên giấy từ chính tờ giấy: lọc lấy giá trị sáng nhất để xóa chữ, rồi làm mờ. Sau đó chia ảnh cho ánh sáng đó, **riêng từng kênh màu**. Kết quả: giấy trắng đều, mất bóng đổ và ám màu đèn, mực giữ màu riêng (con dấu đỏ vẫn đỏ, chữ ký xanh vẫn xanh). Thêm một đường cong nhẹ cho mực đậm hơn, độ bão hòa tăng 8 %. **Không có bước ngưỡng nào**, nên ảnh và con dấu trên giấy vẫn tự nhiên. Vùng tối lớn (ảnh, ô đen) bị giới hạn mức tăng sáng để không bị bạc màu |
 | PDF (`jpeg-pdf.ts`) | Mỗi trang là một ảnh JPEG chất lượng 85, nhúng nguyên (DCTDecode), không nén lại lần hai. Khổ trang: cạnh ngắn theo A4 (595 pt), cạnh dài theo tỉ lệ tờ giấy (đúng 842 pt nếu là A4) |
-| Ảnh lưu nằm ngang | Ảnh có cờ EXIF hướng xoay được giải mã theo đúng hướng hiện trên màn hình |
+| Ảnh lưu nằm ngang | Ảnh có cờ EXIF hướng xoay được giải mã theo đúng hướng hiện trên màn hình. Từ bản 0.6.2, ảnh được giải mã trên trang bằng chính bộ giải mã của `<img>` (Safari không xoay ảnh theo EXIF trong `createImageBitmap`, và bỏ qua lệnh thu nhỏ) |
 
 ### Kiểm chứng
 
@@ -178,7 +178,7 @@ Trên máy phát triển, tìm mép mất 0,1–0,2 giây mỗi ảnh, xử lý 
 
 ### Giới hạn
 
-1. **Chưa thử với camera thật.** Ảnh thử là ảnh tổng hợp. Ảnh thật có thể khó hơn: giấy trên bàn trắng, giấy cong hoặc gấp, có tay cầm trong ảnh, chụp thiếu một góc. Khi đó app đề xuất cả ảnh và nhắc người dùng kéo góc.
+1. **Chưa thử với camera thật** (bản 0.5.0; bản 0.6.2 đã chạy trên một ảnh chụp thật bằng iPhone, xem `09-web-app-iphone.md`). Ảnh thử là ảnh tổng hợp. Ảnh thật có thể khó hơn: giấy trên bàn trắng, giấy cong hoặc gấp, có tay cầm trong ảnh, chụp thiếu một góc. Khi đó app đề xuất cả ảnh và nhắc người dùng kéo góc.
 2. **Giấy cong không được làm phẳng.** Chỉ sửa phối cảnh của mặt phẳng; trang sách cong vẫn cong.
 3. **Chưa có OCR,** nên bản quét chưa tìm được chữ và chưa sửa chữ được.
 4. Chưa có ảnh xem trước trực tiếp từ camera với khung bắt mép như CamScanner. Hiện tại camera chụp xong mới tìm mép.

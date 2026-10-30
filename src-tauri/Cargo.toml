@@ -1,6 +1,6 @@
 [package]
 name = "ezpdf"
-version = "0.6.0"
+version = "0.6.1"
 description = "ezPDF: đọc, ghi chú, ký và xuất PDF trên máy"
 edition = "2021"
 rust-version = "1.90"

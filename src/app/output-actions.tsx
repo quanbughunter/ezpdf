@@ -133,17 +133,36 @@ export function OutputProvider({ session, children }: { session: DocumentSession
     setNotice(null);
     const ctl = new AbortController();
     abort.current = ctl;
+    let ready: { bytes: Uint8Array; name: string; pages: number } | null = null;
     try {
       const out = await buildOutput();
       if (ctl.signal.aborted || !alive.current) return;
       if (platform.printPdf) {
-        await platform.printPdf(new Uint8Array(out.bytes), `${out.base}.pdf`, out.pages);
+        ready = { bytes: new Uint8Array(out.bytes), name: `${out.base}.pdf`, pages: out.pages };
+        if (platform.printHint) setNotice({ tone: 'info', text: platform.printHint });
+        await platform.printPdf(ready.bytes, ready.name, ready.pages);
         return;
       }
       setPrintProgress({ done: 0, total: out.pages });
       await printPdfPages(out.bytes, { title: out.base, signal: ctl.signal, onProgress: setPrintProgress });
     } catch (e) {
-      if (!isAbort(e) && alive.current) setNotice({ tone: 'error', text: `Không in được: ${message(e)}` });
+      // the share sheet (iPhone) opens only right after a tap; preparing a big file can take longer
+      if (ready && platform.printPdf && e instanceof DOMException && e.name === 'NotAllowedError' && alive.current) {
+        const job = ready;
+        const printPdf = platform.printPdf;
+        const hint = platform.printHint;
+        setNotice({
+          tone: 'info',
+          text: `“${job.name}” đã sẵn sàng để in.`,
+          action: {
+            label: 'In',
+            run: () => {
+              setNotice(hint ? { tone: 'info', text: hint } : null);
+              printPdf(job.bytes, job.name, job.pages).catch((err) => setNotice({ tone: 'error', text: `Không in được: ${message(err)}` }));
+            },
+          },
+        });
+      } else if (!isAbort(e) && alive.current) setNotice({ tone: 'error', text: `Không in được: ${message(e)}` });
     } finally {
       if (abort.current === ctl) abort.current = null;
       running.current = false;

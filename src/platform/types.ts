@@ -68,6 +68,8 @@ export interface Platform {
    * (browser, desktop app).
    */
   readonly printPdf: ((bytes: Uint8Array, name: string, pages: number) => Promise<void>) | null;
+  /** said when printing starts, when printPdf needs a word of guidance (iPhone: "choose Print") */
+  readonly printHint?: string;
 }
 
 /** Keeps incoming files until a listener is attached. */

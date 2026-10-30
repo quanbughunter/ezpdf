@@ -2,7 +2,7 @@
 
 Ứng dụng đọc và chỉnh PDF chạy trên trình duyệt, desktop và Android. Mọi xử lý diễn ra trên thiết bị: tài liệu không bao giờ bị tải lên đâu cả.
 
-**Trạng thái: bản 0.6.0.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra) và trên Windows. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và:
+**Trạng thái: bản 0.6.1.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra) và trên Windows. Web app (cả trên iPhone): **https://quanbughunter.github.io/ezpdf/**. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và:
 
 - **Kéo trang bằng chuột** (bản 0.6.0, phím P, giữ Space để kéo tạm): mặc định trên máy có chuột. Trên điện thoại, một ngón cuộn trang như trước.
 - **Chia sẻ** (bản 0.6.0): gửi đúng tệp “Xuất PDF” qua Zalo, Telegram, thư… Windows: chép tệp để dán (Ctrl V), cửa sổ chia sẻ của Windows, hiện tệp trong thư mục. Android và trình duyệt: bảng chia sẻ của hệ điều hành.
@@ -13,7 +13,7 @@
 
 Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
 
-- **Web app cài được (PWA):** chạy offline sau lần mở đầu, đăng ký làm trình mở PDF khi cài trên Chrome/Edge máy tính.
+- **Web app cài được (PWA):** chạy offline sau lần mở đầu, đăng ký làm trình mở PDF khi cài trên Chrome/Edge máy tính. Đây cũng là bản cho iPhone và iPad: mở bằng Safari rồi Thêm vào MH chính (bản 0.6.1, xem `docs/09-web-app-iphone.md`).
 - **Desktop (Tauri 2):** hộp thoại Mở/Lưu của hệ điều hành, “Mở bằng ezPDF” khi bấm chuột phải vào tệp PDF, một cửa sổ duy nhất, bản nháp nằm trong thư mục của ứng dụng.
 - **Android (Capacitor 8):** chọn và lưu tệp qua Storage Access Framework, nhận PDF khi người dùng mở bằng hoặc chia sẻ sang ezPDF, bản nháp nằm trong bộ nhớ riêng của ứng dụng.
 
@@ -53,7 +53,7 @@ APK debug nằm ở `android/app/build/outputs/apk/debug/app-debug.apk`.
 
 ### Tự động trên GitHub
 
-`.github/workflows/build.yml` chạy toàn bộ kiểm thử web, dựng bộ cài Windows và APK Android trên máy của GitHub, mỗi lần push.
+`.github/workflows/build.yml` chạy toàn bộ kiểm thử web, dựng bộ cài Windows và APK Android trên máy của GitHub, mỗi lần push. Trên nhánh `main`, bản web đã qua kiểm thử được đưa lên GitHub Pages (https://quanbughunter.github.io/ezpdf/). Lần đầu cần: repo công khai, và Settings → Pages → Source: GitHub Actions.
 
 ## Kiểm thử
 
@@ -75,7 +75,7 @@ npm run test:edit    # sửa chữ có sẵn: 6 kiểu PDF (Chromium, LibreOffic
 npm run e2e:edit     # sửa chữ trong app: thanh sửa, báo phông, giữ góc xoay/mức phóng, hoàn tác, nháp, xuất, điện thoại
 npm run e2e:scan     # quét: 7 ảnh chụp giả lập (góc, tỉ lệ A4, độ sáng giấy, màu dấu), PDF, luồng trong app, camera trên điện thoại
 npm run e2e:share    # bàn tay (kéo trang, Space, chú thích vẫn chọn/kéo được), chia sẻ (tệp = tệp xuất), in (trang in so với
-                     # tệp xuất bằng MuPDF: số trang, khổ, chiều, 300 dpi, hình), hủy in, điện thoại
+                     # tệp xuất bằng MuPDF: số trang, khổ, chiều, 300 dpi, hình), hủy in, điện thoại, iPhone (in qua AirPrint)
 scripts/regress.sh [preview]     # mọi bộ e2e lần lượt (dev, hoặc bản build trên :4173)
 node scripts/smoke-desktop.cjs   # bản desktop thật (Linux, WebDriver): mở bằng đối số, nháp trong thư mục app,
                                  # quyền tệp, một cửa sổ, hộp thoại Mở/Lưu, chia sẻ qua vỏ Rust
@@ -109,7 +109,7 @@ src/
     images/              ảnh và chữ ký: chuẩn bị ảnh, đặt lên trang, hộp thoại chữ ký, vá lỗi stamp (G10–G12)
     storage/             bản nháp (tệp gốc + trạng thái), chữ ký đã lưu, qua lớp lưu trữ của nền tảng
   platform/            phần khác nhau giữa 3 nền tảng, sau một interface (types.ts)
-    web.ts               ô chọn tệp, tải về, launchQueue của PWA, Web Share
+    web.ts               ô chọn tệp, tải về, launchQueue của PWA, Web Share, in qua bảng chia sẻ trên iPhone, xin giữ bản nháp
     tauri.ts             hộp thoại hệ thống, tệp từ dòng lệnh / "Mở bằng", lưu nháp trước khi đóng cửa sổ, chia sẻ qua vỏ Rust
     android.ts           plugin EzFiles: Storage Access Framework, tệp được mở bằng / chia sẻ sang, chia sẻ đi, in
     storage/             StorageBackend + 3 adapter: idb.ts (web), tauri-fs.ts, capacitor-fs.ts (chung file-tree.ts)
@@ -139,7 +139,8 @@ android/               dự án Capacitor: EzFilesPlugin.java (tệp, chia sẻ,
 branding/              SVG gốc của biểu tượng
 tests/                 engine-proof.ts, m3-engine-probe.ts, storage-*, fixtures, trang pdf.js để kiểm độc lập
 scripts/               e2e*.cjs, smoke-desktop.cjs, perf-big.cjs, verify_*.py, inspect_export.py, make_*.py
-docs/                  đánh giá engine, kết quả mốc 1–4, sửa chữ và quét (07), kéo trang, chia sẻ, in (08), kế hoạch, bằng chứng
+docs/                  đánh giá engine, kết quả mốc 1–4, sửa chữ và quét (07), kéo trang, chia sẻ, in (08), web app trên iPhone (09),
+                       kế hoạch, bằng chứng
 ```
 
 ## Nguyên tắc kiến trúc

@@ -1,5 +1,7 @@
 # Builds and checks ezPDF on GitHub's machines, which have every toolchain:
 #   web      unit + browser tests (dev and production build), web app artifact
+#   pages    publishes that tested web app at https://quanbughunter.github.io/ezpdf/
+#            (pushes to main only; needs Settings → Pages → Source: GitHub Actions)
 #   windows  Tauri installers (.msi and setup .exe), cargo test
 #   android  debug APK (Capacitor 8, Gradle)
 # Nothing here uploads documents: the tests use the fixtures in tests/.
@@ -38,9 +40,28 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: web-app, path: dist }
+      # the same build the tests above passed on, for the pages job
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with: { path: dist }
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: test-output, path: out, retention-days: 7 }
+
+  pages:
+    needs: web
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency: { group: pages, cancel-in-progress: false }
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deploy
 
   windows:
     runs-on: windows-latest

@@ -24,6 +24,9 @@
  *  - a long print can be cancelled while its pages are drawn
  *  Phone: no hand (a finger scrolls), share in the top bar, print and close
  *  in the ⋮ menu, top bar not wider than the screen
+ *  iPhone (Safari's user agent): In hands the PDF to the share sheet, whose
+ *  Print is AirPrint, and says so; nothing goes through window.print
+ *  Drafts: the web app asks the browser to keep its storage (persist)
  *
  * Usage: node scripts/e2e-share-print.cjs
  *        BASE=http://localhost:4173 node scripts/e2e-share-print.cjs
@@ -83,6 +86,11 @@ async function startServer() {
 
 /** Stubs installed before the app loads: window.print, and (optionally) Web Share with files. */
 const mocks = (share) => `
+  window.__persistCalls = 0;
+  if (navigator.storage) {
+    Object.defineProperty(navigator.storage, 'persisted', { configurable: true, value: async () => false });
+    Object.defineProperty(navigator.storage, 'persist', { configurable: true, value: async () => (window.__persistCalls++, true) });
+  }
   window.__printCalls = 0;
   window.print = function () {
     window.__printCalls++;
@@ -157,6 +165,8 @@ let onCrash = async () => {};
   await page.click(tid('zoom-menu'));
   await page.click(tid('zoom-150'));
   await sleep(700);
+
+  check('the web app asks the browser to keep its drafts (persistent storage)', (await page.evaluate(() => window.__persistCalls)) === 1);
 
   // ── hand ──────────────────────────────────────────────────────────────────
   check('a mouse device starts on the hand, not on select', (await pressed('tool-hand')) === 'true' && (await pressed('tool-select')) === 'false');
@@ -455,6 +465,42 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
     await ph.waitForFunction(() => window.__shared.length === 1, null, { timeout: 30000 }).catch(() => {});
     check('phone browser: Share hands the PDF to the share sheet', (await ph.evaluate(() => window.__shared.length)) === 1);
     await pctx.close();
+  }
+
+  // ── iPhone ────────────────────────────────────────────────────────────────
+  {
+    const ictx = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      deviceScaleFactor: 3,
+      isMobile: true,
+      hasTouch: true,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    });
+    await ictx.addInitScript(mocks(true));
+    const ip = await ictx.newPage();
+    track(ip);
+    await ip.goto(server.base + '/?e2e');
+    await ip.waitForSelector(tid('state-empty'), { timeout: 60000 });
+    await ip.setInputFiles(tid('file-input'), FIX('sample.pdf'));
+    await ip.waitForSelector(tid('page-0'), { timeout: 60000 });
+    await ip.waitForTimeout(1200);
+    await ip.tap(tid('btn-more'));
+    await ip.waitForSelector(`[role="menu"] ${tid('btn-print')}`);
+    await ip.tap(`[role="menu"] ${tid('btn-print')}`);
+    await ip.waitForFunction(() => window.__shared.length === 1, null, { timeout: 60000 }).catch(() => {});
+    const got = await ip.evaluate(() => ({
+      shared: window.__shared.map((f) => [f.name, f.type, atob(f.b64.slice(0, 8)).slice(0, 5)]),
+      printCalls: window.__printCalls,
+      block: !!document.getElementById('ez-print'),
+    }));
+    const said = await ip.textContent(tid('banner-output-text')).catch(() => '');
+    await ip.screenshot({ path: path.join(OUT, 'iphone-print.png') });
+    check(
+      'iPhone: In hands the PDF to the share sheet (AirPrint) and says to choose Print; no window.print',
+      JSON.stringify(got.shared) === JSON.stringify([['sample.pdf', 'application/pdf', '%PDF-']]) && got.printCalls === 0 && !got.block && said.includes('chọn “In”'),
+      `${JSON.stringify(got)} · ${said}`,
+    );
+    await ictx.close();
   }
 
   check('no page errors', errors.length === 0, errors.slice(0, 5).join(' | '));

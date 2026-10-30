@@ -49,6 +49,7 @@ import { usePageRotation } from './page-rotation';
 import { isTouchFirst, useTextEdit } from './text-edit';
 import { usePointerTool, useSetPointerTool } from './viewer/hand';
 import { MoreMenu, PrintButton, ShareButton } from './output-actions';
+import { useDraftText } from './use-draft-text';
 
 export const TOOLS = [
   { id: null, label: 'Chọn chữ và đối tượng', shortcut: 'V', icon: MousePointer2, testId: 'tool-select' },
@@ -421,11 +422,10 @@ function DocumentTools({
 }
 
 function PageInput({ current, total, onGo }: { current: number; total: number; onGo: (n: number) => void }) {
-  const [value, setValue] = useState(String(current));
-  useEffect(() => setValue(String(current)), [current]);
+  const { text: value, setText: setValue, reset } = useDraftText(String(current));
   const go = () => {
     const n = Math.min(total, Math.max(1, parseInt(value, 10) || current));
-    setValue(String(n));
+    reset();
     if (n !== current) onGo(n);
   };
   return (

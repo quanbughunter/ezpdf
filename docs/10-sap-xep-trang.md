@@ -76,11 +76,11 @@ Thêm `scripts/smoke-desktop.cjs` (bản desktop thật, WebView WebKitGTK trên
 - áp dụng xong thì bản nháp có đúng thứ tự mới và giữ góc xoay;
 - ↶ trả lại 4 trang ban đầu.
 
-Toàn bộ bộ kiểm của bản 0.7.0:
+Toàn bộ bộ kiểm của bản 0.7.0 (đã gồm bước kiểm thêm sau lần chạy CI đầu tiên, xem dưới):
 
 | Bộ | Dev | Production |
 |---|---|---|
-| `e2e` | 56/56 | 56/56 |
+| `e2e` | 57/57 | 57/57 |
 | `e2e:m3` | 50/50 | 49/49 |
 | `e2e:m4` | 14/14 | 22/22 |
 | `e2e:edit` | 24/24 | 24/24 |
@@ -102,6 +102,17 @@ Một lượt rà soát riêng, không xem lại cách làm ở trên, đọc ph
 7. **Hoàn tác trong màn** đôi khi phải bấm hai lần mới có tác dụng. Đã sửa.
 8. **Khoảng trang có dấu cách** (`1 - 3`) bị hiểu sai. Đã sửa, và có kiểm riêng (`tests/ranges.test.ts`).
 9. Hai lỗi nhỏ ở hàng đợi vẽ ảnh nhỏ và ở bước nạp lại PDFium sau một lần nạp hỏng.
+
+## Lần chạy CI đầu tiên của 0.7.0
+
+CI đỏ ở `e2e:preview`, tức bộ `e2e` chạy trên bản build production. Cùng bộ đó trên dev server thì qua, và trên máy kiểm thì qua cả hai. Lỗi nằm ở app, không ở bộ kiểm.
+
+- **Triệu chứng.** Bộ kiểm bấm “−” ở ô cỡ chữ rồi gõ 16, nhưng cỡ chữ thành 96, mức lớn nhất. Ô chữ to ra che chỗ bước sau định bấm, nên bước sau cũng hỏng theo.
+- **Nguyên nhân.** Số trong ô được chép lại từ cỡ chữ thật bằng một bước chạy sau (`useEffect`). Bước chép này đến muộn một nhịp. Trên máy CI bận, nó đến đúng lúc bộ kiểm đã chọn hết chữ trong ô. Số bị thay, chữ hết được chọn, và “16” bị gõ nối vào số cũ thành “1516”, rồi bị giới hạn về 96.
+- **Đã sửa** (`src/app/use-draft-text.ts`). Khi người dùng chưa gõ, ô hiện thẳng cỡ chữ thật. Khi họ gõ, ô giữ chữ họ gõ cho đến khi bấm Enter hay rời ô. Không còn bước chép đến muộn, và số mới cũng không đè lên chữ đang gõ.
+- **Ô số trang** trên thanh công cụ viết cùng kiểu nên cũng được sửa. Trước đây, đang gõ số trang trong lúc trang còn trôi thì số đang gõ có thể bị thay.
+- **Kiểm chứng.** Một kịch bản tái hiện đúng thứ tự trên: bấm “−”, chọn chữ trong ô, rồi gõ trước khi React chạy bước sau. Bản cũ ra 96, bản mới ra 16 cả 5 lần. Bước này giờ nằm trong bộ `e2e`, nên bộ có 57 bước.
+- Giả lập CPU chậm (`CPU_SLOWDOWN=4` hay `6`, giờ có cả trong `e2e`) không làm lộ lỗi này, vì nó làm chậm đều mọi thứ trên trang, nên thứ tự các bước không đổi.
 
 ## Giới hạn
 

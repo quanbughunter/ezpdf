@@ -112,6 +112,8 @@ let onCrash = async () => {};
 
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
   const page = await ctx.newPage();
+  // CPU_SLOWDOWN=4: a machine as slow as a CI runner or a phone
+  if (process.env.CPU_SLOWDOWN) await (await ctx.newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.CPU_SLOWDOWN) });
 
   onCrash = async () => {
     // for CI: the screen and the page errors at the moment of the crash
@@ -288,6 +290,25 @@ const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.tes
     ft1.fontSize === 16 && ft1.fontColor.toLowerCase() === '#b42318' && ft1.textAlign === 1 && (ft1.color || '').toLowerCase() === '#fff3bf',
     JSON.stringify({ s: ft1.fontSize, c: ft1.fontColor, a: ft1.textAlign, bg: ft1.color }),
   );
+  // CI 0.7.0: the box's text was selected after "−" had rendered but before a
+  // later task copied the new size into the box; that copy dropped the
+  // selection and "16" was added to the old number (→ 96). Same order here,
+  // on purpose: click, React's synchronous work, select, no task in between.
+  const sizeRace = [];
+  for (let round = 0; round < 3; round++) {
+    await page.evaluate(async () => {
+      document.querySelector('[data-testid="ft-size-down"]').click();
+      for (let i = 0; i < 5; i++) await new Promise((r) => queueMicrotask(r));
+      const input = document.querySelector('[data-testid="ft-size"]');
+      input.select();
+      input.focus();
+    });
+    await page.keyboard.insertText('16');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(150);
+    sizeRace.push((await annots()).find((a) => a.id === ft1.id).fontSize);
+  }
+  check('typing a size right after “−” replaces the number (no 15+16 → 96)', sizeRace.every((s) => s === 16), sizeRace.join(' '));
   await click('ft-color-0');
   await click('ft-color-1');
   await collectButtons();

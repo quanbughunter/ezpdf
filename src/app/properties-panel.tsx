@@ -19,6 +19,7 @@ import { EZ_MARK } from '@/engine/vn-freetext-export';
 import { Swatch } from './controls';
 import { BACKGROUND_COLORS, HIGHLIGHT_COLORS, NOTE_COLORS, TEXT_COLORS } from './palette';
 import { useTextFont } from './text-font';
+import { useDraftText } from './use-draft-text';
 import { growToFit } from './viewer/free-text';
 import { isEzImage, isLockedForeignStamp } from './images/stamp-guard';
 import type { DocumentSession } from './use-document-session';
@@ -147,8 +148,11 @@ function FreeTextProps({ obj, update }: { obj: PdfFreeTextAnnoObject; update: (p
     if (fontSize === obj.fontSize) return;
     update({ fontSize, ...(metrics ? growToFit(metrics, obj, { fontSize }) : {}) } as Partial<PdfAnnotationObject>);
   };
-  const [sizeText, setSizeText] = useState(String(obj.fontSize));
-  useEffect(() => setSizeText(String(obj.fontSize)), [obj.fontSize]);
+  const size = useDraftText(String(obj.fontSize));
+  const commitSize = () => {
+    setSize(parseInt(size.text, 10) || obj.fontSize);
+    size.reset();
+  };
   return (
     <>
       <Field label="Cỡ chữ">
@@ -160,10 +164,10 @@ function FreeTextProps({ obj, update }: { obj: PdfFreeTextAnnoObject; update: (p
             aria-label="Cỡ chữ (pt)"
             data-testid="ft-size"
             inputMode="numeric"
-            value={sizeText}
-            onChange={(e) => setSizeText(e.target.value.replace(/[^\d]/g, ''))}
-            onKeyDown={(e) => e.key === 'Enter' && setSize(parseInt(sizeText, 10) || obj.fontSize)}
-            onBlur={() => setSize(parseInt(sizeText, 10) || obj.fontSize)}
+            value={size.text}
+            onChange={(e) => size.setText(e.target.value.replace(/[^\d]/g, ''))}
+            onKeyDown={(e) => e.key === 'Enter' && commitSize()}
+            onBlur={commitSize}
             className="h-8 w-14 rounded-md border bg-white text-center tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <Button variant="outline" size="icon-sm" aria-label="Tăng cỡ chữ" data-testid="ft-size-up" onClick={() => setSize(obj.fontSize + 1)}>

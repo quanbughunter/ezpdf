@@ -147,6 +147,20 @@ export function useDocumentSession(documentId: string | null) {
     const r = restore.current;
     restore.current = null;
     applyPageRotations(registry, documentId, Object.fromEntries(r.rotations.map((v, i) => [i, v])));
+    // The position comes back a moment later (the viewport must have its size
+    // first; on a slow phone that can take a while). If the reader has moved
+    // on meanwhile (scrolled, typed a page number, tapped), their place wins:
+    // the old position must not pull them back.
+    let moved = false;
+    const onUser = () => (moved = true);
+    const userEvents = ['keydown', 'wheel', 'pointerdown', 'touchstart'] as const;
+    userEvents.forEach((t) => window.addEventListener(t, onUser, { capture: true, passive: true }));
+    const stopWatching = () => userEvents.forEach((t) => window.removeEventListener(t, onUser, { capture: true }));
+    const watchdog = setTimeout(stopWatching, 10_000);
+    const finish = () => {
+      clearTimeout(watchdog);
+      stopWatching();
+    };
     if (r.zoom !== undefined || r.scroll) {
       // Zoom requests are ignored until the viewport has a size; the default
       // zoom is applied when it first gets one.
@@ -159,18 +173,32 @@ export function useDocumentSession(documentId: string | null) {
         } catch {}
         if (!ready) {
           if (tries-- > 0) setTimeout(apply, 50);
+          else finish();
           return;
         }
         setTimeout(() => {
-          if (r.zoom !== undefined) zoom?.forDocument(id).requestZoom(r.zoom);
+          try {
+            if (r.zoom !== undefined) zoom?.forDocument(id).requestZoom(r.zoom);
+          } catch {}
           const sc = r.scroll;
-          if (sc) setTimeout(() => viewport?.forDocument(id).scrollTo({ x: sc.x, y: sc.y, behavior: 'instant' }), 120);
+          if (!sc) return finish();
+          setTimeout(() => {
+            try {
+              if (!moved) viewport?.forDocument(id).scrollTo({ x: sc.x, y: sc.y, behavior: 'instant' });
+            } catch {}
+            finish();
+          }, 120);
         }, 200);
       };
       apply();
     } else if (r.lastPage > 1) {
-      setTimeout(() => scroll?.forDocument(documentId).scrollToPage({ pageNumber: r.lastPage, behavior: 'instant' }), 50);
-    }
+      setTimeout(() => {
+        try {
+          if (!moved) scroll?.forDocument(documentId).scrollToPage({ pageNumber: r.lastPage, behavior: 'instant' });
+        } catch {}
+        finish();
+      }, 50);
+    } else finish();
   }, [registry, documentId, docState?.status, scroll, zoom, viewport]);
 
   const saveNow = useCallback((): Promise<void> => {

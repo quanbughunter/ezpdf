@@ -63,6 +63,17 @@ Cần iOS 16.4 trở lên.
 | `e2e:edit` | 24/24 | 24/24 |
 | `e2e:scan` | 24/24 | 16/16 |
 
+## Sửa thêm trong 0.6.1: trang bị kéo về chỗ cũ
+
+Lần chạy CI đầu tiên của 0.6.1 bị đỏ ở `e2e:edit`. Lỗi nằm ở app, không ở bộ kiểm.
+- Sau khi lưu một dòng sửa, app mở lại tài liệu rồi đưa trang về đúng chỗ đang đọc. Bước này làm hơi chậm, vì phải chờ khung xem có kích thước.
+- Trên máy chậm (máy CI, hoặc điện thoại), nếu người dùng đã kịp sang trang khác thì bước đưa về này kéo họ ngược lại chỗ cũ.
+- Bộ kiểm cũng có lỗi riêng: nó chỉ chờ ô số trang hiện đúng số vừa gõ, chứ không chờ trang đó thực sự hiện ra.
+
+Đã sửa:
+- **App** (`use-document-session.ts`): nếu trong lúc chờ người dùng đã cuộn, gõ phím hay chạm, chỗ họ đang đứng được giữ nguyên.
+- **Bộ kiểm:** chuyển trang thì chờ đến khi trang đó nằm giữa khung xem. `CPU_SLOWDOWN=4 node scripts/e2e-edit.cjs` chạy với CPU chậm 4 lần, để giả lập máy chậm. Bộ này đạt 24/24 ở tốc độ thường, chậm 4 lần và chậm 6 lần.
+
 ## Tự kiểm trên iPhone
 
 1. Mở trang bằng Safari, rồi Thêm vào MH chính. Mở từ biểu tượng, bật chế độ máy bay: app vẫn mở được.

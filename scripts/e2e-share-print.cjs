@@ -133,6 +133,8 @@ let onCrash = async () => {};
   await ctx.addInitScript(mocks(true));
   const page = await ctx.newPage();
   track(page);
+  // CPU_SLOWDOWN=4: a machine as slow as a CI runner or a phone
+  if (process.env.CPU_SLOWDOWN) await (await ctx.newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.CPU_SLOWDOWN) });
   onCrash = async () => {
     console.error('page errors so far:', JSON.stringify(errors.slice(-10), null, 1));
     await page.screenshot({ path: path.join(OUT, 'crash.png') });

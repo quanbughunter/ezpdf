@@ -93,17 +93,31 @@ let onCrash = async () => {};
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, acceptDownloads: true });
   let page = await ctx.newPage();
   track(page);
+  // CPU_SLOWDOWN=4 node scripts/e2e-edit.cjs: a machine as slow as a CI runner or a phone
+  if (process.env.CPU_SLOWDOWN) await (await ctx.newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.CPU_SLOWDOWN) });
   onCrash = async () => {
     console.error('page errors so far:', JSON.stringify(errors.slice(-10), null, 1));
     await page.screenshot({ path: path.join(OUT, 'crash.png') });
     console.error('screenshot:', path.join(OUT, 'crash.png'));
   };
 
+  /** go to page n and wait until that page is really on screen (the box shows what was typed at once) */
   const goPage = async (n) => {
     await page.fill(tid('page-input'), String(n));
     await page.press(tid('page-input'), 'Enter');
-    await page.waitForFunction((k) => document.querySelector('[data-testid="page-input"]')?.value === String(k), n);
     await page.evaluate(() => document.activeElement?.blur()); // shortcuts are off while typing
+    await page.waitForFunction(
+      (k) => {
+        const el = document.querySelector(`[data-testid="viewer"] [data-testid="page-${k - 1}"]`);
+        const vp = document.querySelector('[data-ez-viewport]');
+        if (!el || !vp) return false;
+        const a = el.getBoundingClientRect();
+        const b = vp.getBoundingClientRect();
+        return a.top < b.top + b.height / 2 && a.bottom > b.top + b.height / 2;
+      },
+      n,
+      { timeout: 20000 },
+    );
     await sleep(500);
   };
   const hint = () => page.textContent(tid('tool-hint')).catch(() => '');

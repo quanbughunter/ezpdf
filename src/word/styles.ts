@@ -82,9 +82,27 @@ function shading(el: Element | null): string | undefined {
   return fill && fill !== 'auto' && /^[0-9a-f]{6}$/i.test(fill) ? `#${fill}` : undefined;
 }
 
+/** Office's default theme colours, when a file has no theme part */
+const DEFAULT_SCHEME: Record<string, string> = {
+  dk1: '000000',
+  lt1: 'FFFFFF',
+  dk2: '44546A',
+  lt2: 'E7E6E6',
+  accent1: '4472C4',
+  accent2: 'ED7D31',
+  accent3: 'A5A5A5',
+  accent4: 'FFC000',
+  accent5: '5B9BD5',
+  accent6: '70AD47',
+  hlink: '0563C1',
+  folHlink: '954F72',
+};
+
 export class Theme {
   major?: string;
   minor?: string;
+  /** colour scheme: dk1, lt1, accent1… → six hex digits */
+  colors: Record<string, string> = { ...DEFAULT_SCHEME };
   constructor(doc: Document | null) {
     if (!doc) return;
     const font = (scheme: string) => {
@@ -94,6 +112,12 @@ export class Theme {
     };
     this.major = font('majorFont');
     this.minor = font('minorFont');
+    const scheme = doc.getElementsByTagNameNS(NS.a, 'clrScheme')[0];
+    for (const slot of elements(scheme)) {
+      const c = elements(slot)[0];
+      const hex = c?.localName === 'srgbClr' ? c.getAttribute('val') : c?.localName === 'sysClr' ? c.getAttribute('lastClr') : null;
+      if (hex && /^[0-9a-f]{6}$/i.test(hex)) this.colors[slot.localName] = hex;
+    }
   }
 }
 

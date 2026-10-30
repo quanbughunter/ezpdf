@@ -12,6 +12,17 @@
   font-weight: 700;
   font-display: block;
 }
+/* Equations in Word files: the system's math font when it has one; STIX Two Math downloaded otherwise */
+@font-face {
+  font-family: 'ezMath';
+  src:
+    local('Cambria Math'),
+    local('CambriaMath'),
+    local('STIX Two Math'),
+    local('STIXTwoMath-Regular'),
+    url('/fonts/STIXTwoMath-Regular.woff2') format('woff2');
+  font-display: swap;
+}
 
 /*
  * ezPDF tokens. Neutral chrome, one accent (ink teal) for: active tool,
@@ -135,11 +146,12 @@
     width: auto !important;
   }
 }
+/* pictures sit on the text's baseline, as in Word (a run's raise or lower moves them) */
 .ez-wimg {
   display: inline-block;
   max-width: 100%;
   height: auto;
-  vertical-align: bottom;
+  vertical-align: baseline;
 }
 .ez-wfield {
   background: rgb(0 0 0 / 0.05);
@@ -206,8 +218,76 @@
   color: #b42318;
   text-decoration: line-through;
 }
+/* equations (MathML drawn from the file's Office Math) */
 .ez-wmath {
-  font-style: italic;
+  display: inline-block;
+  max-width: 100%;
+  text-indent: 0;
+  vertical-align: baseline;
+}
+.ez-wmath math {
+  font-family: ezMath, math;
+}
+.ez-wmath-block {
+  display: block;
+  margin: 3pt 0;
+  overflow-x: auto;
+}
+.ez-wmath-block math + math {
+  margin-top: 3pt;
+}
+.ez-wmath mtd {
+  padding: 0.1em 0.4em;
+}
+/* shapes, groups, charts, SmartArt (SVG drawn from the file) */
+.ez-wshape {
+  display: inline-block;
+  max-width: 100%;
+  line-height: normal;
+  text-indent: 0;
+  vertical-align: baseline;
+}
+.ez-wshape-block {
+  display: block;
+  margin: 4pt 0;
+}
+/* a block, so an inline shape's bottom (not a line of text inside it) sits on the baseline */
+.ez-wsvg {
+  display: block;
+}
+.ez-wshape-block .ez-wsvg {
+  display: inline-block;
+  vertical-align: bottom;
+}
+/* a text box's own paragraphs: as the file sets them, never the page's editing look */
+.ez-wtxbx {
+  white-space: normal;
+  word-wrap: break-word;
+  text-indent: 0;
+}
+.ez-wtxbx p {
+  margin: 0;
+}
+.ez-wmath.ProseMirror-selectednode,
+.ez-wshape.ProseMirror-selectednode,
+.ez-wimg.ProseMirror-selectednode {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+/* footnotes and endnotes, after the text (read-only) */
+.ez-wnotes {
+  margin-top: 14pt;
+  user-select: text;
+}
+.ez-wnotes::before {
+  content: '';
+  display: block;
+  width: 33%;
+  margin-bottom: 4pt;
+  border-top: 0.75pt solid currentColor;
+}
+.ez-wnote-item sup {
+  margin-right: 1pt;
 }
 .ez-whf {
   opacity: 0.55;

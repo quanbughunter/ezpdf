@@ -16,6 +16,8 @@
  *     (single instance) and that PDF opens there
  *  6. the system open and save dialogs (GTK, driven with xdotool): the
  *     picked PDF opens, the export is written where the user chose
+ *  6c. drawn content (0.8.1): word-draw.docx opened the same way; its shapes,
+ *     equations (MathML), metafile pictures and notes laid out by WebKitGTK
  *  6b. a Word file (0.8.0): a second launch with a .docx path opens the Word
  *     screen in the running window; typed with real keys in WebKitGTK (the
  *     engine of Safari, so of the iPhone web app too), a word bolded, saved
@@ -424,6 +426,31 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
         wordRead.replace('\n', ' / '),
       );
       check('the Word file given to the app is untouched', sha(fs.readFileSync(docx)) === sha(fs.readFileSync(FIX('word-a.docx'))));
+      await s.js(`document.querySelector('${T('word-close')}').click()`);
+      await s.waitFor(`return !document.querySelector('${T('word-screen')}')`, 'the Word screen to close', 10000);
+
+      // 6c. drawn content (0.8.1) in WebKitGTK: shapes with text, MathML equations, metafile pictures
+      const drawDocx = path.join(OUT, 'Hình vẽ.docx');
+      fs.copyFileSync(FIX('word-draw.docx'), drawDocx);
+      const p4 = spawn(BIN, [drawDocx], { env, stdio: 'ignore' });
+      procs.push(p4);
+      await s.waitFor(`return !!document.querySelector('${T('word-editor')}') && document.querySelectorAll('.ez-wdoc .ez-wshape svg').length === 6`, 'the drawings', 30000);
+      await sleep(800);
+      const drawn = JSON.parse(
+        await s.js(`
+          const w = (e) => Math.round(e.getBoundingClientRect().width);
+          const svgs = [...document.querySelectorAll('.ez-wdoc .ez-wshape svg')];
+          const labels = [...svgs[0].querySelectorAll('foreignObject p')].map((p) => [p.textContent.trim(), w(p)]);
+          const maths = [...document.querySelectorAll('.ez-wdoc .ez-wmath math')].map((m) => [w(m), Math.round(m.getBoundingClientRect().height)]);
+          const imgs = [...document.querySelectorAll('.ez-wdoc img.ez-wimg')].map((i) => i.naturalWidth);
+          return JSON.stringify({ svgs: svgs.map(w), labels, maths, imgs, notes: (document.querySelector('${T('word-notes')}')?.textContent ?? '').length });`),
+      );
+      await s.shot('6c-drawings.png');
+      check(
+        'Word drawings in WebKitGTK: 6 shapes (flowchart labels laid out), 2 MathML equations with a size, MathType WMF and EMF pictures decoded, notes',
+        drawn.svgs.every((x) => x > 50) && drawn.labels.length === 4 && drawn.labels.every(([t, x]) => t && x > 10) && drawn.maths.length === 2 && drawn.maths.every(([x, h]) => x > 15 && h > 8) && drawn.maths[1][1] > drawn.maths[0][1] && drawn.imgs.length === 2 && drawn.imgs.every((x) => x > 0) && drawn.notes > 20,
+        JSON.stringify(drawn),
+      );
       await s.js(`document.querySelector('${T('word-close')}').click()`);
       await s.waitFor(`return !document.querySelector('${T('word-screen')}')`, 'the Word screen to close', 10000);
     } else {

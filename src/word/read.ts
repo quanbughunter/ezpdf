@@ -1,13 +1,20 @@
 /**
  * .docx → the editor's model. Reads the main document part (body, tables,
- * runs), the styles, lists, theme fonts and pictures it refers to, and the
- * default header and footer for display. Whatever ezPDF cannot edit safely is
- * kept as it is: a paragraph with tracked changes, an equation or a content
- * control becomes a `locked` block; pictures, fields, footnote marks and
- * bookmarks are inline items holding their original XML.
+ * runs), the styles, lists, theme and the pictures it refers to, and, for
+ * display, the default header and footer and the footnotes and endnotes.
+ * Whatever ezPDF cannot edit safely is kept as it is: a paragraph with
+ * tracked changes or a content control becomes a `locked` block; pictures,
+ * shapes, charts, equations, fields, footnote marks and bookmarks are inline
+ * items holding their original XML, shown as ezPDF draws them (SVG for
+ * shapes, charts and Windows metafiles, MathML for equations).
  */
 import type { Node as PMNode, Mark } from 'prosemirror-model';
-import { schema } from './schema';
+import { Gunzip } from 'fflate';
+import { schema, type Visual } from './schema';
+import { drawingSvg, placement, vmlSvg, type DrawCtx, type Drawn } from './drawing';
+import { chartSvg } from './chart';
+import { ommlParaToMathml, ommlText, ommlToMathml } from './omml';
+import type { MetaSvg } from './metafile';
 import { openPackage, rId, type DocxPackage } from './package';
 import { formatNumber, Numbering } from './numbering';
 import {
@@ -74,6 +81,10 @@ export interface WordModel {
   urls: string[];
   /** CSS of a plain paragraph in the default style (new paragraphs) */
   defaultCss: string;
+  /** the footnotes and endnotes the text refers to, for display after it */
+  notesHtml: string;
+  /** shapes and equations by ref: how ezPDF draws them (a pasted copy shows the same) */
+  visuals: Map<number, Visual>;
 }
 
 export interface ReadOptions {
@@ -119,7 +130,6 @@ const LOCKING: Record<string, string> = {
   moveFrom: 'có theo dõi thay đổi',
   moveTo: 'có theo dõi thay đổi',
   customXml: 'có trường dữ liệu đặc biệt',
-  smartTag: 'có thẻ thông minh',
   sdt: 'có ô điều khiển nội dung',
   subDoc: 'có tài liệu con',
   dir: 'có chữ viết từ phải sang trái',
@@ -136,11 +146,38 @@ interface Ctx {
   model: WordModel;
   part: string;
   opts: ReadOptions;
-  footnote: number;
-  endnote: number;
   /** current table style (cell paragraphs) */
   inTable: number;
+  /** state every part read shares */
+  shared: Shared;
+  /** the number of the footnote or endnote being shown (its own mark) */
+  noteLabel?: string;
+  /** how deep in text boxes (a text box in a shape in a text box…) */
+  depth: number;
+  /** drawing a SmartArt: a SmartArt cannot hold another one (a crafted file could make one draw itself) */
+  inDiagram?: boolean;
 }
+
+interface Shared {
+  uid: number;
+  /** picture URL by part and relationship id */
+  images: Map<string, string | null>;
+  /** the WMF/EMF player, loaded when the file has such pictures */
+  meta: { metafileToSvg(bytes: Uint8Array, size?: { w: number; h: number }): MetaSvg | null } | null;
+  /** footnote and endnote references, in reading order, and the last numbers given */
+  notes: { kind: 'footnote' | 'endnote'; id: string; label: string }[];
+  footnote: number;
+  endnote: number;
+  /** SmartArt drawings already read, by data part */
+  diagrams: Map<string, { root: Element; part: string } | null>;
+  /** markup drawn so far, and bytes inflated from .wmz/.emz: past a budget the rest shows as chips */
+  drawn: number;
+  inflated: number;
+}
+
+/** what one document may draw (markup) and inflate (compressed metafiles) in all */
+const DRAW_BUDGET = 48 * 1024 * 1024;
+const INFLATE_BUDGET = 192 * 1024 * 1024;
 
 const store = (ctx: Ctx, n: Node) => ctx.model.store.push(n) - 1;
 
@@ -183,8 +220,23 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
     locked: { count: 0, reasons: [] },
     urls: [],
     defaultCss: paraCss(styles.paragraph(undefined).p, styles.paragraph(undefined).r),
+    notesHtml: '',
+    visuals: new Map(),
   };
-  const ctx: Ctx = { model, part: pkg.main, opts, footnote: 0, endnote: 0, inTable: 0 };
+  // the metafile player is only loaded for files that have WMF/EMF pictures (equations from MathType)
+  const hasMeta = Object.keys(pkg.files).some((f) => /\.(wmf|emf|wmz|emz)$/i.test(f));
+  const shared: Shared = {
+    uid: 0,
+    images: new Map(),
+    meta: hasMeta ? await import('./metafile') : null,
+    notes: [],
+    footnote: 0,
+    endnote: 0,
+    diagrams: new Map(),
+    drawn: 0,
+    inflated: 0,
+  };
+  const ctx: Ctx = { model, part: pkg.main, opts, inTable: 0, shared, depth: 0 };
 
   const children = elements(body);
   const sectPr = children.length && isW(children[children.length - 1], 'sectPr') ? children[children.length - 1] : null;
@@ -219,6 +271,26 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
     model.headerHtml = hf('header');
     model.footerHtml = hf('footer');
   }
+
+  // footnotes, then endnotes, in the order the text refers to them
+  const notes = (kind: 'footnote' | 'endnote') => {
+    const refs = shared.notes.filter((n) => n.kind === kind);
+    const target = partByType(kind === 'footnote' ? '/footnotes' : '/endnotes');
+    const doc = refs.length ? partDoc(target) : null;
+    if (!doc || !target) return '';
+    const byId = new Map<string, Element>();
+    for (const n of elements(doc.documentElement)) if (isW(n, kind)) byId.set(wAttr(n, 'id') ?? '', n);
+    const items = refs
+      .map((r) => {
+        const note = byId.get(r.id);
+        if (!note) return '';
+        const sub: Ctx = { ...ctx, part: target, noteLabel: r.label };
+        return `<div class="ez-wnote-item">${elements(note).map((el) => previewBlock(sub, el)).join('')}</div>`;
+      })
+      .join('');
+    return items ? `<section class="ez-wnotes" aria-label="${kind === 'footnote' ? 'Chú thích cuối trang' : 'Chú thích cuối tài liệu'}">${items}</section>` : '';
+  };
+  model.notesHtml = notes('footnote') + notes('endnote');
   return model;
 }
 
@@ -284,9 +356,19 @@ function lockReason(p: Element): string | null {
   // the paragraph mark itself inserted, deleted or reformatted with tracking on
   const mark = wChild(pPr, 'rPr');
   if (['ins', 'del', 'moveFrom', 'moveTo', 'rPrChange'].some((n) => wChild(mark, n))) return 'có theo dõi thay đổi';
-  for (const el of elements(p)) {
-    if (el.namespaceURI === NS.m) return 'có công thức toán';
+  return lockIn(p);
+}
+
+/** what in this paragraph (or the smart tags in it) cannot be edited safely */
+function lockIn(container: Element): string | null {
+  for (const el of elements(container)) {
     if (el.namespaceURI !== NS.w) continue;
+    if (el.localName === 'smartTag') {
+      // a smart tag (Word 2003–2007) only wraps runs; what it wraps decides
+      const inner = lockIn(el);
+      if (inner) return inner;
+      continue;
+    }
     if (LOCKING[el.localName]) return LOCKING[el.localName];
     if (el.localName === 'r' && wChild(wChild(el, 'rPr'), 'rPrChange')) return 'có theo dõi thay đổi';
     if (el.localName === 'hyperlink') {
@@ -308,6 +390,8 @@ function readParagraph(ctx: Ctx, p: Element, before: number[] | null): PMNode {
   const info = paraInfo(model, pPr);
   const ref = store(ctx, p);
   const items: PMNode[] = [];
+  // a paragraph found read-only part-way: the note numbers it took are given back (its preview takes them again)
+  const notes = { n: ctx.shared.notes.length, f: ctx.shared.footnote, e: ctx.shared.endnote };
   try {
     for (const el of elements(p)) {
       if (isW(el, 'pPr')) continue;
@@ -316,6 +400,9 @@ function readParagraph(ctx: Ctx, p: Element, before: number[] | null): PMNode {
   } catch (e) {
     if (e instanceof Locked) {
       model.store.pop();
+      ctx.shared.notes.length = notes.n;
+      ctx.shared.footnote = notes.f;
+      ctx.shared.endnote = notes.e;
       return lockedBlock(ctx, p, before, e.reason);
     }
     throw e;
@@ -356,6 +443,12 @@ function readInline(ctx: Ctx, el: Element, info: ParaInfo, items: PMNode[], link
       for (const k of elements(el)) readInline(ctx, k, info, items, mark);
       return;
     }
+    if (n === 'smartTag') {
+      // its runs are read as the paragraph's own (Word 2010 and later drop smart tags too);
+      // an untouched paragraph is written back with them
+      for (const k of elements(el)) if (!isW(k, 'smartTagPr')) readInline(ctx, k, info, items, link);
+      return;
+    }
     if (n === 'fldSimple') {
       items.push(schema.nodes.inl.create({ ref: store(ctx, el), kind: 'text', label: textOf(el) || ' ' }, null, withLink([])));
       return;
@@ -365,7 +458,35 @@ function readInline(ctx: Ctx, el: Element, info: ParaInfo, items: PMNode[], link
     items.push(atomFor(ctx, el, el, withLink([])));
     return;
   }
+  if (el.namespaceURI === NS.m && (el.localName === 'oMath' || el.localName === 'oMathPara')) {
+    // an equation: drawn from its XML, kept as it is; the text around it stays editable
+    const ref = store(ctx, el);
+    const v = mathVisual(el);
+    model.visuals.set(ref, v);
+    items.push(schema.nodes.inl.create({ ref, kind: 'math', label: ommlText(el), ...v }, null, withLink([])));
+    return;
+  }
   throw new Locked('có nội dung đặc biệt');
+}
+
+/**
+ * How an equation is drawn: MathML, on its own line for an equation
+ * paragraph (m:oMathPara). One too deeply nested to draw shows as a chip.
+ */
+function mathVisual(el: Element): Visual {
+  try {
+    return mathMarkup(el);
+  } catch {
+    return { html: '<span class="ez-wmark">Công thức</span>', block: false, css: '' };
+  }
+}
+
+function mathMarkup(el: Element): Visual {
+  if (el.localName !== 'oMathPara') return { html: ommlToMathml(el, false), block: false, css: '' };
+  const jcEl = elements(elements(el).find((k) => k.localName === 'oMathParaPr') ?? el).find((k) => k.localName === 'jc');
+  const jc = jcEl?.getAttributeNS(NS.m, 'val') ?? jcEl?.getAttribute('m:val') ?? 'center';
+  const align = jc === 'left' ? 'left' : jc === 'right' ? 'right' : 'center';
+  return { html: ommlParaToMathml(el), block: true, css: `text-align:${align}` };
 }
 
 /** marks for a run: link, its own formatting (rp), and b/i/u as they look after styles */
@@ -406,7 +527,7 @@ function readRun(ctx: Ctx, r: Element, info: ParaInfo, items: PMNode[], link: Ma
     if (c.namespaceURI !== NS.w) {
       if (c.namespaceURI === NS.mc && c.localName === 'AlternateContent') {
         flush();
-        items.push(atomFor(ctx, c, null, link ? link.addToSet([]) : [], synth(c)));
+        items.push(atomFor(ctx, c, null, link ? link.addToSet([]) : [], synth(c), raised(rPr)));
       } else atom(c, { kind: 'hidden' });
       continue;
     }
@@ -448,13 +569,13 @@ function readRun(ctx: Ctx, r: Element, info: ParaInfo, items: PMNode[], link: Ma
       case 'pict':
       case 'object':
         flush();
-        items.push(atomFor(ctx, c, null, link ? link.addToSet([]) : [], synth(c)));
+        items.push(atomFor(ctx, c, null, link ? link.addToSet([]) : [], synth(c), raised(rPr)));
         break;
       case 'footnoteReference':
-        atom(c, { kind: 'note', label: String(++ctx.footnote) });
+        atom(c, { kind: 'note', label: noteRef(ctx, c, 'footnote') });
         break;
       case 'endnoteReference':
-        atom(c, { kind: 'note', label: roman(++ctx.endnote) });
+        atom(c, { kind: 'note', label: noteRef(ctx, c, 'endnote') });
         break;
       case 'ruby': {
         // phonetic guide: the base text shows, the guide is kept in the file
@@ -481,53 +602,278 @@ function readRun(ctx: Ctx, r: Element, info: ParaInfo, items: PMNode[], link: Ma
 
 const roman = (n: number) => formatNumber(n, 'lowerRoman');
 
+/** the next footnote or endnote number; the note is listed for display after the text */
+function noteRef(ctx: Ctx, el: Element, kind: 'footnote' | 'endnote'): string {
+  // a note with its own mark (w:customMarkFollows) shows that mark, not a number
+  if (onOffAttr(el, 'customMarkFollows')) return '';
+  const label = kind === 'footnote' ? String(++ctx.shared.footnote) : roman(++ctx.shared.endnote);
+  ctx.shared.notes.push({ kind, id: wAttr(el, 'id') ?? '', label });
+  return label;
+}
+
+const onOffAttr = (el: Element, name: string) => {
+  const v = wAttr(el, name);
+  return v !== null && v !== undefined && !['0', 'false', 'off'].includes(v);
+};
+
 function symbolText(code: number) {
   const c = String.fromCharCode(code >= 0xf000 ? code : code + 0xf000);
   const map: Record<string, string> = { '': '•', '': '▪', '': '✓', '': '✗', '': '→', '': '➢', '': '●', '': '■' };
   return map[c] ?? String.fromCharCode(code >= 0xf000 ? code - 0xf000 : code);
 }
 
-/** A picture (or other drawing) as an inline item; `ref` given, or the element stored as is. */
-function atomFor(ctx: Ctx, el: Element, whole: Element | null, marks: readonly Mark[], ref?: number): PMNode {
-  const model = ctx.model;
+/** the run's raise or lower (w:position, half-points) as CSS: MathType equations sit on the text's baseline this way */
+function raised(rPr: Element | null): string {
+  const v = num(wVal(rPr, 'position'));
+  return v ? `vertical-align:${v / 2}pt` : '';
+}
+
+/**
+ * A picture, shape, chart or other drawing as an inline item; `ref` given,
+ * or the element stored as is. `lift`: the run's raise or lower (inline items only).
+ */
+function atomFor(ctx: Ctx, el: Element, whole: Element | null, marks: readonly Mark[], ref?: number, lift = ''): PMNode {
   const r = ref ?? store(ctx, whole ?? el);
-  const blip = el.getElementsByTagNameNS(NS.a, 'blip')[0];
-  const imageData = el.getElementsByTagNameNS(NS.v, 'imagedata')[0];
-  const rid = blip ? (attrNS(blip, NS.r, 'embed') ?? attrNS(blip, NS.r, 'link')) : imageData ? attrNS(imageData, NS.r, 'id') : null;
-  let w = 0;
-  let h = 0;
-  const extent = el.getElementsByTagNameNS(NS.wp, 'extent')[0];
-  if (extent) {
-    w = emuToPt(Number(extent.getAttribute('cx') ?? 0));
-    h = emuToPt(Number(extent.getAttribute('cy') ?? 0));
-  } else {
-    const shape = el.getElementsByTagNameNS(NS.v, 'shape')[0];
-    const style = shape?.getAttribute('style') ?? '';
-    const m = (k: string) => {
-      const x = new RegExp(`${k}:\\s*([\\d.]+)(pt|in|px)?`).exec(style);
-      if (!x) return 0;
-      const v = Number(x[1]);
-      return x[2] === 'in' ? v * 72 : x[2] === 'px' ? v * 0.75 : v;
-    };
-    w = m('width');
-    h = m('height');
+  const attrs = visual(ctx, el);
+  if (lift && !attrs.block && (attrs.kind === 'image' || attrs.kind === 'shape')) attrs.css = attrs.css ? `${attrs.css};${lift}` : lift;
+  if (attrs.kind === 'shape' || attrs.css) ctx.model.visuals.set(r, { html: attrs.html ?? '', block: !!attrs.block, css: attrs.css ?? '' });
+  return schema.nodes.inl.create({ ref: r, ...attrs }, null, marks);
+}
+
+interface InlAttrs {
+  kind: 'image' | 'shape' | 'mark' | 'hidden';
+  label: string;
+  src?: string;
+  html?: string;
+  w?: number;
+  h?: number;
+  block?: boolean;
+  css?: string;
+}
+
+const O = 'urn:schemas-microsoft-com:office:office';
+const META = new Set(['wmf', 'emf', 'wmz', 'emz']);
+const pt = (px: number) => +(px * 0.75).toFixed(1);
+
+/** The holder of a floating drawing: on its own line, aligned as in the file */
+function blockCss(block: boolean, align: Drawn['align'], offset: number, image: boolean): string {
+  if (!block) return '';
+  if (image) {
+    if (align === 'center') return 'display:block;margin-left:auto;margin-right:auto';
+    if (align === 'right') return 'display:block;margin-left:auto';
+    return `display:block${offset ? `;margin-left:${Math.round(offset)}px` : ''}`;
   }
-  if (rid) {
-    const rel = model.pkg.rels(ctx.part).get(rid);
-    const ext = rel?.target.split('.').pop()?.toLowerCase() ?? '';
-    const bytes = rel && !rel.external ? model.pkg.files[rel.target] : undefined;
-    const mime = MIME[ext];
-    if (bytes && mime && ctx.opts.imageUrl) {
-      const src = ctx.opts.imageUrl(bytes, mime);
-      if (src) {
-        model.urls.push(src);
-        return schema.nodes.inl.create({ ref: r, kind: 'image', src, w: +w.toFixed(1), h: +h.toFixed(1), label: 'Hình' }, null, marks);
+  if (align === 'center' || align === 'right') return `text-align:${align}`;
+  return offset ? `padding-left:${Math.round(offset)}px` : '';
+}
+
+/**
+ * How something drawn shows: a picture, a shape as SVG, or a labelled chip
+ * when ezPDF cannot draw it. For mc:AlternateContent the modern content
+ * comes first and the older fallback (VML) is used when that shows nothing.
+ */
+function visual(ctx: Ctx, el: Element): InlAttrs {
+  if (el.namespaceURI === NS.mc && el.localName === 'AlternateContent') {
+    let chip: InlAttrs | null = null;
+    for (const option of elements(el).filter((k) => k.localName === 'Choice' || k.localName === 'Fallback')) {
+      const v = visualOf(ctx, option);
+      if (v.kind !== 'mark') return v;
+      chip ??= v;
+    }
+    return chip ?? { kind: 'mark', label: 'Hình vẽ' };
+  }
+  return visualOf(ctx, el);
+}
+
+function visualOf(ctx: Ctx, el: Element): InlAttrs {
+  const dc = drawCtx(ctx);
+  const drawing = isW(el, 'drawing') ? el : el.getElementsByTagNameNS(NS.w, 'drawing')[0];
+  if (drawing) {
+    const pic = drawingPicture(ctx, drawing);
+    if (pic) return pic;
+    const d = safeDraw(ctx, () => drawingSvg(drawing, dc));
+    if (d) return shapeAttrs(d);
+  }
+  const pict = isW(el, 'pict') || isW(el, 'object') ? el : (el.getElementsByTagNameNS(NS.w, 'pict')[0] ?? el.getElementsByTagNameNS(NS.w, 'object')[0]);
+  if (pict) {
+    const d = safeDraw(ctx, () => vmlSvg(pict, dc));
+    if (d) return shapeAttrs(d);
+    const img = pict.getElementsByTagNameNS(NS.v, 'imagedata')[0];
+    const rid = img ? attrNS(img, NS.r, 'id') || img.getAttributeNS(O, 'relid') : null;
+    if (rid) {
+      const shape = img.parentNode as Element | null;
+      const size = vmlSizePt(shape);
+      const style = shape?.getAttribute('style') ?? '';
+      const floating = /position:\s*absolute/.test(style);
+      const h = /mso-position-horizontal:\s*(center|right)/.exec(style)?.[1] as Drawn['align'] | undefined;
+      return pictureAttrs(ctx, rid, size.w, size.h, blockCss(floating, h ?? 'left', 0, true), floating);
+    }
+  }
+  // an empty w:pict or w:drawing (Word leaves them sometimes): nothing to show
+  const holder = drawing ?? pict ?? el;
+  // (a w:pict holding only a shape type definition draws nothing either)
+  const drawable = (k: Element) => (k.namespaceURI === NS.v && k.localName !== 'shapetype') || k.namespaceURI === O;
+  if (!elements(holder).length || (pict && !drawing && !elements(pict).some(drawable))) return { kind: 'hidden', label: '' };
+  const data = el.getElementsByTagNameNS(NS.a, 'graphicData')[0]?.getAttribute('uri') ?? '';
+  const label = /chart/.test(data) ? 'Biểu đồ' : /diagram/.test(data) ? 'SmartArt' : el.getElementsByTagNameNS(NS.w, 'txbxContent')[0] ? 'Hộp chữ' : 'Hình vẽ';
+  return { kind: 'mark', label };
+}
+
+/** a drawing that throws on odd input, or one past the document's budget, shows as a chip, never breaks the document */
+function safeDraw(ctx: Ctx, f: () => Drawn | null): Drawn | null {
+  if (ctx.shared.drawn > DRAW_BUDGET) return null;
+  try {
+    const d = f();
+    if (d) ctx.shared.drawn += d.html.length;
+    return d && ctx.shared.drawn <= DRAW_BUDGET ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+function shapeAttrs(d: Drawn): InlAttrs {
+  return { kind: 'shape', label: d.label, html: d.html, w: pt(d.w), h: pt(d.h), block: d.block, css: blockCss(d.block, d.align, d.offset, false) };
+}
+
+/** a plain picture in a w:drawing (graphicData …/picture) */
+function drawingPicture(ctx: Ctx, drawing: Element): InlAttrs | null {
+  const data = drawing.getElementsByTagNameNS(NS.a, 'graphicData')[0];
+  if (!data || !/\/picture$/.test(data.getAttribute('uri') ?? '')) return null;
+  const blip = data.getElementsByTagNameNS(NS.a, 'blip')[0];
+  const rid = blip ? (attrNS(blip, NS.r, 'embed') ?? attrNS(blip, NS.r, 'link')) : null;
+  const extent = drawing.getElementsByTagNameNS(NS.wp, 'extent')[0];
+  const w = emuToPt(Number(extent?.getAttribute('cx') ?? 0));
+  const h = emuToPt(Number(extent?.getAttribute('cy') ?? 0));
+  const place = placement(drawing);
+  if (!rid) return { kind: 'mark', label: 'Hình' };
+  return pictureAttrs(ctx, rid, w, h, blockCss(place.block, place.align, place.offset, true), place.block);
+}
+
+function pictureAttrs(ctx: Ctx, rid: string, w: number, h: number, css: string, block: boolean): InlAttrs {
+  const url = imageUrl(ctx, rid, w > 0 && h > 0 ? { w: w / 0.75, h: h / 0.75 } : undefined);
+  if (url) return { kind: 'image', src: url, w: +w.toFixed(1), h: +h.toFixed(1), label: 'Hình', css, block };
+  const rel = ctx.model.pkg.rels(ctx.part).get(rid);
+  const ext = rel?.target.split('.').pop()?.toLowerCase() ?? '';
+  return { kind: 'mark', label: rel?.external ? 'Hình (liên kết ngoài)' : ext ? `Hình (${ext.toUpperCase()})` : 'Hình' };
+}
+
+/** v:shape style → width and height in pt */
+function vmlSizePt(shape: Element | null): { w: number; h: number } {
+  const style = shape?.getAttribute('style') ?? '';
+  const m = (k: string) => {
+    const x = new RegExp(`(?:^|;)\\s*${k}:\\s*([\\d.]+)(pt|in|px|cm|mm)?`).exec(style);
+    if (!x) return 0;
+    const v = Number(x[1]);
+    return x[2] === 'in' ? v * 72 : x[2] === 'px' ? v * 0.75 : x[2] === 'cm' ? (v * 72) / 2.54 : x[2] === 'mm' ? (v * 72) / 25.4 : v;
+  };
+  return { w: m('width'), h: m('height') };
+}
+
+/**
+ * A URL that shows the picture of a relationship: a blob URL of the bytes,
+ * or of the SVG a Windows metafile becomes. External pictures are never
+ * fetched. One URL per picture, however often it is used.
+ */
+function imageUrl(ctx: Ctx, rid: string, size?: { w: number; h: number }): string | null {
+  const key = `${ctx.part}#${rid}`;
+  const known = ctx.shared.images.get(key);
+  if (known !== undefined) return known;
+  let url: string | null = null;
+  const rel = ctx.model.pkg.rels(ctx.part).get(rid);
+  const bytes = rel && !rel.external ? ctx.model.pkg.files[rel.target] : undefined;
+  const ext = rel?.target.split('.').pop()?.toLowerCase() ?? '';
+  if (bytes && ctx.opts.imageUrl) {
+    if (MIME[ext]) url = ctx.opts.imageUrl(bytes, MIME[ext]);
+    else if (META.has(ext) && ctx.shared.meta) {
+      const raw = ext.endsWith('z') ? gunzipLimited(bytes, Math.min(64 * 1024 * 1024, INFLATE_BUDGET - ctx.shared.inflated)) : bytes;
+      if (raw && ext.endsWith('z')) ctx.shared.inflated += raw.length;
+      const m = raw ? ctx.shared.meta.metafileToSvg(raw, size) : null;
+      if (m) {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${m.w.toFixed(2)} ${m.h.toFixed(2)}" width="${m.w.toFixed(2)}" height="${m.h.toFixed(2)}" preserveAspectRatio="none">${m.inner}</svg>`;
+        url = ctx.opts.imageUrl(new TextEncoder().encode(svg), 'image/svg+xml');
       }
     }
-    return schema.nodes.inl.create({ ref: r, kind: 'mark', label: ext ? `Hình (${ext.toUpperCase()})` : 'Hình' }, null, marks);
+    if (url) ctx.model.urls.push(url);
   }
-  const textbox = el.getElementsByTagNameNS(NS.w, 'txbxContent')[0];
-  return schema.nodes.inl.create({ ref: r, kind: 'mark', label: textbox ? 'Hộp chữ' : 'Hình vẽ' }, null, marks);
+  ctx.shared.images.set(key, url);
+  return url;
+}
+
+/** a .wmz/.emz (gzip): its content, refusing anything that inflates past 64 MB */
+function gunzipLimited(bytes: Uint8Array, limit = 64 * 1024 * 1024): Uint8Array | null {
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  let over = false;
+  const g = new Gunzip((chunk) => {
+    total += chunk.length;
+    if (total > limit) over = true;
+    else parts.push(chunk);
+  });
+  try {
+    for (let i = 0; i < bytes.length && !over; i += 16384) g.push(bytes.subarray(i, i + 16384), i + 16384 >= bytes.length);
+  } catch {
+    return null;
+  }
+  if (over || !total) return null;
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
+
+/** what the shape renderer needs from the reader: pictures, text boxes, charts, SmartArt */
+function drawCtx(ctx: Ctx): DrawCtx {
+  const model = ctx.model;
+  return {
+    theme: model.styles.theme,
+    image: (rid) => imageUrl(ctx, rid),
+    text: (txbx) => (ctx.depth > 3 ? '' : elements(txbx).map((e) => previewBlock({ ...ctx, depth: ctx.depth + 1 }, e)).join('')),
+    chart: (rid, w, h) => {
+      const rel = model.pkg.rels(ctx.part).get(rid);
+      const text = rel && !rel.external ? model.pkg.text(rel.target) : null;
+      if (!text) return null;
+      try {
+        return chartSvg(parseXml(model.dom, text, rel!.target).documentElement, w, h, model.styles.theme);
+      } catch {
+        return null;
+      }
+    },
+    diagram: (dm) => {
+      if (ctx.inDiagram) return null;
+      // the SmartArt's data part names its saved drawing (dsp:dataModelExt relId, a relationship of this part)
+      const rels = model.pkg.rels(ctx.part);
+      const dataRel = rels.get(dm);
+      if (!dataRel || dataRel.external) return null;
+      const key = `${ctx.part}#${dataRel.target}`;
+      let found = ctx.shared.diagrams.get(key);
+      if (found === undefined) {
+        found = null;
+        const dataText = model.pkg.text(dataRel.target);
+        try {
+          const data = dataText ? parseXml(model.dom, dataText, dataRel.target) : null;
+          const ext = data ? Array.from(data.getElementsByTagName('*')).find((e) => e.localName === 'dataModelExt') : undefined;
+          const drawRel = rels.get(ext?.getAttribute('relId') ?? '');
+          const drawText = drawRel && !drawRel.external ? model.pkg.text(drawRel.target) : null;
+          if (drawText) found = { root: parseXml(model.dom, drawText, drawRel!.target).documentElement, part: drawRel!.target };
+        } catch {
+          found = null;
+        }
+        ctx.shared.diagrams.set(key, found);
+      }
+      return found ? { root: found.root, ctx: drawCtx({ ...ctx, part: found.part, depth: ctx.depth + 1, inDiagram: true }) } : null;
+    },
+    uid: () => String(++ctx.shared.uid),
+  };
+}
+
+/** a drawn item as read-only HTML (locked blocks, header, footer, notes, text boxes) */
+function visualHtml(a: InlAttrs): string {
+  if (a.kind === 'image' && a.src) return `<img class="ez-wimg" src="${escapeHtml(a.src)}" style="${a.w && a.h ? `width:${a.w}pt;aspect-ratio:${a.w}/${a.h};` : ''}${escapeHtml(a.css ?? '')}" alt="">`;
+  if (a.kind === 'shape') return `<span class="ez-wshape${a.block ? ' ez-wshape-block' : ''}" style="${escapeHtml(a.css ?? '')}">${a.html ?? ''}</span>`;
+  return `<span class="ez-wmark">${escapeHtml(a.label)}</span>`;
 }
 
 // ---- tables -------------------------------------------------------------
@@ -669,12 +1015,13 @@ function previewBlock(ctx: Ctx, el: Element): string {
 function previewInline(ctx: Ctx, container: Element, info: ParaInfo): string {
   let html = '';
   for (const el of elements(container)) {
-    if (el.namespaceURI === NS.m) {
-      html += `<span class="ez-wmath">${escapeHtml(el.textContent ?? '')}</span>`;
+    if (el.namespaceURI === NS.m && (el.localName === 'oMath' || el.localName === 'oMathPara')) {
+      const v = mathVisual(el);
+      html += `<span class="ez-wmath${v.block ? ' ez-wmath-block' : ''}" style="${escapeHtml(v.css)}">${v.html}</span>`;
       continue;
     }
-    if (el.namespaceURI === NS.mc) {
-      html += '<span class="ez-wmark">Hình vẽ</span>';
+    if (el.namespaceURI === NS.mc && el.localName === 'AlternateContent') {
+      html += visualHtml(visual(ctx, el));
       continue;
     }
     if (el.namespaceURI !== NS.w) continue;
@@ -692,11 +1039,20 @@ function previewInline(ctx: Ctx, container: Element, info: ParaInfo): string {
           if (isW(c, 't') || isW(c, 'delText') || isW(c, 'instrText')) text += isW(c, 'instrText') ? '' : escapeHtml(c.textContent ?? '');
           else if (isW(c, 'tab')) text += '\t';
           else if (isW(c, 'br') || isW(c, 'cr')) text += '<br>';
-          else if (isW(c, 'drawing') || isW(c, 'pict')) {
-            const a = atomFor({ ...ctx, model: { ...ctx.model, store: [] } as WordModel }, c, null, []);
-            text += a.attrs.src
-              ? `<img class="ez-wimg" src="${escapeHtml(a.attrs.src)}" style="width:${a.attrs.w}pt;height:${a.attrs.h}pt" alt="">`
-              : '<span class="ez-wmark">Hình</span>';
+          else if (isW(c, 'drawing') || isW(c, 'pict') || isW(c, 'object') || (c.namespaceURI === NS.mc && c.localName === 'AlternateContent')) {
+            const v = visual(ctx, c);
+            const lift = raised(rPr);
+            if (lift && !v.block) v.css = v.css ? `${v.css};${lift}` : lift;
+            text += visualHtml(v);
+          }
+          else if (isW(c, 'footnoteRef') || isW(c, 'endnoteRef')) text += `<sup>${escapeHtml(ctx.noteLabel ?? '')}</sup>`;
+          else if (isW(c, 'footnoteReference') || isW(c, 'endnoteReference')) {
+            // a note mark in a read-only paragraph: numbered in turn with the others
+            const label = ctx.part === ctx.model.pkg.main ? noteRef(ctx, c, isW(c, 'footnoteReference') ? 'footnote' : 'endnote') : '';
+            text += `<sup class="ez-wnote">${escapeHtml(label)}</sup>`;
+          } else if (isW(c, 'sym')) {
+            const code = parseInt(wAttr(c, 'char') ?? '', 16);
+            text += escapeHtml(Number.isFinite(code) ? symbolText(code) : '□');
           }
         }
         html += text ? `<span style="${escapeHtml(css)}">${text}</span>` : '';

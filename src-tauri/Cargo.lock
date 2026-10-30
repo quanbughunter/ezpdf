@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "ezpdf"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "tauri",
  "tauri-build",

@@ -14,7 +14,12 @@
  *    bookmark, field (scripts/verify_word.py); LibreOffice opens it
  *  - leaving: unsaved changes are confirmed (stay / discard); a PDF opened
  *    from the Word screen; an old .doc explained
- *  - phone: the bar fits, a tap and typing edit, the table fits the page
+ *  - drawn content (word-draw.docx, 0.8.1): a flowchart group, shapes,
+ *    a canvas, VML, Office Math equations, a MathType WMF and an EMF, a
+ *    chart, SmartArt, footnotes; typing beside an equation, an equation
+ *    pasted; all of it saved back
+ *  - phone: the bar fits, a tap and typing edit, the table fits the page,
+ *    the drawings scale to the page
  *  - nothing leaves the device; no page errors
  *
  * Usage: node scripts/e2e-word.cjs
@@ -135,7 +140,13 @@ let onCrash = async () => {};
     JSON.stringify(shown),
   );
   const note = await page.textContent(tid('word-locked-note'));
-  check('3 read-only blocks marked “Chỉ xem” and explained (tracked change, equation, content control)', shown.locked === 3 && /3 đoạn chỉ xem được/.test(note) && /theo dõi thay đổi/.test(note), note);
+  check('2 read-only blocks marked “Chỉ xem” and explained (tracked change, content control)', shown.locked === 2 && /2 đoạn chỉ xem được/.test(note) && /theo dõi thay đổi/.test(note) && !/công thức/.test(note), note);
+  const eq = await page.evaluate(() => {
+    const m = document.querySelector('.ez-wdoc .ez-wmath math');
+    const p = m?.closest('p');
+    return m ? { text: m.textContent, w: Math.round(m.getBoundingClientRect().width), editable: p?.closest('.ez-wlocked') === null } : null;
+  });
+  check('the equation shows as an equation (MathML) in an editable paragraph', eq && eq.text === 'E=mc²' && eq.w > 20 && eq.editable, JSON.stringify(eq));
   await page.screenshot({ path: path.join(OUT, 'opened.png') });
 
   // ── 2. editing ──────────────────────────────────────────────────────────
@@ -211,7 +222,7 @@ let onCrash = async () => {};
   const lockedAfter = await page.evaluate(() => document.querySelectorAll('.ez-wlocked')[0]?.textContent);
   const stillThere = (await texts()).filter((t) => t === '[locked]').length;
   const selectedWhole = await page.evaluate(() => !!document.querySelector('.ez-wlocked.ProseMirror-selectednode'));
-  check('a read-only block is selected as a whole by a click and is not typed into', selectedWhole && lockedAfter === lockedBefore && stillThere === 3, `${stillThere} read-only blocks`);
+  check('a read-only block is selected as a whole by a click and is not typed into', selectedWhole && lockedAfter === lockedBefore && stillThere === 2, `${stillThere} read-only blocks`);
 
   // copy and paste inside the document: a page break and a picture come along as themselves
   const before = await page.evaluate(() => ({ img: document.querySelectorAll('.ez-wdoc img.ez-wimg').length, pb: [...document.querySelectorAll('.ez-wmark')].filter((m) => m.textContent === 'ngắt trang').length }));
@@ -331,6 +342,97 @@ let onCrash = async () => {};
   await page.click(`${tid('word-error')} button`);
   await page.waitForSelector(tid('word-screen'), { state: 'detached' });
 
+  // ── 4b. drawn content: shapes, equations, metafiles, chart, SmartArt, notes ──
+  await openWord(page, 'word-draw.docx');
+  await page.waitForFunction(() => [...document.querySelectorAll('.ez-wdoc img.ez-wimg')].every((i) => i.complete), null, { timeout: 10000 });
+  const drawn = await page.evaluate(() => {
+    const box = (e) => {
+      const r = e.getBoundingClientRect();
+      return { x: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height) };
+    };
+    const doc = document.querySelector('.ez-wdoc').getBoundingClientRect();
+    const svgs = [...document.querySelectorAll('.ez-wdoc .ez-wshape svg')];
+    const flow = svgs[0].getBoundingClientRect();
+    const words = [...svgs[0].querySelectorAll('foreignObject')].map((f) => f.textContent.trim());
+    const wordBoxes = [...svgs[0].querySelectorAll('foreignObject p')].map((p) => p.getBoundingClientRect().width);
+    const maths = [...document.querySelectorAll('.ez-wdoc .ez-wmath math')].map(box);
+    const imgs = [...document.querySelectorAll('.ez-wdoc img.ez-wimg')].map((i) => i.naturalWidth);
+    const canvasImg = svgs[2].querySelector('image');
+    return {
+      svgs: svgs.map(box),
+      flowCentred: Math.abs(flow.left + flow.width / 2 - (doc.left + doc.width / 2)) < 3,
+      words,
+      wordsShown: wordBoxes.every((w) => w > 10),
+      maths,
+      display: document.querySelector('.ez-wmath-block math')?.getAttribute('display'),
+      imgs,
+      canvasImg: canvasImg ? canvasImg.getBBox().width : 0,
+      notes: document.querySelector('[data-testid="word-notes"]')?.textContent ?? '',
+      locked: document.querySelectorAll('.ez-wlocked').length,
+      banner: !!document.querySelector('[data-testid="word-locked-note"]'),
+    };
+  });
+  await page.screenshot({ path: path.join(OUT, 'drawings.png'), fullPage: true });
+  await page.locator(tid('word-canvas')).screenshot({ path: path.join(OUT, 'drawings-canvas.png') });
+  check(
+    'drawn content shows: flowchart group (centred, its 4 labels), inline shape, canvas with its picture, VML group, chart, SmartArt',
+    drawn.svgs.length === 6 && drawn.svgs.every((b) => b.w > 50 && b.h > 30) && drawn.flowCentred && drawn.words.join('|') === 'Bắt đầu|Đọc tệp|Hợp lệ?|Kết thúc' && drawn.wordsShown && drawn.canvasImg > 10,
+    JSON.stringify({ svgs: drawn.svgs, centred: drawn.flowCentred, words: drawn.words, img: drawn.canvasImg }),
+  );
+  check(
+    'equations: inline fraction and a display equation (∑, √, matrix) as MathML; MathType (WMF) and EMF pictures load',
+    drawn.maths.length === 2 && drawn.maths.every((b) => b.w > 15) && drawn.maths[1].h > drawn.maths[0].h && drawn.display === 'block' && drawn.imgs.length === 2 && drawn.imgs.every((w) => w > 0),
+    JSON.stringify({ maths: drawn.maths, imgs: drawn.imgs }),
+  );
+  check('footnote and endnote shown after the text; nothing read-only, no banner', /1\s*Chú thích cuối trang về lưu đồ\./.test(drawn.notes) && /i\s*Chú thích cuối tài liệu\./.test(drawn.notes) && drawn.locked === 0 && !drawn.banner, drawn.notes);
+  // typing beside an equation, and an equation copied and pasted in the document
+  await caretAfter('là trung bình cộng');
+  await page.keyboard.type(' (đã sửa)');
+  {
+    const r = await find('Công thức ');
+    await page.evaluate((a) => window.__ezword.select(a, a + 1), r.to);
+  }
+  await page.keyboard.press('Control+c');
+  await caretAfter('Hết.');
+  await page.keyboard.press('Control+v');
+  await sleep(200);
+  const afterPaste = await page.evaluate(() => ({ maths: document.querySelectorAll('.ez-wdoc .ez-wmath math').length, last: document.querySelectorAll('.ez-wdoc .ez-wmath math mfrac').length }));
+  check('typing beside an equation keeps it; an equation copied and pasted is an equation again', (await texts()).some((t) => t.includes('trung bình cộng (đã sửa)')) && afterPaste.maths === 3 && afterPaste.last === 2, JSON.stringify(afterPaste));
+  // clipboard HTML that carries this document's own tag: a picture from elsewhere and shape markup are not taken from it
+  const tag = await page.evaluate(() => document.querySelector('.ez-wdoc [data-ezi]').getAttribute('data-ezi').split(':')[0]);
+  await caretAfter('Hết.');
+  await page.evaluate(
+    (t) => window.__ezword.view.pasteHTML(`<p>Dán lạ <img data-ezi="${t}:3:image" src="https://example.com/x.png" alt="x"><span data-ezi="${t}:4:shape"><svg><circle r="5"/></svg></span> xong</p>`),
+    tag,
+  );
+  await sleep(300);
+  const strange = await page.evaluate(() => ({
+    remote: [...document.querySelectorAll('.ez-wdoc img[src]')].filter((i) => !/^(blob:|data:)/.test(i.getAttribute('src'))).length,
+    shapes: document.querySelectorAll('.ez-wdoc .ez-wshape svg').length,
+  }));
+  check('clipboard HTML with the document’s own tag cannot bring a picture from elsewhere or its own shape markup', strange.remote === 0 && strange.shapes === 6 && (await texts()).some((t) => t.includes('Dán lạ')), JSON.stringify(strange));
+  const dl2 = page.waitForEvent('download');
+  await page.click(tid('word-save'));
+  const d2 = await dl2;
+  const saved2 = path.join(OUT, 'saved-draw.docx');
+  await d2.saveAs(saved2);
+  const counts = execFileSync(
+    'python3',
+    [
+      '-c',
+      [
+        'import sys,zipfile,re',
+        'x=zipfile.ZipFile(sys.argv[1]).read("word/document.xml").decode()',
+        'print(" ".join(str(len(re.findall(p,x))) for p in ["<m:oMath>","<m:oMathPara>","<wpg:wgp>","<wpc:wpc>","<v:group","<w:object","<c:chart ","<dgm:relIds","<w:footnoteReference","<w:endnoteReference"]))',
+      ].join('\n'),
+      saved2,
+    ],
+    { encoding: 'utf8' },
+  ).trim();
+  check('saved: 3 equations (one pasted), the group, canvas, VML, OLE equation, chart, SmartArt and note marks all in the file', counts === '3 1 1 1 2 1 1 1 1 1', counts);
+  await page.click(tid('word-close'));
+  await page.waitForSelector(tid('word-screen'), { state: 'detached' });
+
   // ── 5. phone ────────────────────────────────────────────────────────────
   {
     const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
@@ -368,6 +470,17 @@ let onCrash = async () => {};
     });
     const saveVisible = saveBox.r <= saveBox.w + 1 && saveBox.l >= 0;
     await ph.screenshot({ path: path.join(OUT, 'phone-word.png') });
+    await ph.click(tid('word-close'));
+    await ph.click(tid('word-leave-discard')).catch(() => {});
+    await ph.waitForSelector(tid('word-screen'), { state: 'detached' });
+    await openWord(ph, 'word-draw.docx');
+    const fits = await ph.evaluate(() => {
+      const pg = document.querySelector('[data-testid="word-page"]').getBoundingClientRect();
+      const all = [...document.querySelectorAll('.ez-wdoc .ez-wshape svg, .ez-wdoc img.ez-wimg, .ez-wdoc .ez-wmath')];
+      return { n: all.length, out: all.filter((e) => e.getBoundingClientRect().right > pg.right + 1).length };
+    });
+    await ph.screenshot({ path: path.join(OUT, 'phone-drawings.png'), fullPage: true });
+    check('phone: every drawing, picture and equation fits the page (shapes scale down with their text)', fits.n === 10 && fits.out === 0, JSON.stringify(fits));
     check(
       'phone: the bar fits with “Lưu” on screen; the table fits the page; a tap and typing edit; Bold works',
       bar.sw <= bar.cw + 1 && saveVisible && tableFits && pt.endsWith('Gõ trên điện thoại.') && pm.includes('b'),

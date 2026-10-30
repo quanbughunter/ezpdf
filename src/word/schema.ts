@@ -11,13 +11,14 @@
  *    codes and other invisible items are inline items in its text, so
  *    Enter, Backspace and Delete carry them like any character.
  *  - locked: a paragraph or block ezPDF shows but does not edit (tracked
- *    changes, equations, content controls), kept byte for byte
+ *    changes, content controls), kept byte for byte
  *  - table/table_row/table_cell: the table's shape is fixed (no rows or
  *    columns added or removed); the text in its cells is edited like any
  *    paragraph
  *  - br: a line break in a paragraph (Shift+Enter); inl: something inline
- *    that is shown but not typed into (picture, field result, footnote mark,
- *    page break, or an invisible bookmark), kept as its original XML
+ *    that is shown but not typed into (picture, shape or drawing, equation,
+ *    field result, footnote mark, page break, or an invisible bookmark),
+ *    kept as its original XML
  *  - marks: b, i, u as the user sees them (after styles), rp the run's own
  *    w:rPr (font, size, colour) and how it looks, link a hyperlink
  */
@@ -32,8 +33,16 @@ const refAttrs = { ref: { default: null as number | null } };
  * elsewhere, only bold, italic and underline come along.
  */
 let pasteTag = '';
-export function setPasteTag(tag: string) {
+/** a drawn item (shape, equation) of the open document by its ref: how it looks */
+export interface Visual {
+  html: string;
+  block: boolean;
+  css: string;
+}
+let pasteVisual: (ref: number) => Visual | null = () => null;
+export function setPasteTag(tag: string, visual: (ref: number) => Visual | null = () => null) {
   pasteTag = tag;
+  pasteVisual = visual;
 }
 
 function pastedParagraph(dom: HTMLElement) {
@@ -126,11 +135,17 @@ export const schema = new Schema({
       atom: true,
       attrs: {
         ...refAttrs,
-        kind: { default: 'hidden' as 'image' | 'text' | 'note' | 'mark' | 'hidden' },
+        kind: { default: 'hidden' as 'image' | 'text' | 'note' | 'mark' | 'hidden' | 'shape' | 'math' },
         label: { default: '' },
         src: { default: null as string | null },
         w: { default: 0 },
         h: { default: 0 },
+        /** shape, math: the markup ezPDF made from the file (SVG, MathML), shown as is */
+        html: { default: '' },
+        /** on its own line (a floating drawing, a display equation) */
+        block: { default: false },
+        /** shape, math: style of the holder (alignment, offset) */
+        css: { default: '' },
       },
       parseDOM: [
         // copied inside this document: the same item (its XML) again
@@ -140,13 +155,23 @@ export const schema = new Schema({
             const [t, ref, kind] = (dom.getAttribute('data-ezi') ?? '').split(':');
             if (!pasteTag || t !== pasteTag || ref === '') return false;
             const img = dom.tagName === 'IMG' ? (dom as HTMLImageElement) : null;
+            if (kind === 'shape' || kind === 'math') {
+              // the markup is never taken from the clipboard: the open document's own copy is used
+              const v = pasteVisual(Number(ref));
+              return v ? { ref: Number(ref), kind, label: dom.getAttribute('aria-label') ?? '', ...v } : false;
+            }
+            // a picture's address must be one ezPDF made (a blob: or data: URL), never one the clipboard brings
+            const src = img?.getAttribute('src') ?? null;
+            if (img && !(src && /^(blob:|data:image\/)/.test(src))) return false;
+            if (!['image', 'text', 'note', 'mark', 'hidden'].includes(kind)) return false;
             return {
               ref: Number(ref),
               kind,
               label: img ? img.alt : (dom.textContent ?? ''),
-              src: img ? img.getAttribute('src') : null,
+              src,
               w: Number(dom.getAttribute('data-w') ?? 0),
               h: Number(dom.getAttribute('data-h') ?? 0),
+              ...(img ? pasteVisual(Number(ref)) ?? {} : {}),
             };
           },
         },
@@ -156,10 +181,21 @@ export const schema = new Schema({
       toDOM(node): DOMOutputSpec {
         const a = node.attrs;
         const tag = { 'data-ezi': `${pasteTag}:${a.ref ?? ''}:${a.kind}`, 'data-w': String(a.w), 'data-h': String(a.h) };
+        if ((a.kind === 'shape' || a.kind === 'math') && a.html) {
+          const el = document.createElement('span');
+          const base = a.kind === 'math' ? 'ez-wmath' : 'ez-wshape';
+          el.className = a.block ? `${base} ${base}-block` : base;
+          el.contentEditable = 'false';
+          for (const [k, v] of Object.entries(tag)) el.setAttribute(k, v);
+          if (a.label) el.setAttribute('aria-label', a.label);
+          if (a.css) el.setAttribute('style', a.css);
+          el.innerHTML = a.html;
+          return el;
+        }
         switch (a.kind) {
           case 'image':
             return a.src
-              ? ['img', { class: 'ez-wimg', src: a.src, alt: a.label, style: a.w ? `width:${a.w}pt;height:${a.h}pt` : '', ...tag }]
+              ? ['img', { class: 'ez-wimg', src: a.src, alt: a.label, style: (a.w && a.h ? `width:${a.w}pt;aspect-ratio:${a.w}/${a.h};` : '') + a.css, ...tag }]
               : ['span', { class: 'ez-wmark', contenteditable: 'false', ...tag }, a.label || 'Hình'];
           case 'text':
             return ['span', { class: 'ez-wfield', contenteditable: 'false', ...tag }, a.label];

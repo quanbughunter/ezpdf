@@ -10,6 +10,10 @@
  *    tables keep their shape
  *  - the saved file read back by python-docx (scripts/verify_word.py) and
  *    opened by LibreOffice, and read again by ezPDF
+ *  - drawn content (word-draw.docx): shapes, groups, canvas, VML, Office
+ *    Math, MathType WMF, EMF, chart, SmartArt, footnotes; kept byte for
+ *    byte when the text around them is edited; crafted values cannot add
+ *    markup or script
  * Usage: npm run test:word
  */
 import { execFileSync } from 'child_process';
@@ -147,8 +151,15 @@ async function main() {
   );
   check('tab and line break', ta[15] === 'Cột\tsau tab' && a.doc.child(16).childCount === 3 && a.doc.child(16).child(1).type === schema.nodes.br);
   check(
-    'read-only: tracked change, equation, content control (3 blocks, each with its reason)',
-    a.locked.count === 3 && ta[18] === '[locked]' && ta[19] === '[locked]' && ta[20] === '[locked]' && /theo dõi thay đổi/.test(a.doc.child(18).attrs.reason) && /<ins class="ez-wins">/.test(a.doc.child(18).attrs.html) && /<del class="ez-wdel">/.test(a.doc.child(18).attrs.html),
+    'read-only: tracked change, content control (2 blocks, each with its reason)',
+    a.locked.count === 2 && ta[18] === '[locked]' && ta[20] === '[locked]' && /theo dõi thay đổi/.test(a.doc.child(18).attrs.reason) && /<ins class="ez-wins">/.test(a.doc.child(18).attrs.html) && /<del class="ez-wdel">/.test(a.doc.child(18).attrs.html),
+  );
+  const eqPara = a.doc.child(19);
+  const eq = eqPara.lastChild!;
+  check(
+    'equation: an item in an editable paragraph, drawn as MathML (E = m c²)',
+    eqPara.type === schema.nodes.paragraph && eqPara.textContent === 'Công thức: ' && eq.attrs.kind === 'math' && /^<math[^>]*><mrow><mi>E<\/mi><mo>=<\/mo><mi>m<\/mi><mi>c<\/mi><mo>²<\/mo><\/mrow><\/math>$/.test(eq.attrs.html),
+    eq.attrs.html,
   );
   check('page A4, margins 2 / 2.5 cm; header and footer text', Math.abs(a.page.width - 595.3) < 1 && Math.abs(a.page.left - 70.9) < 0.2 && /Đầu trang/.test(a.headerHtml) && /Trang /.test(a.footerHtml));
 
@@ -319,6 +330,7 @@ async function main() {
   } else console.log('skip  LibreOffice not installed');
 
   await hardCases();
+  await drawingCases();
   console.log(failed ? `\n${failed} failed, ${passed} passed` : `\nall ${passed} word checks passed`);
   process.exit(failed ? 1 : 0);
 }
@@ -448,4 +460,257 @@ async function hardCases() {
     refused = String((e as Error).message);
   }
   check('a file with macros (.docm content) is refused, with the reason', /macro/.test(refused), refused);
+}
+
+/** Shapes, equations, metafiles, charts, SmartArt, notes (word-draw.docx). */
+async function drawingCases() {
+  const svgs: string[] = [];
+  const openDraw = (bytes: Uint8Array) =>
+    readDocx(bytes, 'word-draw.docx', {
+      dom,
+      imageUrl: (b, mime) => {
+        if (mime === 'image/svg+xml') svgs.push(new TextDecoder().decode(b));
+        return `data:${mime};n=${b.length}`;
+      },
+    });
+  const raw = new Uint8Array(readFileSync(FIX('word-draw.docx')));
+  const d = await openDraw(raw);
+  const items: PMNode[] = [];
+  d.doc.descendants((n) => {
+    if (n.type === schema.nodes.inl && n.attrs.kind !== 'hidden') items.push(n);
+    return true;
+  });
+  const kinds = items.map((n) => `${n.attrs.kind}:${n.attrs.label}`);
+  check(
+    'word-draw: every drawn thing recognised, nothing read-only',
+    kinds.join(' | ') ===
+      'note:1 | shape:Hình vẽ | shape:Hình vẽ | shape:Hình vẽ | shape:Hình vẽ | math:a+b2 | note:i | math:i=1nxi2=y+1001 | image:Hình | image:Hình | shape:Biểu đồ | shape:SmartArt' && d.locked.count === 0,
+    kinds.join(' | '),
+  );
+  const [flow, inlineShape, canvas, vml, mathIn, mathBlock, , , chart, smart] = items.filter((n) => n.attrs.kind !== 'note');
+  const svgText = (h: string) => [...h.matchAll(/>([^<>]+)</g)].map((m) => m[1].trim()).filter(Boolean).join(' ');
+  check(
+    'flowchart (group): floating, centred, 4 shapes with their text, 3 arrow heads, theme colour accent1 (4F81BD in this theme)',
+    flow.attrs.block && flow.attrs.css === 'text-align:center' && svgText(flow.attrs.html) === 'Bắt đầu Đọc tệp Hợp lệ? Kết thúc' && (flow.attrs.html.match(/marker-end=/g) ?? []).length === 3 && /fill="rgb\(79,129,189\)"/.test(flow.attrs.html) && /viewBox="0 0 240 333\.33"/.test(flow.attrs.html),
+    svgText(flow.attrs.html),
+  );
+  check('inline shape: rounded rectangle, its own fill (ED7D31), text, in the sentence', !inlineShape.attrs.block && /fill="rgb\(237,125,49\)"/.test(inlineShape.attrs.html) && svgText(inlineShape.attrs.html) === 'Hộp chữ inline' && /<path d="M[\d.]+,0 H/.test(inlineShape.attrs.html));
+  check('canvas: background, ellipse, line with arrow, the picture', /fill="rgb\(242,242,242\)"/.test(canvas.attrs.html) && /A[\d.]+,[\d.]+ 0 1 0/.test(canvas.attrs.html) && /marker-end/.test(canvas.attrs.html) && /<image href="data:image\/png;n=\d+"/.test(canvas.attrs.html));
+  check('VML group: rectangle with text box, oval, line with arrow, in the group coordinates', svgText(vml.attrs.html) === 'VML hộp chữ' && /fill="#ffc000"/.test(vml.attrs.html) && /fill="#5b9bd5"/.test(vml.attrs.html) && /marker-end/.test(vml.attrs.html) && /viewBox="0 0 266\.67 106\.67"/.test(vml.attrs.html));
+  check('inline equation: a fraction (a+b)/2 in MathML', /<mfrac><mrow><mi>a<\/mi><mo>\+<\/mo><mi>b<\/mi><\/mrow><mrow><mn>2<\/mn><\/mrow><\/mfrac>/.test(mathIn.attrs.html) && !mathIn.attrs.block);
+  check(
+    'equation paragraph: on its own line, centred; ∑ with limits under and over, √, a matrix in brackets',
+    mathBlock.attrs.block && mathBlock.attrs.css === 'text-align:center' && /display="block"/.test(mathBlock.attrs.html) && /<munderover><mo[^>]*>∑<\/mo>/.test(mathBlock.attrs.html) && /<msqrt>/.test(mathBlock.attrs.html) && /<mtable>(<mtr>(<mtd>.*?<\/mtd>){2}<\/mtr>){2}<\/mtable>/.test(mathBlock.attrs.html),
+  );
+  const wmf = svgs.find((x) => /π/.test(x)) ?? '';
+  check(
+    'MathType equation (OLE, WMF): x italic over π (Symbol font → Unicode), the fraction bar, “= 1” placed by its advances',
+    /font-style="italic"[^>]*>x</.test(wmf) && />π</.test(wmf) && /<path d="M5\.33,22 L22\.67,22"/.test(wmf) && /x="31\.33 44\.67 50\.67"[^>]*>= 1</.test(wmf) && /viewBox="0 0 80\.00 40\.00"/.test(wmf),
+    wmf.slice(0, 160),
+  );
+  const emf = svgs.find((x) => /EMF/.test(x)) ?? '';
+  check('EMF picture: filled rectangle, polyline, bold Arial text with Vietnamese (UTF-16)', /fill="#fff2e1"/.test(emf) && /stroke="#c00000"/.test(emf) && /font-weight="bold"[^>]*>EMF chữ</.test(emf));
+  check('chart: title, 6 bars, categories, legend from the cached values', svgText(chart.attrs.html).startsWith('Doanh thu theo quý') && (chart.attrs.html.match(/<rect x="[\d.]+" y="[\d.]+" width="[\d.]+" height="[\d.]+" fill="rgb/g) ?? []).length >= 6 && /Quý 2/.test(chart.attrs.html) && />2026</.test(chart.attrs.html));
+  check('SmartArt: drawn from its saved drawing (two boxes, an arrow, their text)', svgText(smart.attrs.html) === 'Ý tưởng Thực hiện' && /<path d="M0,/.test(smart.attrs.html));
+  check('footnote 1 and endnote i shown after the text with their own text', /<sup>1<\/sup>[^]*Chú thích cuối trang về lưu đồ\./.test(d.notesHtml) && /<sup>i<\/sup>[^]*Chú thích cuối tài liệu\./.test(d.notesHtml));
+
+  // unchanged: the document XML as it was
+  const xml0 = d.pkg.text(d.pkg.main)!;
+  check('word-draw saved unchanged: same document XML', canon(buildDocumentXml(d, d.doc)) === canon(xml0));
+
+  // edit the text next to the equations and shapes: every drawn element written back exactly
+  const ed = new Ed(d);
+  ed.caretAfter('là trung bình cộng');
+  ed.type(' (đã sửa)');
+  ed.caretAfter('ở giữa câu');
+  ed.type(' — thêm chữ');
+  ed.caretAfter('Lưu đồ dưới đây');
+  ed.run(splitParagraph(d));
+  const out = writeDocx(d, ed.state.doc);
+  const outXml = strFromU8(unzipSync(out)['word/document.xml']);
+  const pick = (x: string, tag: string) => {
+    const doc = new DOMParser().parseFromString(x, 'application/xml');
+    const [prefix, local] = tag.split(':');
+    const els = Array.from(doc.getElementsByTagName(tag));
+    return els.map((e) => canon(new XMLSerializer().serializeToString(e)).replace(/ xmlns(:\w+)?="[^"]*"/g, '')).join('\n') + `#${prefix}${local}${els.length}`;
+  };
+  const tags = ['m:oMath', 'm:oMathPara', 'wpg:wgp', 'wpc:wpc', 'w:pict', 'w:object', 'c:chart', 'dgm:relIds', 'w:footnoteReference', 'w:endnoteReference'];
+  const differ = tags.filter((t) => pick(outXml, t) !== pick(xml0, t));
+  check('text edited around them: equations, group, canvas, VML, OLE, chart, SmartArt, note marks written back exactly', differ.length === 0, differ.join(', ') || tags.length + ' kinds');
+  const again = await openDraw(out);
+  check('…and the saved file reads back with the edit and every drawn item', /trung bình cộng \(đã sửa\)/.test(texts(again.doc).join('\n')) && (() => { let k = 0; again.doc.descendants((n) => { if (n.type === schema.nodes.inl && (n.attrs.kind === 'shape' || n.attrs.kind === 'math')) k++; return true; }); return k === 8; })());
+
+  // crafted values in drawings: no markup, script, event handler or outside URL can come through
+  const files = unzipSync(raw);
+  let x = strFromU8(files['word/document.xml']);
+  x = x.replace('<a:srgbClr val="ED7D31"/>', '<a:srgbClr val="ED7D31&quot; onload=&quot;alert(1)"/>');
+  x = x.replace('prst="flowChartDecision"', 'prst="x&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"');
+  x = x.replace('Bắt đầu', '&lt;img src=x onerror=alert(1)&gt;');
+  x = x.replace('fillcolor="#ffc000"', 'fillcolor="url(javascript:alert(1))"');
+  x = x.replace('<m:t>a+b</m:t>', '<m:t>&lt;/math&gt;&lt;img src=x onerror=alert(1)&gt;</m:t>');
+  x = x.replace('<v:stroke endarrow="block"/>', '<v:stroke endarrow="block&quot; onclick=&quot;x" dashstyle="&quot;/&gt;&lt;script&gt;"/>');
+  x = x.replace('<a:tailEnd type="triangle"/>', '<a:tailEnd type="triangle&quot;/&gt;&lt;script&gt;x&lt;/script&gt;"/>');
+  files['word/document.xml'] = strToU8(x);
+  let chartXml = strFromU8(files['word/charts/chart1.xml']);
+  chartXml = chartXml.replace('Doanh thu theo quý', '&lt;script&gt;alert(1)&lt;/script&gt;').replace('<c:v>Quý 1</c:v>', '<c:v>&lt;b onmouseover=alert(1)&gt;</c:v>');
+  files['word/charts/chart1.xml'] = strToU8(chartXml);
+  // a WMF font name with markup in it
+  const wmfBytes = files['word/media/eq1.wmf'];
+  const at = Buffer.from(wmfBytes).indexOf('Times New Roman');
+  Buffer.from('"><x onload=y>').copy(Buffer.from(wmfBytes.buffer, wmfBytes.byteOffset + at, 15));
+  svgs.length = 0;
+  const evil = await openDraw(zipSync(files));
+  const html: string[] = [...svgs, evil.notesHtml];
+  evil.doc.descendants((n) => {
+    if (n.type === schema.nodes.inl && n.attrs.html) html.push(n.attrs.html);
+    return true;
+  });
+  // the crafted text must arrive as text: no element or attribute of its own
+  const tagsOf = (h: string) => h.match(/<[^>]*>/g) ?? [];
+  const bad = html.flatMap(tagsOf).find((t) => /^<\/?(script|img|b|iframe|object)\b/i.test(t) || /\son\w+=|javascript:|url\((?!#ez[mc]\d+\))/i.test(t));
+  const shown = html.join('').includes('&lt;img src=x onerror=alert(1)&gt;') && html.join('').includes('&lt;script&gt;alert(1)&lt;/script&gt;');
+  check('crafted shapes, equation, chart, WMF: no tag, script, event handler or outside URL in what is drawn (the text shows as text)', html.length >= 10 && !bad && shown, bad ?? `${html.length} pieces clean`);
+  check('every drawing is clipped a little outside its box (a shape cannot paint over the page)', [flow, inlineShape, canvas, vml, chart, smart].every((n) => /<clipPath id="ezc\d+"><rect x="-[\d.]+"/.test(n.attrs.html) && /<g clip-path="url\(#ezc\d+\)">/.test(n.attrs.html)));
+
+  await reviewCases(raw);
+}
+
+/** The cases the independent review of 0.8.1 found: hostile files that must stay fast and small. */
+async function reviewCases(raw: Uint8Array) {
+  const M = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
+  const timed = async <T,>(f: () => Promise<T> | T) => {
+    const t0 = Date.now();
+    const v = await f();
+    return { v, ms: Date.now() - t0 };
+  };
+  const withDoc = (edit: (x: string) => string, more: (files: Record<string, Uint8Array>) => void = () => {}) => {
+    const files = unzipSync(raw);
+    files['word/document.xml'] = strToU8(edit(strFromU8(files['word/document.xml'])));
+    more(files);
+    return zipSync(files);
+  };
+  const read = (bytes: Uint8Array) => readDocx(bytes, 'evil.docx', { dom, imageUrl: (b, mime) => `data:${mime};n=${b.length}` });
+
+  // 1. radicals nested in their degree: converted once each (it was 2^depth)
+  let rad = '<m:r><m:t>x</m:t></m:r>';
+  for (let i = 0; i < 40; i++) rad = `<m:rad><m:deg>${rad}</m:deg><m:e><m:r><m:t>y</m:t></m:r></m:e></m:rad>`;
+  const r1 = await timed(() => read(withDoc((x) => x.replace('<m:oMath><m:f>', `<m:oMath>${rad}<m:f>`))));
+  check('40 radicals nested in each other’s degree: drawn in well under a second', r1.ms < 1500, `${r1.ms} ms`);
+  // 6. an equation nested deeper than any real one: a chip, the document still opens
+  let deep = '<m:r><m:t>x</m:t></m:r>';
+  for (let i = 0; i < 400; i++) deep = `<m:sSup><m:e>${deep}</m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup>`;
+  const r6 = await read(withDoc((x) => x.replace('<m:oMath><m:f>', `<m:oMath>${deep}<m:f>`)));
+  let chip = false;
+  r6.doc.descendants((n) => {
+    if (n.attrs?.kind === 'math' && /Công thức/.test(n.attrs.html)) chip = true;
+    return true;
+  });
+  check('an equation nested 400 deep shows as a chip; the document opens', chip);
+
+  // 2. a SmartArt whose drawing holds a text box pointing back at the same SmartArt: drawn once, no loop
+  const selfRef = await timed(() =>
+    read(
+      withDoc(
+        (x) => x,
+        (files) => {
+          const back =
+            '<w:p><w:r><w:drawing><wp:inline><wp:extent cx="2921000" cy="635000"/><wp:docPr id="99" name="x"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds r:dm="rIdD1" r:lo="rIdD2" r:qs="rIdD3" r:cs="rIdD4"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>';
+          const ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+          let d = strFromU8(files['word/diagrams/drawing1.xml']);
+          // twenty shapes, each with a text box holding the SmartArt again
+          const sp = d.match(/<dsp:sp modelId="\{1\}">[^]*?<\/dsp:sp>/)![0].replace('<dsp:txBody>', `<dsp:txbx><w:txbxContent ${ns}>${back}${back}</w:txbxContent></dsp:txbx><dsp:txBody>`);
+          d = d.replace('</dsp:spTree>', sp.repeat(20) + '</dsp:spTree>');
+          files['word/diagrams/drawing1.xml'] = strToU8(d);
+          // the drawing's own relationships, so the SmartArt can be found from it too
+          files['word/diagrams/_rels/drawing1.xml.rels'] = strToU8(
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+              '<Relationship Id="rIdD1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData" Target="data1.xml"/>' +
+              '<Relationship Id="rIdD5" Type="http://schemas.microsoft.com/office/2007/relationships/diagramDrawing" Target="drawing1.xml"/></Relationships>',
+          );
+        },
+      ),
+    ),
+  );
+  let copies = 0;
+  selfRef.v.doc.descendants((n) => {
+    if (n.attrs?.label === 'SmartArt') copies = Math.max(copies, (n.attrs.html.match(/aria-label="SmartArt"/g) ?? []).length);
+    return true;
+  });
+  check('a SmartArt that contains itself (twenty times, twice each) is drawn once, quickly', copies === 1 && selfRef.ms < 3000, `${copies} cop${copies === 1 ? 'y' : 'ies'} drawn, ${selfRef.ms} ms`);
+
+  // 3. an EMF whose polylines claim a million points each, inside a path
+  const emf = (() => {
+    const recs: Buffer[] = [];
+    const rec = (type: number, payload: Buffer) => {
+      const b = Buffer.alloc(8);
+      b.writeUInt32LE(type, 0);
+      b.writeUInt32LE(8 + payload.length, 4);
+      recs.push(b, payload);
+    };
+    rec(59, Buffer.alloc(0));
+    const pl = Buffer.alloc(20);
+    pl.writeUInt32LE(1000000, 16);
+    for (let i = 0; i < 3000; i++) rec(87, pl);
+    rec(60, Buffer.alloc(0));
+    rec(64, Buffer.alloc(0));
+    rec(14, Buffer.alloc(12));
+    const hdr = Buffer.alloc(108);
+    hdr.writeUInt32LE(1, 0);
+    hdr.writeUInt32LE(108, 4);
+    hdr.writeInt32LE(2646, 32);
+    hdr.writeInt32LE(2646, 36);
+    hdr.writeUInt32LE(0x464d4520, 40);
+    hdr.writeInt32LE(1920, 72);
+    hdr.writeInt32LE(1080, 76);
+    hdr.writeInt32LE(508, 80);
+    hdr.writeInt32LE(286, 84);
+    return Buffer.concat([hdr, ...recs, Buffer.alloc(4000000)]);
+  })();
+  const r3 = await timed(() => read(withDoc((x) => x, (files) => (files['word/media/pic1.emf'] = new Uint8Array(emf)))));
+  check('an EMF whose records claim a million points each: nothing read past a record, done quickly', r3.ms < 3000, `${r3.ms} ms`);
+
+  // 4. a stacked line chart of 100 series × 10,000 empty points
+  const r4 = await timed(() =>
+    read(
+      withDoc(
+        (x) => x,
+        (files) => {
+          let c = strFromU8(files['word/charts/chart1.xml']);
+          const ser = '<c:ser><c:idx val="0"/><c:order val="0"/><c:val><c:numRef><c:numCache><c:ptCount val="10000"/></c:numCache></c:numRef></c:val></c:ser>';
+          c = c.replace(/<c:barChart>[^]*<\/c:barChart>/, `<c:lineChart><c:grouping val="stacked"/>${ser.repeat(100)}<c:axId val="1"/><c:axId val="2"/></c:lineChart>`);
+          files['word/charts/chart1.xml'] = strToU8(c);
+        },
+      ),
+    ),
+  );
+  let chartHtml = 0;
+  r4.v.doc.descendants((n) => {
+    if (n.attrs?.label === 'Biểu đồ') chartHtml = Math.max(chartHtml, (n.attrs.html ?? '').length);
+    return true;
+  });
+  check('a stacked chart of 100 series × 10,000 empty points: no flood of markup', r4.ms < 3000 && chartHtml < 200000, `${r4.ms} ms, ${chartHtml} chars`);
+
+  // 7. footnotes: one in a text box, one in a paragraph that turns read-only part-way; numbers unique and in order
+  const r7 = await read(
+    withDoc(
+      (x) =>
+        x
+          .replace('Hộp chữ inline</w:t></w:r>', 'Hộp chữ inline</w:t></w:r><w:r><w:footnoteReference w:id="1"/></w:r>')
+          .replace('<w:t xml:space="preserve">Hết.</w:t></w:r>', '<w:t xml:space="preserve">Hết.</w:t></w:r><w:r><w:footnoteReference w:id="1"/></w:r><w:customXml w:element="x"><w:r><w:t>y</w:t></w:r></w:customXml>')
+          .replace('<w:t xml:space="preserve">MathType: </w:t></w:r>', '<w:t xml:space="preserve">MathType: </w:t></w:r><w:r><w:footnoteReference w:id="1"/></w:r>'),
+    ),
+  );
+  const labels = [...r7.notesHtml.matchAll(/<sup>(\d+)<\/sup>/g)].map((m) => m[1]);
+  check('footnotes in a text box and in a paragraph that turns read-only part-way: numbered 1–4 once each', labels.join(',') === '1,2,3,4' && r7.locked.count === 1, labels.join(','));
+
+  // 10. a mirrored group: its shapes mirror, their text stays readable (no mirror above any text box)
+  const r10 = await read(withDoc((x) => x.replace('<a:xfrm><a:off x="0" y="0"/><a:ext cx="2286000" cy="3175000"/><a:chOff', '<a:xfrm flipH="1"><a:off x="0" y="0"/><a:ext cx="2286000" cy="3175000"/><a:chOff')));
+  let flipped = '';
+  r10.doc.descendants((n) => {
+    if (!flipped && n.attrs?.kind === 'shape') flipped = n.attrs.html;
+    return true;
+  });
+  const fo = [...flipped.matchAll(/<foreignObject/g)].length;
+  const mirroredText = /scale\(-1[^)]*\)"[^>]*>(?:(?!<\/g>).)*<foreignObject/.test(flipped);
+  check('a mirrored group: its outlines mirror, the text of its 4 boxes does not', fo === 4 && /scale\(-1 1\)/.test(flipped) && !mirroredText);
 }

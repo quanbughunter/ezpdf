@@ -376,7 +376,7 @@ function WordEditor({
   useEffect(() => {
     const host = mount.current;
     if (!host) return;
-    setPasteTag(`w${Math.random().toString(36).slice(2, 10)}`);
+    setPasteTag(`w${Math.random().toString(36).slice(2, 10)}`, (ref) => model.visuals.get(ref) ?? null);
     const state = EditorState.create({
       doc: model.doc,
       plugins: [
@@ -585,6 +585,7 @@ function WordEditor({
         <div className="ez-wpage" style={pageStyle} data-testid="word-page">
           {model.headerHtml && <div className="ez-whf ez-whf-top" data-testid="word-header" dangerouslySetInnerHTML={{ __html: model.headerHtml }} />}
           <div className="ez-wdoc" ref={mount} />
+          {model.notesHtml && <div className="ez-wnotes-wrap" data-testid="word-notes" dangerouslySetInnerHTML={{ __html: model.notesHtml }} />}
           {model.footerHtml && <div className="ez-whf ez-whf-bottom" data-testid="word-footer" dangerouslySetInnerHTML={{ __html: model.footerHtml }} />}
         </div>
       </div>

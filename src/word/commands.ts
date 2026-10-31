@@ -7,6 +7,7 @@ import { chainCommands, deleteSelection, joinBackward, joinForward, selectNodeBa
 import type { Node as PMNode, NodeType } from 'prosemirror-model';
 import { NodeSelection, Plugin, Selection, TextSelection, type Command, type EditorState, type Transaction } from 'prosemirror-state';
 import { schema } from './schema';
+import { safeFont } from './styles';
 import type { WordModel } from './read';
 import { paraInfo } from './read';
 import { paraCss } from './styles';
@@ -86,6 +87,44 @@ export const lineBreak: Command = (state, dispatch) => {
 export const toggleBold = toggleMark(schema.marks.b);
 export const toggleItalic = toggleMark(schema.marks.i);
 export const toggleUnderline = toggleMark(schema.marks.u);
+
+/**
+ * Give the selection (or, with nothing selected, what the user types next)
+ * a font or a size. Applied to the text of every paragraph and cell in the
+ * selection; read-only blocks are left as they are.
+ */
+function setMark(mark: ReturnType<typeof schema.marks.font.create>): Command {
+  return (state, dispatch) => {
+    const { empty, ranges } = state.selection;
+    if (empty) {
+      dispatch?.(state.tr.addStoredMark(mark));
+      return true;
+    }
+    const tr = state.tr;
+    for (const r of ranges) {
+      state.doc.nodesBetween(r.$from.pos, r.$to.pos, (node, pos) => {
+        if (node.type === schema.nodes.locked) return false;
+        if (node.isTextblock) {
+          const from = Math.max(r.$from.pos, pos + 1), to = Math.min(r.$to.pos, pos + node.nodeSize - 1);
+          if (to > from) tr.addMark(from, to, mark);
+          return false;
+        }
+        return true;
+      });
+    }
+    if (!tr.docChanged) return false;
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** a font for the selection: a name as Word stores it (letters, digits, spaces and . _ - + & ( ) only; anything else is refused) */
+export const setFont = (name: string): Command => {
+  const safe = safeFont(name);
+  return safe && safe === name.trim() ? setMark(schema.marks.font.create({ name: safe })) : () => false;
+};
+/** a size for the selection, in points (Word keeps half-points: 10.5 pt is fine, 10.3 becomes 10.5) */
+export const setSize = (pt: number): Command => setMark(schema.marks.size.create({ hp: Math.max(2, Math.min(3276, Math.round(pt * 2))) }));
 
 /** Is the mark on for the selection (or for what the user types next)? */
 export function markActive(state: EditorState, type: (typeof schema.marks)[keyof typeof schema.marks]) {

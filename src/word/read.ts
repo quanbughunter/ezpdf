@@ -15,6 +15,7 @@ import { drawingSvg, placement, vmlSvg, type DrawCtx, type Drawn } from './drawi
 import { chartSvg } from './chart';
 import { ommlParaToMathml, ommlText, ommlToMathml } from './omml';
 import type { MetaSvg } from './metafile';
+import { dosEpsPreview, IMAGE_MIME, KIND_LABEL, MAYBE, NATIVE, pictJpeg, sniffImage, type ImageKind } from './images';
 import { openPackage, rId, type DocxPackage } from './package';
 import { formatNumber, Numbering } from './numbering';
 import {
@@ -25,6 +26,7 @@ import {
   readParaProps,
   readRunProps,
   runCss,
+  safeFont,
   Styles,
   Theme,
   type Border,
@@ -85,23 +87,28 @@ export interface WordModel {
   notesHtml: string;
   /** shapes and equations by ref: how ezPDF draws them (a pasted copy shows the same) */
   visuals: Map<number, Visual>;
+  /** the fonts the document uses (its font table and theme), for the font picker; symbol fonts left out */
+  fonts: string[];
 }
 
 export interface ReadOptions {
   dom?: DomImpl;
   /** a URL to show picture bytes (the browser: blob URLs) */
   imageUrl?: (bytes: Uint8Array, mime: string) => string | null;
+  /**
+   * Can this device show a picture of a format only some browsers read
+   * (AVIF, HEIC, JPEG XR)? Asked before the document is read; without it,
+   * those pictures show as chips.
+   */
+  canShow?: (bytes: Uint8Array, mime: string) => Promise<boolean>;
+  /**
+   * TIFF and EPS pictures → PNG (word/raster.ts), at most `side` pixels on
+   * the long side; null when one cannot be decoded. The app passes a worker
+   * it stops when a picture takes too long; without it they are decoded
+   * here, on this thread.
+   */
+  rasterize?: (bytes: Uint8Array, side: number) => Promise<Uint8Array | null>;
 }
-
-const MIME: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  gif: 'image/gif',
-  bmp: 'image/bmp',
-  webp: 'image/webp',
-  svg: 'image/svg+xml',
-};
 
 const merge = <T extends object>(...layers: (T | undefined)[]): T => Object.assign({}, ...layers.filter(Boolean)) as T;
 
@@ -160,10 +167,15 @@ interface Ctx {
 
 interface Shared {
   uid: number;
-  /** picture URL by part and relationship id */
+  /** picture URL by part and relationship id, and by picture part (several relationships can point at one picture) */
   images: Map<string, string | null>;
+  byTarget: Map<string, string | null>;
   /** the WMF/EMF player, loaded when the file has such pictures */
   meta: { metafileToSvg(bytes: Uint8Array, size?: { w: number; h: number }): MetaSvg | null } | null;
+  /** TIFF and EPS pictures decoded before the document is read (PNG, or null), by part */
+  rasters: Map<string, Uint8Array | null>;
+  /** pictures of a format only some browsers read that this device shows (part paths) */
+  showable: Set<string>;
   /** footnote and endnote references, in reading order, and the last numbers given */
   notes: { kind: 'footnote' | 'endnote'; id: string; label: string }[];
   footnote: number;
@@ -178,6 +190,10 @@ interface Shared {
 /** what one document may draw (markup) and inflate (compressed metafiles) in all */
 const DRAW_BUDGET = 48 * 1024 * 1024;
 const INFLATE_BUDGET = 192 * 1024 * 1024;
+/** TIFF and EPS pictures decoded for one document: how many, how long in all, how large */
+const RASTER_PARTS = 200;
+const RASTER_TIME = 45_000;
+const RASTER_SIDE = 2400;
 
 const store = (ctx: Ctx, n: Node) => ctx.model.store.push(n) - 1;
 
@@ -222,13 +238,47 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
     defaultCss: paraCss(styles.paragraph(undefined).p, styles.paragraph(undefined).r),
     notesHtml: '',
     visuals: new Map(),
+    fonts: documentFonts(partDoc(partByType('/fontTable')), theme),
   };
-  // the metafile player is only loaded for files that have WMF/EMF pictures (equations from MathType)
-  const hasMeta = Object.keys(pkg.files).some((f) => /\.(wmf|emf|wmz|emz)$/i.test(f));
+  // what each picture really is (by its bytes): the decoders a file needs are loaded only for it
+  const kinds = new Map<string, ImageKind>();
+  for (const [path, b] of Object.entries(pkg.files)) if (!/\.(xml|rels)$/i.test(path)) kinds.set(path, sniffImage(b));
+  const has = (...k: ImageKind[]) => [...kinds.values()].some((v) => k.includes(v));
+  // a picture only some browsers read: this one is asked (in parallel, a few seconds at most)
+  const showable = new Set<string>();
+  if (opts.canShow) {
+    const ask = [...kinds].filter(([, k]) => MAYBE.has(k)).slice(0, 40);
+    const answers = await Promise.all(ask.map(([path, k]) => opts.canShow!(pkg.files[path], IMAGE_MIME[k]!).catch(() => false)));
+    ask.forEach(([path], i) => answers[i] && showable.add(path));
+  }
+  // TIFF and EPS (their TIFF or EPSI preview) decoded now, one after another, within a time budget
+  const rasters = new Map<string, Uint8Array | null>();
+  // only pictures some part points at (a file can carry pictures nothing shows)
+  const used = new Set<string>();
+  for (const n of pkg.names) {
+    const m = /^(.*?)_rels\/([^/]+)\.rels$/.exec(n);
+    if (m) for (const r of pkg.rels(m[1] + m[2]).values()) if (!r.external) used.add(r.target);
+  }
+  const toRaster = [...kinds]
+    .filter(([path, k]) => used.has(path) && (k === 'tiff' || (k === 'eps' && dosEpsPreview(pkg.files[path])?.kind !== 'wmf')))
+    .slice(0, RASTER_PARTS);
+  if (toRaster.length) {
+    let rasterize: (b: Uint8Array, side: number) => Promise<Uint8Array | null>;
+    if (opts.rasterize) rasterize = opts.rasterize;
+    else {
+      const local = await import('./raster');
+      rasterize = async (b, side) => local.rasterize(b, side);
+    }
+    const until = Date.now() + RASTER_TIME;
+    for (const [path] of toRaster) rasters.set(path, Date.now() < until ? await rasterize(pkg.files[path], RASTER_SIDE).catch(() => null) : null);
+  }
   const shared: Shared = {
     uid: 0,
     images: new Map(),
-    meta: hasMeta ? await import('./metafile') : null,
+    byTarget: new Map(),
+    meta: has('wmf', 'emf', 'gzip', 'eps') ? await import('./metafile') : null,
+    rasters,
+    showable,
     notes: [],
     footnote: 0,
     endnote: 0,
@@ -292,6 +342,31 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
   };
   model.notesHtml = notes('footnote') + notes('endnote');
   return model;
+}
+
+/** symbol and math fonts: not offered for text */
+const SYMBOL_FONT = /^(symbol|wingdings.*|webdings|mt extra|cambria math|marlett|euclid.*|ms reference.*|zapf ?dingbats|stix.*math.*)$/i;
+
+/** the fonts a document names (w:fonts in its font table, its theme fonts), safe for CSS, symbol fonts out */
+/** Chinese, Japanese and Korean fonts (by their name or their character set): no Vietnamese letters, so not offered for editing. */
+const CJK_NAME = /[\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/;
+const CJK_CHARSET = new Set(['80', '81', '82', '86', '88']);
+
+function documentFonts(table: Document | null, theme: Theme): string[] {
+  const names = new Set<string>();
+  const add = (n: string | null | undefined) => {
+    const f = safeFont(n);
+    // a name that had to be cleaned is not offered: written back, it would name a font that does not exist
+    if (f && f === n?.trim() && !SYMBOL_FONT.test(f) && !CJK_NAME.test(f) && !f.startsWith('+')) names.add(f);
+  };
+  add(theme.major);
+  add(theme.minor);
+  if (table)
+    for (const f of wChildren(table.documentElement, 'font')) {
+      const cs = wChild(f, 'charset');
+      if (!CJK_CHARSET.has((cs && wAttr(cs, 'val'))?.toUpperCase() ?? '')) add(wAttr(f, 'name'));
+    }
+  return [...names].slice(0, 60);
 }
 
 /** Body-level (or cell-level) elements → blocks. Stray items go to the next block's `before`. */
@@ -652,7 +727,6 @@ interface InlAttrs {
 }
 
 const O = 'urn:schemas-microsoft-com:office:office';
-const META = new Set(['wmf', 'emf', 'wmz', 'emz']);
 const pt = (px: number) => +(px * 0.75).toFixed(1);
 
 /** The holder of a floating drawing: on its own line, aligned as in the file */
@@ -753,8 +827,14 @@ function pictureAttrs(ctx: Ctx, rid: string, w: number, h: number, css: string, 
   const url = imageUrl(ctx, rid, w > 0 && h > 0 ? { w: w / 0.75, h: h / 0.75 } : undefined);
   if (url) return { kind: 'image', src: url, w: +w.toFixed(1), h: +h.toFixed(1), label: 'Hình', css, block };
   const rel = ctx.model.pkg.rels(ctx.part).get(rid);
+  if (rel?.external) return { kind: 'mark', label: 'Hình (liên kết ngoài)' };
+  const bytes = rel ? ctx.model.pkg.files[rel.target] : undefined;
+  if (!bytes) return { kind: 'mark', label: 'Hình (không có trong tệp)' };
+  // named by what it really is, else by its file's extension
+  const kind = sniffImage(bytes);
   const ext = rel?.target.split('.').pop()?.toLowerCase() ?? '';
-  return { kind: 'mark', label: rel?.external ? 'Hình (liên kết ngoài)' : ext ? `Hình (${ext.toUpperCase()})` : 'Hình' };
+  const name = KIND_LABEL[kind] ?? (kind !== 'unknown' ? kind.toUpperCase() : ext.toUpperCase());
+  return { kind: 'mark', label: name ? `Hình (${name})` : 'Hình' };
 }
 
 /** v:shape style → width and height in pt */
@@ -770,9 +850,9 @@ function vmlSizePt(shape: Element | null): { w: number; h: number } {
 }
 
 /**
- * A URL that shows the picture of a relationship: a blob URL of the bytes,
- * or of the SVG a Windows metafile becomes. External pictures are never
- * fetched. One URL per picture, however often it is used.
+ * A URL that shows the picture of a relationship, whatever its format (see
+ * images.ts). External pictures are never fetched. One URL per picture,
+ * however often it is used.
  */
 function imageUrl(ctx: Ctx, rid: string, size?: { w: number; h: number }): string | null {
   const key = `${ctx.part}#${rid}`;
@@ -781,26 +861,70 @@ function imageUrl(ctx: Ctx, rid: string, size?: { w: number; h: number }): strin
   let url: string | null = null;
   const rel = ctx.model.pkg.rels(ctx.part).get(rid);
   const bytes = rel && !rel.external ? ctx.model.pkg.files[rel.target] : undefined;
-  const ext = rel?.target.split('.').pop()?.toLowerCase() ?? '';
   if (bytes && ctx.opts.imageUrl) {
-    if (MIME[ext]) url = ctx.opts.imageUrl(bytes, MIME[ext]);
-    else if (META.has(ext) && ctx.shared.meta) {
-      const raw = ext.endsWith('z') ? gunzipLimited(bytes, Math.min(64 * 1024 * 1024, INFLATE_BUDGET - ctx.shared.inflated)) : bytes;
-      if (raw && ext.endsWith('z')) ctx.shared.inflated += raw.length;
-      const m = raw ? ctx.shared.meta.metafileToSvg(raw, size) : null;
-      if (m) {
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${m.w.toFixed(2)} ${m.h.toFixed(2)}" width="${m.w.toFixed(2)}" height="${m.h.toFixed(2)}" preserveAspectRatio="none">${m.inner}</svg>`;
-        url = ctx.opts.imageUrl(new TextEncoder().encode(svg), 'image/svg+xml');
+    const same = ctx.shared.byTarget.get(rel!.target);
+    if (same !== undefined) url = same;
+    else {
+      try {
+        url = pictureUrl(ctx, rel!.target, bytes, size, 0);
+      } catch {
+        url = null;
       }
+      ctx.shared.byTarget.set(rel!.target, url);
+      if (url) ctx.model.urls.push(url);
     }
-    if (url) ctx.model.urls.push(url);
   }
   ctx.shared.images.set(key, url);
   return url;
 }
 
-/** a .wmz/.emz (gzip): its content, refusing anything that inflates past 64 MB */
-function gunzipLimited(bytes: Uint8Array, limit = 64 * 1024 * 1024): Uint8Array | null {
+/** bytes of any picture format → a URL a browser shows, or null (the picture then shows as a chip) */
+function pictureUrl(ctx: Ctx, target: string, bytes: Uint8Array, size: { w: number; h: number } | undefined, depth: number): string | null {
+  const make = ctx.opts.imageUrl!;
+  const kind = sniffImage(bytes);
+  if (NATIVE.has(kind)) return make(bytes, IMAGE_MIME[kind]!);
+  if (MAYBE.has(kind)) return ctx.shared.showable.has(target) ? make(bytes, IMAGE_MIME[kind]!) : null;
+  // decoded before reading (the picture part itself; a TIFF inside a .gz is not)
+  const raster = () => {
+    const png = depth === 0 || kind === 'tiff' ? ctx.shared.rasters.get(target) : null;
+    return png ? make(png, 'image/png') : null;
+  };
+  switch (kind) {
+    case 'tiff':
+      return raster();
+    case 'wmf':
+    case 'emf': {
+      const m = ctx.shared.meta?.metafileToSvg(bytes, size);
+      if (!m) return null;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${m.w.toFixed(2)} ${m.h.toFixed(2)}" width="${m.w.toFixed(2)}" height="${m.h.toFixed(2)}" preserveAspectRatio="none">${m.inner}</svg>`;
+      return make(new TextEncoder().encode(svg), 'image/svg+xml');
+    }
+    case 'gzip': {
+      // .wmz, .emz, .svgz: what is inside, once
+      if (depth) return null;
+      const { out, used } = gunzipLimited(bytes, Math.min(64 * 1024 * 1024, INFLATE_BUDGET - ctx.shared.inflated));
+      ctx.shared.inflated += used; // what it cost, also when it was refused
+      if (!out) return null;
+      const inner = sniffImage(out);
+      // what may be inside: a metafile or an SVG (never a TIFF or EPS: those are decoded before reading, from the part itself)
+      return inner === 'wmf' || inner === 'emf' || inner === 'svg' ? pictureUrl(ctx, target, out, size, depth + 1) : null;
+    }
+    case 'eps': {
+      const dos = dosEpsPreview(bytes);
+      if (dos?.kind === 'wmf') return depth < 2 ? pictureUrl(ctx, target, dos.bytes, size, depth + 1) : null;
+      return depth === 0 ? raster() : null;
+    }
+    case 'pict': {
+      const jpeg = pictJpeg(bytes);
+      return jpeg ? make(jpeg, 'image/jpeg') : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** a .wmz/.emz (gzip): its content, refusing anything that inflates past `limit`; `used`: the bytes inflated either way */
+function gunzipLimited(bytes: Uint8Array, limit = 64 * 1024 * 1024): { out: Uint8Array | null; used: number } {
   const parts: Uint8Array[] = [];
   let total = 0;
   let over = false;
@@ -812,16 +936,16 @@ function gunzipLimited(bytes: Uint8Array, limit = 64 * 1024 * 1024): Uint8Array 
   try {
     for (let i = 0; i < bytes.length && !over; i += 16384) g.push(bytes.subarray(i, i + 16384), i + 16384 >= bytes.length);
   } catch {
-    return null;
+    return { out: null, used: total };
   }
-  if (over || !total) return null;
+  if (over || !total) return { out: null, used: total };
   const out = new Uint8Array(total);
   let o = 0;
   for (const p of parts) {
     out.set(p, o);
     o += p.length;
   }
-  return out;
+  return { out, used: total };
 }
 
 /** what the shape renderer needs from the reader: pictures, text boxes, charts, SmartArt */

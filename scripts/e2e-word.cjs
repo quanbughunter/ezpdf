@@ -18,8 +18,16 @@
  *    a canvas, VML, Office Math equations, a MathType WMF and an EMF, a
  *    chart, SmartArt, footnotes; typing beside an equation, an equation
  *    pasted; all of it saved back
- *  - phone: the bar fits, a tap and typing edit, the table fits the page,
- *    the drawings scale to the page
+ *  - font and size (0.8.2): picked from the bar for a selection and at the
+ *    caret, typed as a number; the bar shows the font and size at the caret;
+ *    python-docx reads them from the saved file
+ *  - pictures in every format (word-images.docx, 0.8.2): TIFF of every kind,
+ *    EPS previews, PICT, WMZ, a TIFF named .png, AVIF; colours checked; a
+ *    format no browser shows is named
+ *  - zoom (0.8.2): − / + / menu, Ctrl + wheel around the pointer, Ctrl + / 0;
+ *    a click while zoomed puts the caret on the word clicked
+ *  - phone: the bars fit, a tap and typing edit, the table fits the page,
+ *    the drawings scale to the page, two fingers zoom
  *  - nothing leaves the device; no page errors
  *
  * Usage: node scripts/e2e-word.cjs
@@ -257,6 +265,43 @@ let onCrash = async () => {};
   await page.evaluate(() => window.__ezword.view.pasteHTML('<p>Chữ <b>đậm</b> dán từ web</p>'));
   check('pasted from a web page: the text and its bold', (await texts()).some((t) => t.includes('Chữ đậm dán từ web')) && (await marksIn('đậm dán')).includes('b'), await marksIn('đậm dán'));
 
+  // font and size: a selection from the lists, a size typed, a size picked at the caret and then typed
+  await select('Đoạn mở đầu');
+  await page.click(tid('word-font'));
+  await page.click(`${tid('word-font-item')}[data-font="Arial"]`);
+  await select('Đoạn cuối của tài liệu.');
+  await page.fill(tid('word-size'), '18');
+  await page.press(tid('word-size'), 'Enter');
+  await caretAfter('dán từ web');
+  await page.click(tid('word-size-menu'));
+  await page.click(`${tid('word-size-item')}[data-size="24"]`);
+  await page.keyboard.type(' to');
+  const shownFont = await page.evaluate(() => ({ font: document.querySelector('[data-testid="word-font"]').textContent, size: document.querySelector('[data-testid="word-size"]').value }));
+  // copied and pasted inside the document, the text keeps its font and size
+  await select('Đoạn mở đầu');
+  await page.keyboard.press('Control+c');
+  await caretAfter('web to');
+  await page.keyboard.press('Control+v');
+  await sleep(200);
+  const pastedFonts = await page.evaluate(() => [...document.querySelectorAll('.ez-wdoc [data-ezf]')].filter((e) => e.textContent.includes('Đoạn mở đầu')).length);
+  await caretAfter('Đoạn mở');
+  const atArial = await page.evaluate(() => ({ font: document.querySelector('[data-testid="word-font"]').textContent, size: document.querySelector('[data-testid="word-size"]').value }));
+  const fsMarks = {
+    arial: await marksIn('Đoạn mở đầu'),
+    big: await marksIn('Đoạn cuối'),
+    to: await page.evaluate(() => window.__ezword.marksAt(window.__ezword.find('web to').to).sort().join(',')),
+  };
+  const arialCss = await page.evaluate(() => {
+    const r = window.__ezword.find('Đoạn mở đầu');
+    const { node } = window.__ezword.view.domAtPos(r.from + 1);
+    return getComputedStyle(node.nodeType === 1 ? node : node.parentElement).fontFamily;
+  });
+  check(
+    'font and size: Arial for a selection, 18 typed for another, 24 picked at the caret applies to what is typed next; the bar shows them; copy and paste keeps the font',
+    pastedFonts === 2 && fsMarks.arial.includes('font') && fsMarks.big.includes('size') && fsMarks.to.includes('size') && /Arial/.test(arialCss) && shownFont.size === '24' && atArial.font === 'Arial',
+    JSON.stringify({ pastedFonts, fsMarks, arialCss, shownFont, atArial }),
+  );
+
   // ── 3. saving ───────────────────────────────────────────────────────────
   const dl = page.waitForEvent('download');
   await page.click(tid('word-save'));
@@ -297,6 +342,26 @@ let onCrash = async () => {};
     { encoding: 'utf8' },
   ).trim();
   check('the underlined red text keeps its size 14 pt in the file', underlined === 'True 14.0', underlined);
+  const fonts = execFileSync(
+    'python3',
+    [
+      '-c',
+      [
+        'import sys,docx',
+        'from docx.oxml.ns import qn',
+        'd=docx.Document(sys.argv[1])',
+        'runs=[r for p in d.paragraphs for r in p.runs]',
+        'a=[r for r in runs if "Đoạn mở đầu" in r.text][0]',
+        'f=a._r.rPr.find(qn("w:rFonts"))',
+        'b=[r for r in runs if r.text.startswith("Đoạn cuối của tài liệu.")][0]',
+        't=[r for r in runs if r.text.strip()=="to"][0]',
+        'print(a.font.name, f.get(qn("w:eastAsia")), f.get(qn("w:cs")), f.get(qn("w:asciiTheme")), b.font.size.pt, t.font.size.pt)',
+      ].join('\n'),
+      saved,
+    ],
+    { encoding: 'utf8' },
+  ).trim();
+  check('python-docx reads the font and the sizes picked: Arial for every script, 18 pt, 24 pt', fonts === 'Arial Arial Arial None 18.0 24.0', fonts);
   const drawings = execFileSync('python3', [path.join(ROOT, 'scripts/verify_word.py'), '--drawings', saved], { encoding: 'utf8' }).trim();
   check('the pasted picture is a second drawing with its own id', drawings === '2 2', drawings);
   const soffice = ['/usr/bin/soffice', '/usr/lib/libreoffice/program/soffice'].find((p) => fs.existsSync(p));
@@ -433,6 +498,141 @@ let onCrash = async () => {};
   await page.click(tid('word-close'));
   await page.waitForSelector(tid('word-screen'), { state: 'detached' });
 
+  // ── 4c. pictures in every format ───────────────────────────────────────
+  const workers = [];
+  page.on('worker', (w) => workers.push(w.url()));
+  await openWord(page, 'word-images.docx');
+  await page.waitForFunction(() => [...document.querySelectorAll('.ez-wdoc img.ez-wimg')].every((i) => i.complete), null, { timeout: 20000 });
+  const pics = await page.evaluate(() => {
+    const QUAD = ['TIFF không nén', 'TIFF LZW', 'TIFF PackBits', 'TIFF JPEG:', 'TIFF JPEG YCbCr', 'TIFF Deflate', 'TIFF bảng màu', 'TIFF CMYK', 'TIFF hai trang', 'EPS có ảnh xem trước TIFF', 'PICT', 'PNG trong suốt', 'JPEG:', 'GIF', 'BMP', 'WebP', 'SVG', 'AVIF', 'PNG đặt tên .jpg', 'TIFF đặt tên .png'];
+    const want = [[220, 40, 40], [40, 160, 60], [40, 70, 200], [250, 210, 40]];
+    const at = [[0.1, 0.4], [0.75, 0.25], [0.25, 0.75], [0.9, 0.6]];
+    const paras = [...document.querySelectorAll('.ez-wdoc p')];
+    const bad = [];
+    for (const cap of QUAD) {
+      const p = paras.find((x) => x.textContent.startsWith(cap));
+      const img = p?.querySelector('img.ez-wimg');
+      if (!img || !img.naturalWidth) {
+        bad.push(`${cap}: not shown`);
+        continue;
+      }
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      at.forEach(([fx, fy], k) => {
+        const d = g.getImageData(Math.floor(fx * c.width), Math.floor(fy * c.height), 1, 1).data;
+        if (want[k].some((v, j) => Math.abs(v - d[j]) > 40)) bad.push(`${cap}: (${fx},${fy}) is ${d[0]},${d[1]},${d[2]}`);
+      });
+    }
+    const shown = [...document.querySelectorAll('.ez-wdoc img.ez-wimg')].filter((i) => i.naturalWidth > 0).length;
+    const chips = [...document.querySelectorAll('.ez-wdoc .ez-wmark')].map((m) => m.textContent).filter((t) => /^Hình/.test(t));
+    const scan = paras.find((x) => x.textContent.startsWith('TIFF CCITT G4'))?.querySelector('img');
+    const wmz = paras.find((x) => x.textContent.startsWith('WMZ'))?.querySelector('img');
+    return { shown, chips, bad, scan: scan?.naturalWidth ?? 0, wmz: wmz?.naturalWidth ?? 0 };
+  });
+  await page.screenshot({ path: path.join(OUT, 'images.png'), fullPage: true });
+  check(
+    'pictures in every format show: 10 kinds of TIFF, EPS previews, PICT, WMZ, misnamed files, AVIF (24 of 26), with the right colours',
+    pics.shown === 24 && pics.bad.length === 0 && pics.scan > 0 && pics.wmz > 0,
+    JSON.stringify({ shown: pics.shown, bad: pics.bad.slice(0, 4), scan: pics.scan, wmz: pics.wmz }),
+  );
+  check('a format no browser shows (HEIC, JPEG XR) is named in its place, and kept in the file', pics.chips.join('|') === 'Hình (HEIC)|Hình (JPEG XR)', pics.chips.join('|'));
+  const rasterWorkers = workers.filter((u) => /raster/.test(u));
+  if (!PROD) {
+    // the worker stopped when a picture takes too long, and a new one for the next picture
+    const timing = await page.evaluate(async () => {
+      const { makeRasterizer } = await import('/src/app/word/raster-client.ts');
+      const tif = await (await fetch('/tests/fixtures/word-images.docx')).arrayBuffer();
+      const { unzipSync } = await import('/node_modules/fflate/esm/browser.js');
+      const files = unzipSync(new Uint8Array(tif));
+      const bytes = files[Object.keys(files).find((n) => n.endsWith('/d.tif'))];
+      const slow = makeRasterizer(1);
+      const first = await slow.rasterize(bytes, 800);
+      const fast = makeRasterizer(10000);
+      const second = await fast.rasterize(bytes, 800);
+      const third = await fast.rasterize(bytes, 800);
+      slow.dispose();
+      fast.dispose();
+      return { first: first === null, second: second?.length ?? 0, third: third?.length ?? 0 };
+    });
+    check(
+      'TIFF pictures are decoded in a worker; one that takes too long stops it and shows as a chip; the next picture gets a new worker',
+      rasterWorkers.length >= 1 && timing.first && timing.second > 100 && timing.third === timing.second,
+      JSON.stringify({ workers: rasterWorkers.length, ...timing }),
+    );
+  } else check('TIFF pictures are decoded in a worker', rasterWorkers.length >= 1, rasterWorkers.join(' '));
+
+  // ── 4d. zoom ────────────────────────────────────────────────────────────
+  const zoomInfo = () =>
+    page.evaluate(() => ({
+      level: document.querySelector('[data-testid="word-zoom-level"]').textContent,
+      w: document.querySelector('[data-testid="word-page"]').getBoundingClientRect().width,
+    }));
+  const z0 = await zoomInfo();
+  await page.click(tid('word-zoom-in'));
+  const z1 = await zoomInfo();
+  await page.click(tid('word-zoom-level'));
+  await page.click(tid('word-zoom-150'));
+  const z2 = await zoomInfo();
+  check(
+    'zoom: 100% at first; + gives 110%, the menu 150%; the page grows with it',
+    z0.level === '100%' && z1.level === '110%' && z2.level === '150%' && Math.abs(z1.w / z0.w - 1.1) < 0.01 && Math.abs(z2.w / z0.w - 1.5) < 0.01,
+    JSON.stringify({ z0, z1, z2 }),
+  );
+  // a click on a word while zoomed: the caret lands right before it
+  await page.evaluate(() => document.querySelector('.ez-wdoc p:nth-of-type(8)')?.scrollIntoView({ block: 'center' }));
+  const hit = await page.evaluate(() => {
+    const p = [...document.querySelectorAll('.ez-wdoc p')].find((x) => x.textContent.startsWith('TIFF Deflate'));
+    p.scrollIntoView({ block: 'center' });
+    const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+    const t = walker.nextNode();
+    const i = t.textContent.indexOf('Deflate');
+    const r = document.createRange();
+    r.setStart(t, i);
+    r.setEnd(t, i + 1);
+    const b = r.getBoundingClientRect();
+    return { x: b.left + 1, y: b.top + b.height / 2 };
+  });
+  await page.mouse.click(hit.x, hit.y);
+  await page.keyboard.type('Q');
+  const typedZoomed = (await texts()).find((t) => t.startsWith('TIFF '+'QDeflate')) ?? (await texts()).find((t) => t.includes('Deflate'));
+  check('at 150%, a click on a word puts the caret there: typing lands before “Deflate”', /^TIFF QDeflate/.test(typedZoomed), typedZoomed);
+  // Ctrl + wheel zooms around the pointer: the point under it stays (at 200%, where the page is wider than the window)
+  await page.click(tid('word-zoom-level'));
+  await page.click(tid('word-zoom-200'));
+  const box = await page.locator(tid('word-canvas')).boundingBox();
+  const mx = box.x + box.width * 0.3;
+  const my = box.y + box.height * 0.6;
+  const under = () => page.evaluate(([x, y]) => {
+    const r = document.querySelector('[data-testid="word-page"]').getBoundingClientRect();
+    const z = r.width / document.querySelector('[data-testid="word-page"]').offsetWidth;
+    return { px: (x - r.left) / z, py: (y - r.top) / z, z };
+  }, [mx, my]);
+  await page.mouse.move(mx, my);
+  const u0 = await under();
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, 100);
+  await page.keyboard.up('Control');
+  await sleep(150);
+  const u1 = await under();
+  const z3 = await zoomInfo();
+  await page.keyboard.press('Control+0');
+  const z4 = await zoomInfo();
+  await page.keyboard.press('Control+=');
+  const z5 = await zoomInfo();
+  await page.keyboard.press('Control+-');
+  const z6 = await zoomInfo();
+  check(
+    'Ctrl + wheel zooms out a step around the pointer (the point under it stays); Ctrl 0 gives 100%, Ctrl + 110%, Ctrl − 100%',
+    z3.level === '182%' && Math.abs(u1.px - u0.px) < 2 && Math.abs(u1.py - u0.py) < 2 && z4.level === '100%' && z5.level === '110%' && z6.level === '100%',
+    JSON.stringify({ u0, u1, levels: [z3.level, z4.level, z5.level, z6.level] }),
+  );
+  await page.click(tid('word-close'));
+  await page.click(tid('word-leave-discard')).catch(() => {});
+  await page.waitForSelector(tid('word-screen'), { state: 'detached' });
+
   // ── 5. phone ────────────────────────────────────────────────────────────
   {
     const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
@@ -442,7 +642,11 @@ let onCrash = async () => {};
     await ph.goto(server.base + '/?e2e');
     await ph.waitForSelector(tid('state-empty'), { timeout: 60000 });
     await openWord(ph, 'word-a.docx');
-    const bar = await ph.$eval(tid('word-bar'), (h) => ({ sw: h.scrollWidth, cw: h.clientWidth }));
+    const bar = await ph.evaluate(() => {
+      const a = document.querySelector('[data-testid="word-bar"]');
+      const b = document.querySelector('[data-testid="word-format-bar"]');
+      return { sw: Math.max(a.scrollWidth - a.clientWidth, b.scrollWidth - b.clientWidth), cw: 0, font: !!b.querySelector('[data-testid="word-font"]') && !!b.querySelector('[data-testid="word-size"]') };
+    });
     const tableFits = await ph.evaluate(() => {
       const t = document.querySelector('.ez-wtable table').getBoundingClientRect();
       const pg = document.querySelector('[data-testid="word-page"]').getBoundingClientRect();
@@ -481,9 +685,33 @@ let onCrash = async () => {};
     });
     await ph.screenshot({ path: path.join(OUT, 'phone-drawings.png'), fullPage: true });
     check('phone: every drawing, picture and equation fits the page (shapes scale down with their text)', fits.n === 10 && fits.out === 0, JSON.stringify(fits));
+    // two fingers spread apart: the page zooms in
+    const pinch0 = await ph.evaluate(() => ({ level: document.querySelector('[data-testid="word-zoom-level"]').textContent, w: document.querySelector('[data-testid="word-page"]').getBoundingClientRect().width }));
+    const tcdp = await pctx.newCDPSession(ph);
+    const cb = await ph.locator(tid('word-canvas')).boundingBox();
+    const cx = cb.x + cb.width / 2;
+    const cy = cb.y + cb.height / 2;
+    const pts = (d) => [
+      { x: cx - d, y: cy, id: 1 },
+      { x: cx + d, y: cy, id: 2 },
+    ];
+    await tcdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(40) });
+    for (let d = 50; d <= 120; d += 10) {
+      await tcdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(d) });
+      await sleep(30);
+    }
+    await tcdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(200);
+    const pinch1 = await ph.evaluate(() => ({ level: document.querySelector('[data-testid="word-zoom-level"]').textContent, w: document.querySelector('[data-testid="word-page"]').getBoundingClientRect().width }));
+    await ph.screenshot({ path: path.join(OUT, 'phone-pinch.png') });
     check(
-      'phone: the bar fits with “Lưu” on screen; the table fits the page; a tap and typing edit; Bold works',
-      bar.sw <= bar.cw + 1 && saveVisible && tableFits && pt.endsWith('Gõ trên điện thoại.') && pm.includes('b'),
+      'phone: 100% at first; two fingers spread to three times their distance zoom the page to 300%',
+      pinch0.level === '100%' && pinch1.level === '300%' && Math.abs(pinch1.w / pinch0.w - 3) < 0.05,
+      JSON.stringify({ pinch0, pinch1 }),
+    );
+    check(
+      'phone: both bars fit (font and size on the second) with “Lưu” on screen; the table fits the page; a tap and typing edit; Bold works',
+      bar.sw <= bar.cw + 1 && bar.font && saveVisible && tableFits && pt.endsWith('Gõ trên điện thoại.') && pm.includes('b'),
       `bar ${bar.sw}/${bar.cw}, save ${JSON.stringify(saveBox)}, table fits ${tableFits}, ${pt}, marks ${pm}`,
     );
     await pctx.close();

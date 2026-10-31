@@ -18,6 +18,9 @@
  *     picked PDF opens, the export is written where the user chose
  *  6c. drawn content (0.8.1): word-draw.docx opened the same way; its shapes,
  *     equations (MathML), metafile pictures and notes laid out by WebKitGTK
+ *  6d. pictures, zoom, font and size (0.8.2): word-images.docx (TIFF of every
+ *     kind, EPS, PICT…) shown; zoomed with real clicks and Ctrl + / Ctrl 0;
+ *     a font and a size picked with real clicks and keys
  *  6b. a Word file (0.8.0): a second launch with a .docx path opens the Word
  *     screen in the running window; typed with real keys in WebKitGTK (the
  *     engine of Safari, so of the iPhone web app too), a word bolded, saved
@@ -105,7 +108,12 @@ async function session(args = []) {
     const el = await wd('POST', `/session/${id}/element`, { using: 'css selector', value: selector });
     await wd('POST', `/session/${id}/element/${Object.values(el)[0]}/value`, { text });
   };
-  return { id, js, jsAsync, waitFor, shot, close, keys };
+  /** a real click on an element (WebDriver "element click": pointer events, as a mouse) */
+  const click = async (selector) => {
+    const el = await wd('POST', `/session/${id}/element`, { using: 'css selector', value: selector });
+    await wd('POST', `/session/${id}/element/${Object.values(el)[0]}/click`, {});
+  };
+  return { id, js, jsAsync, waitFor, shot, close, keys, click };
 }
 
 const T = (id) => `[data-testid="${id}"]`;
@@ -452,6 +460,72 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
         JSON.stringify(drawn),
       );
       await s.js(`document.querySelector('${T('word-close')}').click()`);
+      await s.waitFor(`return !document.querySelector('${T('word-screen')}')`, 'the Word screen to close', 10000);
+
+      // 6d. pictures in every format, zoom, font and size (0.8.2)
+      const imgDocx = path.join(OUT, 'Ảnh TIFF.docx');
+      fs.copyFileSync(FIX('word-images.docx'), imgDocx);
+      const p5 = spawn(BIN, [imgDocx], { env, stdio: 'ignore' });
+      procs.push(p5);
+      await s.waitFor(`return !!document.querySelector('${T('word-editor')}') && document.querySelectorAll('.ez-wdoc img.ez-wimg').length >= 23 && [...document.querySelectorAll('.ez-wdoc img.ez-wimg')].every((i) => i.complete)`, 'the pictures', 30000);
+      const pics = JSON.parse(
+        await s.js(`
+          const paras = [...document.querySelectorAll('.ez-wdoc p')];
+          const want = ['TIFF không nén', 'TIFF LZW', 'TIFF PackBits', 'TIFF CCITT G4', 'TIFF JPEG:', 'TIFF JPEG YCbCr', 'TIFF Deflate', 'TIFF bảng màu', 'TIFF CMYK', 'TIFF hai trang', 'EPS có ảnh xem trước TIFF', 'EPS có ảnh xem trước EPSI', 'PICT', 'TIFF đặt tên .png', 'WMZ'];
+          const missing = want.filter((c) => !(paras.find((p) => p.textContent.startsWith(c))?.querySelector('img.ez-wimg')?.naturalWidth > 0));
+          const shown = [...document.querySelectorAll('.ez-wdoc img.ez-wimg')].filter((i) => i.naturalWidth > 0).length;
+          return JSON.stringify({ missing, shown });`),
+      );
+      await s.shot('6d-images.png');
+      check('Word pictures in WebKitGTK: every kind of TIFF, EPS previews, PICT, WMZ shown', pics.missing.length === 0 && pics.shown >= 23, JSON.stringify(pics));
+      const level = `return document.querySelector('${T('word-zoom-level')}').textContent + ' ' + Math.round(document.querySelector('${T('word-page')}').getBoundingClientRect().width)`;
+      const zA = await s.js(level);
+      await s.click(T('word-zoom-in'));
+      await sleep(300);
+      const zB = await s.js(level);
+      await s.keys('.ez-wdoc .ProseMirror', '\uE009=\uE000');
+      await sleep(300);
+      const zC = await s.js(level);
+      await s.keys('.ez-wdoc .ProseMirror', '\uE0090\uE000');
+      await sleep(300);
+      const zD = await s.js(level);
+      const w = (z) => Number(z.split(' ')[1]);
+      check(
+        'Word zoom in the desktop app: + button 110%, Ctrl + 125%, Ctrl 0 back to 100%; the page scales with it',
+        zA.startsWith('100%') && zB.startsWith('110%') && zC.startsWith('125%') && zD.startsWith('100%') && Math.abs(w(zC) / w(zA) - 1.25) < 0.02,
+        [zA, zB, zC, zD].join(' → '),
+      );
+      // a font and a size for "TIFF LZW", with real clicks and keys
+      await s.js(`
+        const p = [...document.querySelectorAll('.ez-wdoc p')].find((x) => x.textContent.startsWith('TIFF LZW'));
+        const t = document.createTreeWalker(p, NodeFilter.SHOW_TEXT).nextNode();
+        const r = document.createRange(); r.setStart(t, 0); r.setEnd(t, 8);
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        document.dispatchEvent(new Event('selectionchange'));`);
+      await sleep(300);
+      await s.click(T('word-font'));
+      await s.waitFor(`return !!document.querySelector('${T('word-font-item')}[data-font="Arial"]')`, 'the font list', 5000);
+      await s.click(`${T('word-font-item')}[data-font="Arial"]`);
+      await sleep(400);
+      await s.js(`const i = document.querySelector('${T('word-size')}'); i.focus(); i.select();`);
+      await s.keys(T('word-size'), '20\uE007');
+      await sleep(400);
+      const fmt = JSON.parse(
+        await s.js(`
+          const p = [...document.querySelectorAll('.ez-wdoc p')].find((x) => x.textContent.startsWith('TIFF LZW'));
+          const t = document.createTreeWalker(p, NodeFilter.SHOW_TEXT).nextNode();
+          const cs = getComputedStyle(t.parentElement);
+          return JSON.stringify({ text: t.textContent, family: cs.fontFamily, size: cs.fontSize, bar: document.querySelector('${T('word-font')}').textContent, barSize: document.querySelector('${T('word-size')}').value });`),
+      );
+      await s.shot('6d-font.png');
+      check(
+        'Word font and size in the desktop app: Arial picked from the list and 20 typed apply to the selection; the bar shows them',
+        fmt.text === 'TIFF LZW' && /^"?Arial/.test(fmt.family) && Math.abs(parseFloat(fmt.size) - 80 / 3) < 0.1 && fmt.bar === 'Arial' && fmt.barSize === '20',
+        JSON.stringify(fmt),
+      );
+      await s.js(`document.querySelector('${T('word-close')}').click()`);
+      await s.waitFor(`return !!document.querySelector('${T('word-leave')}') || !document.querySelector('${T('word-screen')}')`, 'the Word screen to close', 10000);
+      if (await s.js(`return !!document.querySelector('${T('word-leave-discard')}')`)) await s.js(`document.querySelector('${T('word-leave-discard')}').click()`);
       await s.waitFor(`return !document.querySelector('${T('word-screen')}')`, 'the Word screen to close', 10000);
     } else {
       check('system dialogs: skipped (xdotool not installed)', true);

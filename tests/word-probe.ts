@@ -14,10 +14,17 @@
  *    Math, MathType WMF, EMF, chart, SmartArt, footnotes; kept byte for
  *    byte when the text around them is edited; crafted values cannot add
  *    markup or script
+ *  - pictures in every format (word-images.docx, 0.8.2): TIFF (raw, LZW,
+ *    PackBits, G4, JPEG, Deflate, palette, CMYK, two pages), EPS previews,
+ *    PICT, WMZ, misnamed files; the pixels compared with the originals
+ *    (Pillow); crafted TIFFs (pages in a loop, billions of pixels, cut short)
+ *    refused quickly
+ *  - font and size (0.8.2): w:rFonts for every script and w:sz/w:szCs in
+ *    Word's order, theme fonts replaced, read back by python-docx
  * Usage: npm run test:word
  */
 import { execFileSync } from 'child_process';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
@@ -28,7 +35,9 @@ import { zipSync, strToU8 } from 'fflate';
 import type { Node as PMNode } from 'prosemirror-model';
 import { readDocx, type WordModel } from '../src/word/read';
 import { buildDocumentXml, writeDocx } from '../src/word/write';
-import { backspace, del, deleteParagraphs, lineBreak, lockedGuard, splitParagraph, tableGuard, toggleBold, toggleItalic, toggleUnderline } from '../src/word/commands';
+import { backspace, del, deleteParagraphs, lineBreak, lockedGuard, setFont, setSize, splitParagraph, tableGuard, toggleBold, toggleItalic, toggleUnderline } from '../src/word/commands';
+import { decodeTiff } from '../src/word/tiff';
+import { encodePng } from '../src/word/images';
 import { markers } from '../src/word/numbering';
 import { schema } from '../src/word/schema';
 
@@ -331,6 +340,8 @@ async function main() {
 
   await hardCases();
   await drawingCases();
+  await imageCases();
+  await fontCases();
   console.log(failed ? `\n${failed} failed, ${passed} passed` : `\nall ${passed} word checks passed`);
   process.exit(failed ? 1 : 0);
 }
@@ -713,4 +724,336 @@ async function reviewCases(raw: Uint8Array) {
   const fo = [...flipped.matchAll(/<foreignObject/g)].length;
   const mirroredText = /scale\(-1[^)]*\)"[^>]*>(?:(?!<\/g>).)*<foreignObject/.test(flipped);
   check('a mirrored group: its outlines mirror, the text of its 4 boxes does not', fo === 4 && /scale\(-1 1\)/.test(flipped) && !mirroredText);
+}
+
+/** Pictures in every format a Word file may hold (0.8.2). */
+async function imageCases() {
+  const raw = new Uint8Array(readFileSync(FIX('word-images.docx')));
+  const store = new Map<string, { mime: string; b: Uint8Array }>();
+  const readImages = (canShow?: (b: Uint8Array, mime: string) => Promise<boolean>) =>
+    readDocx(raw, 'word-images.docx', {
+      dom,
+      canShow,
+      imageUrl: (b, mime) => {
+        const u = `img:${store.size}`;
+        store.set(u, { mime, b });
+        return u;
+      },
+    });
+  const pics = (m: WordModel) => {
+    const out: { label: string; kind: string; src: string; chip: string; name: string }[] = [];
+    m.doc.forEach((p) =>
+      p.forEach((c) => {
+        if (c.type !== schema.nodes.inl) return;
+        const el = m.store[c.attrs.ref] as Element | undefined;
+        const name = el?.getElementsByTagNameNS?.('http://schemas.openxmlformats.org/drawingml/2006/picture', 'cNvPr')?.[0]?.getAttribute('name') ?? '';
+        out.push({ label: p.textContent.replace(/:\s*$/, ''), kind: c.attrs.kind, src: c.attrs.src ?? '', chip: c.attrs.label ?? '', name });
+      }),
+    );
+    return out;
+  };
+  const t0 = Date.now();
+  const plain = pics(await readImages());
+  const ms = Date.now() - t0;
+  const shown = plain.filter((p) => p.kind === 'image');
+  const chips = plain.filter((p) => p.kind !== 'image').map((p) => p.chip);
+  check(
+    'word-images: 26 pictures; without a browser to ask, 23 shown and AVIF, HEIC, JPEG XR named',
+    plain.length === 26 && shown.length === 23 && chips.join('|') === 'Hình (AVIF)|Hình (HEIC)|Hình (JPEG XR)',
+    `${shown.length} shown, ${chips.join('|')}, ${ms} ms`,
+  );
+  const tiffs = shown.filter((p) => /\.(tif|eps|pict)$|^v\.png$/.test(p.name));
+  check(
+    'TIFF, EPS and PICT become PNG or JPEG the browser shows; a PNG named .jpg and a TIFF named .png are read by their content',
+    tiffs.length === 14 && tiffs.every((p) => /^image\/(png|jpeg)$/.test(store.get(p.src)!.mime)) && store.get(shown.find((p) => p.name === 'u.jpg')!.src)!.mime === 'image/png',
+    tiffs.map((p) => `${p.name}:${store.get(p.src)!.mime}`).join(' '),
+  );
+  const wmz = shown.find((p) => p.name === 'w.wmz');
+  check('a WMZ (gzipped WMF) is unpacked and drawn as SVG', !!wmz && store.get(wmz.src)!.mime === 'image/svg+xml' && /<svg/.test(strFromU8(store.get(wmz.src)!.b)));
+  const asked: string[] = [];
+  const withBrowser = pics(
+    await readImages(async (b, mime) => {
+      asked.push(mime);
+      return mime === 'image/avif';
+    }),
+  );
+  check(
+    'with a browser that shows AVIF: AVIF shown as itself, HEIC and JPEG XR named; only those three formats asked about',
+    withBrowser.filter((p) => p.kind === 'image').length === 24 && asked.sort().join(' ') === 'image/avif image/heic image/vnd.ms-photo',
+    asked.join(' '),
+  );
+
+  // the pixels against the originals the fixture script saved (Pillow)
+  const dir = path.join(OUT, 'images');
+  mkdirSync(dir, { recursive: true });
+  const pairs: string[] = [];
+  for (const p of shown) {
+    const ref = FIX(`word-images/${p.name.replace(/\.[^.]+$/, '')}.png`);
+    if (!existsSync(ref)) continue;
+    const s = store.get(p.src)!;
+    const got = path.join(dir, `${p.name}.${s.mime.split('/')[1].replace('svg+xml', 'svg').replace('x-icon', 'ico')}`);
+    writeFileSync(got, s.b);
+    pairs.push(`${got}\t${ref}`);
+  }
+  let diffs: Record<string, number> = {};
+  try {
+    diffs = JSON.parse(
+      execFileSync(
+        'python3',
+        [
+          '-c',
+          [
+            'import sys,json',
+            'from PIL import Image, ImageChops, ImageStat',
+            'out={}',
+            'for line in sys.stdin.read().splitlines():',
+            '  a,b=line.split("\\t")',
+            '  x=Image.open(a).convert("RGBA");y=Image.open(b).convert("RGBA")',
+            '  bg=Image.new("RGBA",x.size,(255,255,255,255));x=Image.alpha_composite(bg,x).convert("RGB")',
+            '  bg=Image.new("RGBA",y.size,(255,255,255,255));y=Image.alpha_composite(bg,y).convert("RGB")',
+            '  out[a.rsplit("/",1)[1]]=-1 if x.size!=y.size else round(sum(ImageStat.Stat(ImageChops.difference(x,y)).mean)/3,2)',
+            'print(json.dumps(out))',
+          ].join('\n'),
+        ],
+        { input: pairs.join('\n'), encoding: 'utf8' },
+      ),
+    );
+  } catch (e) {
+    diffs = { error: -1, detail: String(e).length };
+  }
+  const worst = Object.entries(diffs).sort((a, b) => b[1] - a[1]);
+  const exact = Object.entries(diffs).filter(([k]) => /^[abcdfghijkmopuv]\./.test(k));
+  check(
+    `pixels match the originals: ${Object.keys(diffs).length} pictures, lossless ones exactly (CMYK within rounding), JPEG-based within 3/255`,
+    Object.keys(diffs).length >= 20 && worst.every(([, d]) => d >= 0 && d <= 3) && exact.every(([, d]) => d <= 0.05),
+    worst.slice(0, 4).map(([k, d]) => `${k} ${d}`).join(', '),
+  );
+
+  // crafted TIFFs: refused, quickly
+  const tiff = (entries: [number, number, number, number][], next = 0, extra = 0) => {
+    const n = entries.length;
+    const b = new Uint8Array(8 + 2 + n * 12 + 4 + extra);
+    const v = new DataView(b.buffer);
+    b.set([0x49, 0x49, 42, 0]);
+    v.setUint32(4, 8, true);
+    v.setUint16(8, n, true);
+    entries.forEach(([tag, type, count, value], i) => {
+      const o = 10 + i * 12;
+      v.setUint16(o, tag, true);
+      v.setUint16(o + 2, type, true);
+      v.setUint32(o + 4, count, true);
+      if (type === 3) v.setUint16(o + 8, value, true);
+      else v.setUint32(o + 8, value, true);
+    });
+    v.setUint32(10 + n * 12, next, true);
+    return b;
+  };
+  const timed = (f: () => unknown) => {
+    const t = Date.now();
+    const v = f();
+    return { v, ms: Date.now() - t };
+  };
+  const base: [number, number, number, number][] = [
+    [256, 4, 1, 4],
+    [257, 4, 1, 4],
+    [258, 3, 1, 8],
+    [259, 3, 1, 1],
+    [262, 3, 1, 1],
+    [273, 4, 1, 8],
+    [277, 3, 1, 1],
+    [279, 4, 1, 16],
+  ];
+  const loop = timed(() => decodeTiff(tiff(base, 8, 16)));
+  const hugeTiff = tiff([
+    [256, 4, 1, 200000],
+    [257, 4, 1, 200000],
+    ...base.slice(2),
+  ]);
+  const huge = timed(() => decodeTiff(hugeTiff));
+  // a strip count of a billion, a strip claiming to be 4 GB, a 2 GB ASCII tag, an EXIF pointer back at the page itself
+  const many = timed(() => decodeTiff(tiff([...base.slice(0, 5), [273, 4, 1e9, 8], [277, 3, 1, 1], [279, 4, 1, 16]])));
+  const bigStrip = timed(() => decodeTiff(tiff([...base.slice(0, 7), [279, 4, 1, 0xfffffff0]])));
+  const ascii = timed(() => decodeTiff(tiff([...base, [270, 2, 0x7ffffff0, 8]].sort((x, y) => x[0] - y[0]) as [number, number, number, number][])));
+  const exif = timed(() => decodeTiff(tiff([...base, [34665, 4, 1, 8]], 0, 16)));
+  // LZW without its end code (UTIF's own decoder runs on for ever)
+  const lzwOpen = (() => {
+    const f = tiff([...base.slice(0, 3), [259, 3, 1, 5], ...base.slice(4, 7), [279, 4, 1, 3]], 0, 16);
+    f.set([0x80, 0x00, 0x20], 8 + 2 + 8 * 12 + 4); // clear, 0, 1 … and no end
+    return timed(() => decodeTiff(f));
+  })();
+  const cut = timed(() => decodeTiff(tiff(base).slice(0, 20)));
+  const rubbish = timed(() => decodeTiff(new Uint8Array([0x49, 0x49, 42, 0, 0xff, 0xff, 0xff, 0x7f, 1, 2, 3])));
+  check(
+    'crafted TIFFs: 40 billion pixels, a file cut short, rubbish, a billion strips, a 4 GB strip: each refused in well under a second',
+    [huge, cut, rubbish, many, bigStrip].every((r) => r.v === null && r.ms < 1000),
+    [huge, cut, rubbish, many, bigStrip].map((r) => `${r.v === null ? 'null' : 'decoded'} ${r.ms} ms`).join(', '),
+  );
+  check(
+    'crafted TIFFs that stay readable: pages in a loop (cut there), a 2 GB text tag (emptied), EXIF pointing at itself (not followed), LZW with no end code (stops at the strip’s size): each done in well under a second',
+    [loop, ascii, exif, lzwOpen].every((r) => r.ms < 1000),
+    [loop, ascii, exif, lzwOpen].map((r) => `${r.v === null ? 'null' : 'decoded'} ${r.ms} ms`).join(', '),
+  );
+  // layouts Pillow does not write (tifffile, scripts/make_tiff_cases.py): tiles with the predictor, 16-bit big-endian, small palettes, alpha, CMYK 16-bit
+  const tdir = FIX('tiff');
+  const tpairs: string[] = [];
+  const tnull: string[] = [];
+  for (const f of readdirSync(tdir).filter((n) => n.endsWith('.tif')).sort()) {
+    const bm = decodeTiff(new Uint8Array(readFileSync(path.join(tdir, f))));
+    const ref = path.join(tdir, f.replace(/\.tif$/, '.png'));
+    if (!existsSync(ref)) {
+      if (bm) tnull.push(`${f} decoded`);
+      continue;
+    }
+    if (!bm) {
+      tnull.push(`${f} not decoded`);
+      continue;
+    }
+    const got = path.join(dir, `${f}.png`);
+    writeFileSync(got, encodePng(bm));
+    tpairs.push(`${got}\t${ref}`);
+  }
+  let tdiff: Record<string, number> = {};
+  try {
+    tdiff = JSON.parse(
+      execFileSync(
+        'python3',
+        [
+          '-c',
+          [
+            'import sys,json',
+            'from PIL import Image, ImageChops',
+            'out={}',
+            'for line in sys.stdin.read().splitlines():',
+            '  a,b=line.split("\\t")',
+            '  x=Image.open(a).convert("RGBA");y=Image.open(b).convert("RGBA")',
+            '  out[a.rsplit("/",1)[1]]=-1 if x.size!=y.size else max(e[1] for e in ImageChops.difference(x,y).getextrema())',
+            'print(json.dumps(out))',
+          ].join('\n'),
+        ],
+        { input: tpairs.join('\n'), encoding: 'utf8' },
+      ),
+    );
+  } catch (e) {
+    tdiff = { error: -1 };
+  }
+  const tbad = Object.entries(tdiff).filter(([, d]) => d !== 0);
+  check(
+    `TIFF layouts from tifffile: ${Object.keys(tdiff).length} decode to exactly the original pixels (tiles with the predictor, 16-bit big-endian, 1- and 4-bit palettes, 4-bit grey, alpha, CMYK 16-bit); samples in separate planes refused`,
+    Object.keys(tdiff).length >= 11 && tbad.length === 0 && tnull.length === 0,
+    [...tbad.map(([k, d]) => `${k}: ${d}`), ...tnull].join(', ') || 'all exact',
+  );
+  // a large tiled picture with the predictor: the work is per tile, not per tile × picture (it took seconds to minutes)
+  const bigTiled = (() => {
+    const W2 = 2400, T = 256, n = Math.ceil(W2 / T) ** 2, tileBytes = T * T * 3;
+    const entries: [number, number, number, number][] = [
+      [256, 4, 1, W2],
+      [257, 4, 1, W2],
+      [258, 3, 3, 0],
+      [259, 3, 1, 1],
+      [262, 3, 1, 2],
+      [277, 3, 1, 3],
+      [317, 3, 1, 2],
+      [322, 3, 1, T],
+      [323, 3, 1, T],
+      [324, 4, n, 0],
+      [325, 4, n, 0],
+    ];
+    const ifdEnd = 8 + 2 + entries.length * 12 + 4;
+    const bpsAt = ifdEnd, offsAt = bpsAt + 6, cntAt = offsAt + 4 * n, dataAt = cntAt + 4 * n;
+    entries[2][3] = bpsAt;
+    entries[9][3] = offsAt;
+    entries[10][3] = cntAt;
+    const f = tiff(entries, 0, dataAt - ifdEnd + n * tileBytes);
+    const v = new DataView(f.buffer);
+    for (let k = 0; k < 3; k++) v.setUint16(bpsAt + 2 * k, 8, true);
+    for (let k = 0; k < n; k++) {
+      v.setUint32(offsAt + 4 * k, dataAt + k * tileBytes, true);
+      v.setUint32(cntAt + 4 * k, tileBytes, true);
+      f[dataAt + k * tileBytes] = 200; // the first pixel of each tile red, the predictor carries it along the row
+    }
+    return f;
+  })();
+  const big = timed(() => decodeTiff(bigTiled));
+  const bigBm = big.v as { rgba: Uint8Array; w: number } | null;
+  check(
+    'a 2400×2400 tiled TIFF with the predictor decodes in well under the worker’s limit, each tile’s rows right',
+    !!bigBm && bigBm.w === 2400 && big.ms < 3000 && bigBm.rgba[(10 * 2400 + 300) * 4] === 0 && bigBm.rgba[255 * 4] === 200 && bigBm.rgba[256 * 4] === 200 && bigBm.rgba[2400 * 4] === 0,
+    `${big.ms} ms`,
+  );
+  // …and a document holding one opens, with the picture named
+  const files = unzipSync(raw);
+  const target = Object.keys(files).find((n) => n.endsWith('/a.tif'))!;
+  files[target] = hugeTiff;
+  const evil = pics(await readDocx(zipSync(files), 'evil.docx', { dom, imageUrl: (b, mime) => `data:${mime};n=${b.length}` }));
+  check('a document with such a TIFF opens; that picture is named “Hình (TIFF)”, the others show', evil[0]?.chip === 'Hình (TIFF)' && evil.filter((p) => p.kind === 'image').length === 22, evil[0]?.chip);
+}
+
+/** Font and size picked in the editor, written as Word writes them (0.8.2). */
+async function fontCases() {
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const ed = new Ed(await open('word-a.docx'));
+  const fontsListed = ed.model.fonts;
+  ed.sel('Đoạn mở đầu');
+  ed.run(setFont('Arial'));
+  ed.run(setSize(18));
+  ed.sel('chữ đỏ cỡ 14');
+  ed.run(setSize(10.5));
+  ed.caretAfter('Đoạn cuối của tài liệu.');
+  ed.run(setFont('Times New Roman'));
+  ed.type(' Chữ Times.');
+  // a font name that tries to break out of the attribute or the CSS
+  ed.sel('Bước ba');
+  const evilOk = ed.run(setFont('x"/><w:b/>;}body{color:red'));
+  const xml = buildDocumentXml(ed.model, ed.state.doc);
+  const x = new DOMParser().parseFromString(xml, 'application/xml');
+  const runOf = (needle: string) => {
+    const rs = x.getElementsByTagNameNS(W, 'r');
+    for (let i = 0; i < rs.length; i++) if ((rs[i].textContent ?? '').includes(needle)) return rs[i];
+    return null;
+  };
+  const props = (needle: string) => {
+    const r = runOf(needle);
+    const pr = r ? (Array.from(r.childNodes).find((n) => (n as unknown as Element).localName === 'rPr') as unknown as Element | undefined) : undefined;
+    if (!pr) return null;
+    const kids = Array.from(pr.childNodes).filter((n) => n.nodeType === 1) as Element[];
+    const f = kids.find((k) => k.localName === 'rFonts');
+    return {
+      order: kids.map((k) => k.localName).join(','),
+      fonts: f ? Array.from(f.attributes).map((a) => `${a.localName}=${a.value}`).sort().join(' ') : '',
+      sz: kids.filter((k) => k.localName === 'sz' || k.localName === 'szCs').map((k) => k.getAttributeNS(W, 'val')).join(','),
+    };
+  };
+  const a = props('Đoạn mở đầu');
+  const red = props('chữ đỏ cỡ 14');
+  const times = props('Chữ Times.');
+  check(
+    'a font picked: w:rFonts with ascii, hAnsi, East Asian and complex-script all that font (no theme font left); a size: w:sz and w:szCs in half-points',
+    a?.fonts === 'ascii=Arial cs=Arial eastAsia=Arial hAnsi=Arial' && a.sz === '36,36' && times?.fonts === 'ascii=Times New Roman cs=Times New Roman eastAsia=Times New Roman hAnsi=Times New Roman',
+    JSON.stringify({ a, times }),
+  );
+  check('a run that had 14 pt: one w:sz (21 half-points), its colour kept, the order Word requires', red?.sz === '21,21' && /color/.test(red.order) && red.order.indexOf('color') < red.order.indexOf('sz'), JSON.stringify(red));
+  const evil = props('Bước ba');
+  check('a crafted font name is refused: the command does nothing, the run keeps its own properties', !evilOk && !/rFonts/.test(evil?.order ?? ''), JSON.stringify({ evilOk, evil }));
+  check('the document’s fonts are offered (theme fonts first), not symbol or East Asian ones', fontsListed.length > 0 && !fontsListed.some((f) => /symbol|wingdings|[　-鿿＀-￯]/i.test(f)), fontsListed.join(', '));
+  // a theme font replaced
+  const raw = new Uint8Array(readFileSync(FIX('word-a.docx')));
+  const files = unzipSync(raw);
+  files['word/document.xml'] = strToU8(
+    strFromU8(files['word/document.xml']).replace(/(<w:r>)(<w:t[^>]*>Đoạn mở đầu)/, '$1<w:rPr><w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi" w:eastAsiaTheme="minorEastAsia" w:hint="eastAsia"/><w:sz w:val="22"/></w:rPr>$2'),
+  );
+  const ed2 = new Ed(await readDocx(zipSync(files), 'theme.docx', { dom, imageUrl: (b, mime) => `data:${mime};n=${b.length}` }));
+  ed2.sel('Đoạn mở đầu');
+  ed2.run(setFont('Cambria'));
+  const x2 = buildDocumentXml(ed2.model, ed2.state.doc);
+  const r2 = x2.slice(x2.lastIndexOf('<w:r>', x2.indexOf('Đoạn mở đầu')), x2.indexOf('Đoạn mở đầu'));
+  check('a run in a theme font, given Cambria: the theme attributes and hint go, its size stays', /w:ascii="Cambria"/.test(r2) && !/Theme=|w:hint/.test(r2) && /<w:sz w:val="22"\/>/.test(r2), r2.replace(/\s+/g, ' ').slice(0, 200));
+  // python-docx reads them
+  const out = path.join(OUT, 'fonts.docx');
+  writeFileSync(out, writeDocx(ed.model, ed.state.doc));
+  const py = execFileSync(
+    'python3',
+    ['-c', 'import sys,docx;d=docx.Document(sys.argv[1]);rs=[r for p in d.paragraphs for r in p.runs];a=[r for r in rs if "Đoạn mở đầu" in r.text][0];t=[r for r in rs if "Chữ Times" in r.text][0];print(a.font.name,a.font.size.pt,t.font.name)', out],
+    { encoding: 'utf8' },
+  ).trim();
+  check('python-docx reads the font and size back', py === 'Arial 18.0 Times New Roman', py);
 }

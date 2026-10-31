@@ -7,7 +7,7 @@
  * It covers the PDF workspace while open (an overlay: the viewer's
  * shortcuts stay off) and returns to it when closed.
  */
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Bold,
   Check,
@@ -51,9 +51,10 @@ import {
   tableGuard,
   toggleBold,
   toggleItalic,
-  toggleUnderline,
-} from '@/word/commands';
+  toggleUnderline, setFont, setSize } from '@/word/commands';
 import { BarDivider, Tip } from '../controls';
+import { FontPicker, SizePicker, ZoomControl } from './format-controls';
+import { makeRasterizer } from './raster-client';
 import { SHARE_LABEL, WAYS } from '../output-actions';
 import { runCss } from '@/word/styles';
 
@@ -83,21 +84,27 @@ export const WordScreen = forwardRef<WordScreenHandle, { file: File; onClose: ()
       setModel(null);
       setError(null);
       dirtyRef.current = false;
+      const raster = makeRasterizer();
       (async () => {
         try {
           const bytes = new Uint8Array(await file.arrayBuffer());
           const m = await readDocx(bytes, file.name, {
-            imageUrl: (b, mime) => URL.createObjectURL(new Blob([b as BlobPart], { type: mime })),
+            imageUrl: pictureUrl,
+            canShow: browserShows,
+            rasterize: raster.rasterize,
           });
           made = m;
           if (live) setModel(m);
           else m.urls.forEach((u) => URL.revokeObjectURL(u));
         } catch (e) {
           if (live) setError(message(e));
+        } finally {
+          raster.dispose();
         }
       })();
       return () => {
         live = false;
+        raster.dispose();
         made?.urls.forEach((u) => URL.revokeObjectURL(u));
       };
     }, [file]);
@@ -297,6 +304,11 @@ function listMarkers(model: WordModel) {
   });
 }
 
+/** zoom limits and the steps of the − and + buttons, in percent of the text's real size */
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 4;
+const STEPS = [25, 50, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400];
+
 function WordEditor({
   model,
   phone,
@@ -416,6 +428,7 @@ function WordEditor({
       },
     });
     viewRef.current = view;
+    setTick((n) => n + 1); // the toolbar reads the view (font and size at the caret)
     if (new URLSearchParams(location.search).has('e2e')) {
       // for the acceptance run (scripts/e2e-word.cjs): read the model, place the caret
       (window as unknown as { __ezword?: unknown }).__ezword = {
@@ -483,6 +496,154 @@ function WordEditor({
     return () => clearTimeout(t);
   }, [notice]);
 
+  /*
+   * Zoom. At 1 the page is the document's width, or the screen's when that is
+   * narrower (the margins shrink and the text reflows), and the text is its
+   * real size: 100 %. Zooming scales that page as a whole, as Word does, so
+   * the lines stay where they are; the percentage is the text's size.
+   */
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const sizerRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  /** the zoom the page is drawn at now (zoomRef runs ahead of it until React has drawn) */
+  const shownZoom = useRef(1);
+  const [canvasW, setCanvasW] = useState(0);
+  const [pageH, setPageH] = useState(0);
+  const pagePx = (model.page.width * 4) / 3;
+  const baseW = canvasW ? Math.min(canvasW, pagePx) : 0;
+  const percent = Math.round(zoom * 100);
+  const focal = useRef<{ px: number; py: number; cx: number; cy: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    const page = pageRef.current;
+    if (!canvas || !page) return;
+    const measure = () => {
+      const cs = getComputedStyle(canvas);
+      setCanvasW(Math.max(0, canvas.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)));
+      setPageH(page.offsetHeight);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(canvas);
+    ro.observe(page);
+    return () => ro.disconnect();
+  }, []);
+
+  /** zoom to `z` (1: the page fits the screen), keeping the point under (clientX, clientY) where it is */
+  const zoomTo = useCallback((z: number, clientX?: number, clientY?: number) => {
+    const canvas = canvasRef.current;
+    const sizer = sizerRef.current;
+    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+    if (!canvas || !sizer || Math.abs(next - zoomRef.current) < 1e-4) return;
+    const r = canvas.getBoundingClientRect();
+    const cx = (clientX ?? r.left + canvas.clientWidth / 2) - r.left;
+    const cy = (clientY ?? r.top + canvas.clientHeight / 2) - r.top;
+    const cur = shownZoom.current;
+    focal.current = { px: (canvas.scrollLeft + cx - sizer.offsetLeft) / cur, py: (canvas.scrollTop + cy - sizer.offsetTop) / cur, cx, cy };
+    zoomRef.current = next;
+    setZoom(next);
+  }, []);
+  useLayoutEffect(() => {
+    shownZoom.current = zoom;
+    const f = focal.current;
+    const canvas = canvasRef.current;
+    const sizer = sizerRef.current;
+    if (!f || !canvas || !sizer) return;
+    focal.current = null;
+    canvas.scrollLeft = f.px * zoom + sizer.offsetLeft - f.cx;
+    canvas.scrollTop = f.py * zoom + sizer.offsetTop - f.cy;
+  }, [zoom]);
+  const zoomStep = useCallback(
+    (dir: 1 | -1) => {
+      const now = zoomRef.current * 100;
+      const to = dir > 0 ? (STEPS.find((p) => p > now + 0.5) ?? 400) : ([...STEPS].reverse().find((p) => p < now - 0.5) ?? 25);
+      zoomTo(to / 100);
+    },
+    [zoomTo],
+  );
+
+  // Ctrl + wheel (and a touchpad pinch, which arrives as one), two-finger pinch on touch screens
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    // anywhere on the Word screen (over the bar too, where the browser would zoom the whole app); around the pointer when it is over the page
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      const target = e.target as Node | null;
+      if (!target || !canvas.closest('[data-testid="word-screen"]')?.contains(target)) return;
+      e.preventDefault();
+      const over = canvas.contains(target);
+      // a mouse wheel moves in notches (100 px each, or 3 lines): 10 % a notch, as in Word;
+      // a touchpad pinch sends many small steps: follow the fingers
+      const d = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+      const notches = Math.min(4, Math.round(Math.abs(d) / 100));
+      const factor = Math.abs(d) >= 50 ? 1.1 ** (Math.sign(-d) * Math.max(1, notches)) : Math.exp(-d * 0.01);
+      zoomTo(zoomRef.current * factor, over ? e.clientX : undefined, over ? e.clientY : undefined);
+    };
+    let pinch: { d0: number; z0: number } | null = null;
+    let raf = 0;
+    const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      pinch = { d0: Math.max(1, dist(e.touches)), z0: zoomRef.current };
+      e.preventDefault();
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      const z = (pinch.z0 * dist(e.touches)) / pinch.d0;
+      const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => zoomTo(z, mx, my));
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) pinch = null;
+    };
+    // Safari's pinch gesture: on a Mac touchpad it is the only signal (no Ctrl + wheel); on an iPhone the touches above already zoom
+    let gesture0 = 0;
+    const onGesture = (e: Event) => {
+      e.preventDefault();
+      const g = e as Event & { scale?: number; clientX?: number; clientY?: number };
+      if (e.type === 'gesturestart') gesture0 = zoomRef.current;
+      else if (!pinch && gesture0 && g.scale) zoomTo(gesture0 * g.scale, g.clientX, g.clientY);
+    };
+    window.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('touchstart', onStart, { passive: false });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onEnd);
+    canvas.addEventListener('touchcancel', onEnd);
+    canvas.addEventListener('gesturestart', onGesture);
+    canvas.addEventListener('gesturechange', onGesture);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('touchstart', onStart);
+      canvas.removeEventListener('touchmove', onMove);
+      canvas.removeEventListener('touchend', onEnd);
+      canvas.removeEventListener('touchcancel', onEnd);
+      canvas.removeEventListener('gesturestart', onGesture);
+      canvas.removeEventListener('gesturechange', onGesture);
+    };
+  }, [zoomTo]);
+
+  // Ctrl + / Ctrl − / Ctrl 0
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented) return;
+      if (e.key === '=' || e.key === '+') zoomStep(1);
+      else if (e.key === '-' || e.key === '_') zoomStep(-1);
+      else if (e.key === '0') zoomTo(1);
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoomStep, zoomTo]);
+
   const view = viewRef.current;
   const st = view?.state;
   const run = (cmd: (s: EditorState, d?: (tr: Transaction) => void) => boolean) => {
@@ -491,7 +652,9 @@ function WordEditor({
     cmd(v.state, v.dispatch);
     v.focus();
   };
+  const refocus = useCallback(() => viewRef.current?.focus(), []);
   const ways = useMemo(() => wordShareWays(platform.kind, platform.shareWays), [platform]);
+  const format = view ? currentFormat(view) : { font: '', size: 0 };
   const p = model.page;
   const pad = (v: number) => `min(${v}pt, ${+((v / p.width) * 100).toFixed(3)}cqw)`;
   const pageStyle = useMemo(
@@ -502,6 +665,42 @@ function WordEditor({
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [p, phone],
+  );
+
+  const deleteTool = (
+    <WBtn label="Xóa đoạn đang chọn" testId="word-delete-para" onClick={() => run(deleteParagraphs(model))}>
+      <Trash2 />
+    </WBtn>
+  );
+  const formatTools = (
+    <>
+      <FontPicker value={format.font} fonts={model.fonts} onPick={(name) => run(setFont(name))} refocus={refocus} className={phone ? 'flex-1' : 'w-32 shrink-0 lg:w-48'} />
+      <SizePicker value={format.size} onPick={(pt) => run(setSize(pt))} refocus={refocus} />
+      <span className="w-1 shrink-0" />
+      <WBtn label="Chữ đậm" shortcut="Ctrl B" testId="word-bold" onClick={() => run(toggleBold)} pressed={!!st && markActive(st, schema.marks.b)}>
+        <Bold />
+      </WBtn>
+      <WBtn label="Chữ nghiêng" shortcut="Ctrl I" testId="word-italic" onClick={() => run(toggleItalic)} pressed={!!st && markActive(st, schema.marks.i)}>
+        <Italic />
+      </WBtn>
+      <WBtn label="Gạch chân" shortcut="Ctrl U" testId="word-underline" onClick={() => run(toggleUnderline)} pressed={!!st && markActive(st, schema.marks.u)}>
+        <Underline />
+      </WBtn>
+      {!phone && deleteTool}
+    </>
+  );
+  const fitZoom = baseW ? canvasW / baseW : 1;
+  const zoomTools = (
+    <ZoomControl
+      percent={percent}
+      fit={Math.abs(zoom - fitZoom) < 0.005}
+      onIn={() => zoomStep(1)}
+      onOut={() => zoomStep(-1)}
+      onPercent={(p) => zoomTo(p / 100)}
+      onFit={() => zoomTo(fitZoom)}
+      refocus={phone ? () => {} : refocus /* on a phone, focusing the text would bring up the keyboard */}
+      compact={phone}
+    />
   );
 
   return (
@@ -526,19 +725,12 @@ function WordEditor({
           <Redo2 />
         </WBtn>
         {!phone && <BarDivider />}
-        <WBtn label="Chữ đậm" shortcut="Ctrl B" testId="word-bold" onClick={() => run(toggleBold)} pressed={!!st && markActive(st, schema.marks.b)}>
-          <Bold />
-        </WBtn>
-        <WBtn label="Chữ nghiêng" shortcut="Ctrl I" testId="word-italic" onClick={() => run(toggleItalic)} pressed={!!st && markActive(st, schema.marks.i)}>
-          <Italic />
-        </WBtn>
-        <WBtn label="Gạch chân" shortcut="Ctrl U" testId="word-underline" onClick={() => run(toggleUnderline)} pressed={!!st && markActive(st, schema.marks.u)}>
-          <Underline />
-        </WBtn>
-        <WBtn label="Xóa đoạn đang chọn" testId="word-delete-para" onClick={() => run(deleteParagraphs(model))}>
-          <Trash2 />
-        </WBtn>
+        {!phone && formatTools}
+        {!phone && <BarDivider />}
+        {phone ? deleteTool : null}
+        {!phone && zoomTools}
         <div className="min-w-2 flex-1" />
+        {phone && zoomTools}
         <div className="mr-1 hidden max-w-64 min-w-0 flex-col items-end leading-tight md:flex">
           <span className="w-full truncate text-right text-[13px]" title={model.name} data-testid="word-name">
             {model.name}
@@ -551,9 +743,21 @@ function WordEditor({
         {ways.length > 0 && <WordShare ways={ways} busy={busy === 'share'} disabled={!!busy} onShare={(w) => void share(w)} />}
         <Button size="sm" data-testid="word-save" onClick={() => void save()} disabled={!!busy} className="ml-1 shrink-0" title="Lưu thành tệp Word mới (Ctrl S)">
           {busy === 'save' ? <Loader2 className="animate-spin" /> : <Save />}
-          {phone ? 'Lưu' : 'Lưu tệp Word'}
+          {phone ? (
+            'Lưu'
+          ) : (
+            <>
+              <span className="lg:hidden">Lưu</span>
+              <span className="hidden lg:inline">Lưu tệp Word</span>
+            </>
+          )}
         </Button>
       </header>
+      {phone && (
+        <div data-testid="word-format-bar" className="flex h-11 shrink-0 items-center gap-0.5 border-b bg-background px-1">
+          {formatTools}
+        </div>
+      )}
       {notice && (
         <div
           role={notice.tone === 'error' ? 'alert' : 'status'}
@@ -581,16 +785,97 @@ function WordEditor({
           </Button>
         </div>
       )}
-      <div className="ez-wcanvas min-h-0 flex-1 overflow-auto px-2 py-3 sm:px-6 sm:py-6" data-testid="word-canvas">
-        <div className="ez-wpage" style={pageStyle} data-testid="word-page">
+      <div ref={canvasRef} className="ez-wcanvas relative min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto px-2 py-3 sm:px-6 sm:py-6" data-testid="word-canvas">
+        <div
+          ref={sizerRef}
+          className="ez-wzoom"
+          data-testid="word-zoom"
+          style={baseW ? { width: baseW * zoom, height: pageH ? pageH * zoom : undefined, margin: '0 auto' } : undefined}
+        >
+        <div
+          ref={pageRef}
+          className="ez-wpage"
+          style={baseW ? { ...pageStyle, width: baseW, margin: 0, transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: '0 0' } : pageStyle}
+          data-testid="word-page"
+        >
           {model.headerHtml && <div className="ez-whf ez-whf-top" data-testid="word-header" dangerouslySetInnerHTML={{ __html: model.headerHtml }} />}
           <div className="ez-wdoc" ref={mount} />
           {model.notesHtml && <div className="ez-wnotes-wrap" data-testid="word-notes" dangerouslySetInnerHTML={{ __html: model.notesHtml }} />}
           {model.footerHtml && <div className="ez-whf ez-whf-bottom" data-testid="word-footer" dangerouslySetInnerHTML={{ __html: model.footerHtml }} />}
         </div>
+        </div>
       </div>
     </>
   );
+}
+
+/**
+ * A URL for picture bytes: a blob URL; an SVG as a data URL instead, which
+ * a browser never opens as a page of the app (“Open image in new tab”), so
+ * a script inside one can never run.
+ */
+function pictureUrl(bytes: Uint8Array, mime: string): string {
+  if (mime !== 'image/svg+xml') return URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return `data:image/svg+xml;base64,${btoa(bin)}`;
+}
+
+/**
+ * Does this browser show a picture of this format (AVIF, HEIC, JPEG XR are
+ * shown by some browsers only)? It is decoded off-screen; 4 seconds at most.
+ */
+function browserShows(bytes: Uint8Array, mime: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+    const img = new Image();
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      img.onload = img.onerror = null;
+      URL.revokeObjectURL(url);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), 4000);
+    img.onload = () => done(img.naturalWidth > 0);
+    img.onerror = () => done(false);
+    img.src = url;
+  });
+}
+
+/** generic and ezPDF's own fallback families: not a font the document chose */
+const NOT_A_CHOICE = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+|ezPDF [\w ]+)$/i;
+
+/**
+ * The font and size at the caret, for the toolbar: a font or size just
+ * picked (stored or on the text) first, else what the page shows there,
+ * which takes in the paragraph's and document's styles.
+ */
+function currentFormat(view: EditorView): { font: string; size: number } {
+  const st = view.state;
+  let font = '';
+  let size = 0;
+  for (const m of st.storedMarks ?? st.selection.$from.marks()) {
+    if (m.type === schema.marks.font) font = String(m.attrs.name);
+    else if (m.type === schema.marks.size) size = Number(m.attrs.hp) / 2;
+  }
+  if (font && size) return { font, size };
+  try {
+    const at = view.domAtPos(st.selection.from);
+    let node: Node | null = at.node;
+    if (node.nodeType === 1 && at.offset > 0 && node.childNodes[at.offset - 1]) node = node.childNodes[at.offset - 1];
+    while (node && node.nodeType !== 1) node = node.parentNode;
+    if (node && view.dom.contains(node)) {
+      const cs = getComputedStyle(node as Element);
+      if (!font) {
+        const first = cs.fontFamily.split(',')[0]?.trim().replace(/^["']|["']$/g, '') ?? '';
+        font = NOT_A_CHOICE.test(first) ? '' : first;
+      }
+      if (!size) size = Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2 || 0;
+    }
+  } catch {
+    /* the view is between updates */
+  }
+  return { font, size };
 }
 
 function WordState({ dirty, saved, compact }: { dirty: boolean; saved: boolean; compact?: boolean }) {

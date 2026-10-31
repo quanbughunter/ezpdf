@@ -20,9 +20,11 @@
  *    field result, footnote mark, page break, or an invisible bookmark),
  *    kept as its original XML
  *  - marks: b, i, u as the user sees them (after styles), rp the run's own
- *    w:rPr (font, size, colour) and how it looks, link a hyperlink
+ *    w:rPr (font, size, colour) and how it looks, link a hyperlink; font and
+ *    size a font or size the user chose (they win over rp)
  */
 import { Schema, type DOMOutputSpec, type Mark, type Node as PMNode } from 'prosemirror-model';
+import { fontStack, safeFont } from './styles';
 
 const refAttrs = { ref: { default: null as number | null } };
 
@@ -231,6 +233,43 @@ export const schema = new Schema({
       toDOM(mark): DOMOutputSpec {
         const tag = pasteTag && mark.attrs.ref !== null ? { 'data-ezr': `${pasteTag}:${mark.attrs.ref}` } : {};
         return ['span', { style: mark.attrs.css, ...tag }, 0];
+      },
+    },
+    /** a font the user chose (w:rFonts when saved); inside rp, so it wins over the run's own font */
+    font: {
+      attrs: { name: { default: '' } },
+      parseDOM: [
+        {
+          tag: 'span[data-ezf]',
+          getAttrs: (dom: HTMLElement) => {
+            const raw = dom.getAttribute('data-ezf') ?? '';
+            const i = raw.indexOf(':');
+            const name = safeFont(raw.slice(i + 1));
+            return pasteTag && i > 0 && raw.slice(0, i) === pasteTag && name ? { name } : false;
+          },
+        },
+      ],
+      toDOM(mark): DOMOutputSpec {
+        const name = safeFont(mark.attrs.name) ?? '';
+        return ['span', { style: `font-family:${fontStack(name) ?? 'inherit'}`, ...(pasteTag ? { 'data-ezf': `${pasteTag}:${name}` } : {}) }, 0];
+      },
+    },
+    /** a size the user chose, in half-points as Word stores it (w:sz when saved) */
+    size: {
+      attrs: { hp: { default: 22 } },
+      parseDOM: [
+        {
+          tag: 'span[data-ezs]',
+          getAttrs: (dom: HTMLElement) => {
+            const [t, v] = (dom.getAttribute('data-ezs') ?? '').split(':');
+            const hp = Number(v);
+            return pasteTag && t === pasteTag && Number.isInteger(hp) && hp >= 2 && hp <= 3276 ? { hp } : false;
+          },
+        },
+      ],
+      toDOM(mark): DOMOutputSpec {
+        const hp = Math.max(2, Math.min(3276, Math.round(Number(mark.attrs.hp) || 22)));
+        return ['span', { style: `font-size:calc(var(--ezsub, 1) * ${hp / 2}pt)`, ...(pasteTag ? { 'data-ezs': `${pasteTag}:${hp}` } : {}) }, 0];
       },
     },
     b: {

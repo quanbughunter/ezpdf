@@ -19,7 +19,7 @@
 import type { Mark, Node as PMNode } from 'prosemirror-model';
 import { schema } from './schema';
 import { writePackage } from './package';
-import { readRunProps, type RunProps } from './styles';
+import { readRunProps, type RunProps, safeFont } from './styles';
 import type { WordModel } from './read';
 import { elements, isW, NS, parseXml, stripInvalidXml, wAttr, wChild, wChildren, wVal } from './xml';
 
@@ -284,6 +284,30 @@ function makeRun(o: Out, text: string, marks: readonly Mark[], pStyle: string | 
     if (wantU !== inhU) {
       const e = el(o, 'u');
       e.setAttributeNS(W, 'w:val', wantU ?? 'none');
+      insertOrdered(pr, e, RPR_ORDER);
+    }
+  }
+  // a font the user chose: for every kind of character in the run; theme fonts and the hint would win over it
+  const font = marks.find((m) => m.type === schema.marks.font);
+  const name = font ? safeFont(font.attrs.name as string) : undefined;
+  if (name) {
+    const pr = ensure();
+    const old = wChild(pr, 'rFonts');
+    if (old) pr.removeChild(old);
+    const e = el(o, 'rFonts');
+    for (const a of ['ascii', 'hAnsi', 'eastAsia', 'cs']) e.setAttributeNS(W, `w:${a}`, name);
+    insertOrdered(pr, e, RPR_ORDER);
+  }
+  // a size the user chose (half-points), for Latin and complex-script text alike
+  const size = marks.find((m) => m.type === schema.marks.size);
+  const hp = size ? Math.max(2, Math.min(3276, Math.round(Number(size.attrs.hp)))) : 0;
+  if (hp) {
+    const pr = ensure();
+    for (const n of ['sz', 'szCs']) {
+      const old = wChild(pr, n);
+      if (old) pr.removeChild(old);
+      const e = el(o, n);
+      e.setAttributeNS(W, 'w:val', String(hp));
       insertOrdered(pr, e, RPR_ORDER);
     }
   }

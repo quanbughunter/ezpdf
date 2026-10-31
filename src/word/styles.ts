@@ -65,7 +65,8 @@ const merge = <T extends object>(...layers: (T | undefined)[]): T => Object.assi
  * end the declaration and add its own, e.g. a background url()).
  */
 export const hexColor = (v: string | null | undefined) => (v && /^[0-9a-f]{6}$/i.test(v) ? `#${v}` : undefined);
-const safeFont = (v: string | null | undefined) => {
+/** a font name fit for CSS and for the file: letters, digits and a few signs (no quotes, semicolons, brackets of CSS) */
+export const safeFont = (v: string | null | undefined) => {
   const f = (v ?? '').replace(/[^\p{L}\p{N} ._\-+&()]/gu, '').trim().slice(0, 64);
   return f || undefined;
 };
@@ -419,8 +420,9 @@ export function runCss(r: RunProps): string {
   if (r.caps) css.push('text-transform:uppercase');
   if (r.smallCaps) css.push('font-variant:small-caps');
   if (r.vanish) css.push('display:none');
-  if (r.vertAlign === 'superscript') css.push('vertical-align:super;font-size:smaller');
-  if (r.vertAlign === 'subscript') css.push('vertical-align:sub;font-size:smaller');
+  // --ezsub: a size picked in the editor for such text is shown smaller too, as Word does (schema.ts, the size mark)
+  if (r.vertAlign === 'superscript') css.push('vertical-align:super;font-size:smaller;--ezsub:.65');
+  if (r.vertAlign === 'subscript') css.push('vertical-align:sub;font-size:smaller;--ezsub:.65');
   if (r.spacing) css.push(`letter-spacing:${pt(r.spacing)}`);
   return css.join(';');
 }

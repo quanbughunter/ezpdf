@@ -60,6 +60,7 @@ async function android(apk) {
     // the same steps in Playwright's Chromium at the S24 Ultra's size (a check of this script without an emulator)
     const { chromium } = require('playwright');
     const web = serve(path.resolve(apk || path.join(ROOT, 'out', 'shots-dist')));
+    await web.listening;
     const browser = await chromium.launch();
     const ctx = await browser.newContext({ viewport: { width: 384, height: 832 }, deviceScaleFactor: 2.8125, isMobile: true, hasTouch: true });
     launch = async () => {
@@ -80,15 +81,28 @@ async function android(apk) {
     // the Galaxy S24 Ultra's default screen (FHD+): 1080 × 2340 at 450 dpi
     await sh('wm size 1080x2340');
     await sh('wm density 450');
+    // on a busy emulator the launcher stops answering and Android puts "Pixel Launcher isn't
+    // responding" over every picture: no error boxes, and no launcher (the app is started directly)
+    await sh('settings put global hide_error_dialogs 1');
+    await sh('pm disable-user --user 0 com.google.android.apps.nexuslauncher');
+    await sh('am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS');
     await device.installApk(fs.readFileSync(apk));
     launch = async () => {
       await sh('am force-stop app.ezpdf');
       await sh('am start -W -n app.ezpdf/.MainActivity');
       const webview = await device.webView({ pkg: 'app.ezpdf' }, { timeout: 120000 });
       page = await webview.page();
+      // the emulator's screen takes the computer's mouse, so the page sees a mouse (pointer: fine) and
+      // opens Word files to edit; a phone has a touch screen (pointer: coarse) and opens them to read
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      await page.reload();
       await wait(page, '[data-testid="state-empty"]', 120000);
     };
-    shoot = (file) => device.screenshot({ path: file });
+    shoot = async (file) => {
+      await sh('am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS');
+      await device.screenshot({ path: file });
+    };
     done = () => device.close();
   }
   await launch();
@@ -194,9 +208,11 @@ function serve(root) {
     res.setHeader('Content-Type', types[path.extname(file)] ?? 'application/octet-stream');
     fs.createReadStream(file).pipe(res);
   });
-  server.listen(4180, '127.0.0.1');
+  const listening = new Promise((resolve) => server.listen(4180, '127.0.0.1', resolve));
   return {
     server,
+    /** bound: wait for it before anything blocks Node (execFileSync), or the phone finds no server */
+    listening,
     /** the page's ready call for `id`, or a timeout */
     until(id, ms) {
       if (ready.has(id)) return Promise.resolve(ready.get(id));
@@ -217,6 +233,7 @@ async function ios(build) {
   const dir = path.join(ROOT, 'out', 'screens', 'iphone');
   fs.mkdirSync(dir, { recursive: true });
   const web = serve(root);
+  await web.listening;
   // SHOTS_BROWSER=chromium: the same steps in Playwright's Chromium at the iPhone's size (a check of this script away from a Mac)
   const local = process.env.SHOTS_BROWSER === 'chromium';
   let browser = null;
@@ -242,6 +259,10 @@ async function ios(build) {
   }
   const notes = [];
   try {
+    // Safari's first page of a new phone gets its tips ("View Bookmarks, Share Menu…"): on a page not kept
+    phone.open('http://127.0.0.1:4180/?shot=none&id=warm-up');
+    await web.until('warm-up', 150000);
+    await sleep(3000);
     for (const s of SHOTS) {
       const q = new URLSearchParams({ shot: s.file, id: s.id });
       if (s.info) q.set('info', '1');

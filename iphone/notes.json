@@ -1,0 +1,38 @@
+[
+  {
+    "id": "1-start",
+    "title": "Màn hình đầu",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "2-word-math",
+    "title": "Công thức MathType: ngoặc tròn, ngoặc nhọn, mũ góc",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "2b-word-math-150",
+    "title": "Các công thức đó, phóng to 150%",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "3-word-info",
+    "title": "Thông tin tệp Word",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "4-word-pages",
+    "title": "Đề có điểm dừng tab, bảng, công thức",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "5-pdf-info",
+    "title": "Tệp PDF và bảng thông tin",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  }
+]

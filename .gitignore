@@ -17,3 +17,6 @@ _to_delete/
 ezpdf-android-debug*
 ezpdf-windows*
 web-app*
+
+# the user's own sample files (tested on this machine only, never published)
+mau de test/

@@ -181,18 +181,24 @@ export function readRunProps(rPr: Element | null, theme?: Theme): RunProps {
         break;
       case 'color': {
         const v = wAttr(el, 'val');
-        if (v && v !== 'auto') p.color = hexColor(v) ?? p.color;
+        // (a key set to undefined clears what a style set: only for 'auto', never for a value that could not be read)
+        const c = v && v !== 'auto' ? hexColor(v) : undefined;
+        if (c) p.color = c;
         else if (v === 'auto') p.color = undefined;
         break;
       }
-      case 'sz':
-        p.sz = num(wAttr(el, 'val')) ?? p.sz;
+      case 'sz': {
+        const sz = num(wAttr(el, 'val'));
+        if (sz !== undefined) p.sz = sz;
         break;
+      }
       case 'rFonts': {
         const theme1 = wAttr(el, 'hAnsiTheme') ?? wAttr(el, 'asciiTheme');
         const named = wAttr(el, 'hAnsi') ?? wAttr(el, 'ascii');
         const fromTheme = theme1 ? (/^major/.test(theme1) ? theme?.major : theme?.minor) : undefined;
-        p.font = safeFont(fromTheme ?? named) ?? p.font;
+        // a w:rFonts that names only other scripts (w:cs, w:eastAsia) leaves the style's font as it is
+        const font = safeFont(fromTheme ?? named);
+        if (font) p.font = font;
         break;
       }
       case 'highlight': {
@@ -206,9 +212,11 @@ export function readRunProps(rPr: Element | null, theme?: Theme): RunProps {
       case 'vertAlign':
         p.vertAlign = /^(superscript|subscript|baseline)$/.test(wAttr(el, 'val') ?? '') ? wAttr(el, 'val')! : undefined;
         break;
-      case 'spacing':
-        p.spacing = num(wAttr(el, 'val'));
+      case 'spacing': {
+        const sp = num(wAttr(el, 'val'));
+        if (sp !== undefined) p.spacing = sp;
         break;
+      }
     }
   }
   return p;

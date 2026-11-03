@@ -1,4 +1,4 @@
-# 11 · Đọc và sửa nhẹ tệp Word (.docx) (bản 0.8.4)
+# 11 · Đọc và sửa nhẹ tệp Word (.docx) (bản 0.8.5)
 
 Mở tệp Word ngay trên máy, sửa nhẹ rồi lưu ra một tệp Word mới. Tài liệu không rời thiết bị. Tính năng dùng chung một mã cho Windows, web (cả iPhone) và Android.
 
@@ -144,6 +144,22 @@ Khoảng cách dòng “đơn” của Word phụ thuộc phông: Times New Roma
 - bộ kiểm chờ con trỏ về lại tài liệu rồi mới gõ; nếu không tìm thấy chữ, báo rõ nội dung tài liệu và ô đang được chọn thay vì “Cannot read properties of null”; thêm `CPU_SLOW=4` để chạy chậm như máy CI hay điện thoại;
 - app: việc chia trang không chạy lúc người dùng đang gõ, nhất là khi bàn phím đang ghép chữ (bàn phím Samsung, Gboard, bộ gõ tiếng Việt), để đoạn đang gõ không bị vẽ lại dưới tay; chạy sau khi ngừng gõ một chút (tối đa chờ 2 giây).
 
+## Đề khảo sát mẫu: phông của kiểu Normal, mũ góc, hình nổi (bản 0.8.5)
+
+Anh để các tệp mẫu trong thư mục `mau de test` của dự án (chỉ thử trên máy, không đưa lên repo: thư mục này nằm trong `.gitignore`). Tệp đầu tiên, một đề khảo sát toán 9 (171 công thức MathType, biểu đồ, hình máy bay), cho thấy bốn lỗi; cả bốn có ở mọi nền tảng, không riêng Android.
+
+**Chữ hiện bằng phông không chân của app thay cho Times New Roman.** Word ghi phông của văn bản trong kiểu Normal, còn từng đoạn chữ chỉ ghi phông cho chữ phức (`<w:rFonts w:cs="Times New Roman"/>`), như Word vẫn làm với tiếng Việt. Bộ đọc coi một `w:rFonts` không có phông chữ Latin là “không phông”, và xóa luôn phông của kiểu. Giờ chỉ thay khi có phông thật; cỡ chữ, màu, khoảng chữ cũng vậy. Lỗi này làm sai phông của rất nhiều tệp Word tiếng Việt.
+
+**Mũ trên góc (B̂, B̂AC) hiện thành “�”.** MathType vẽ mũ rộng bằng ba ký tự riêng của phông MT Extra (mã B5, B6, B7: mũ cho một, hai, ba chữ), không phông nào khác có, LibreOffice cũng vẽ thành ô vuông. Giờ ezPDF vẽ chúng thành hai nét, đúng chỗ, đúng độ rộng (đo từ chính các công thức của đề: 0,62 em, 1,05 em, 1,9 em).
+
+**Hình máy bay không hiện, chỉ còn chữ A, H bị cắt.** Hình là một EMF có ảnh máy bay dạng “mặt nạ OR rồi ảnh AND” và cuối cùng một lệnh BitBlt không làm gì (NOP). Bộ đọc vẽ lệnh NOP thành một hình chữ nhật trắng phủ hết bản vẽ. Giờ mỗi lệnh vẽ ảnh làm đúng việc của nó: NOP và đảo màu không vẽ gì, phủ đen, phủ trắng, phủ bằng cọ như Windows; nửa “mặt nạ” và nửa “ảnh” thành ảnh PNG trong suốt ở phần giữ nguyên trang (đen với OR, trắng với AND), nên máy bay hiện trên các đường kẻ như trong Word. (Chế độ hòa màu của CSS làm được việc đó trong trang, nhưng không chạy khi SVG được hiện như một ảnh.)
+
+**Hình nổi có chữ chạy quanh.** Trước đây hình nổi luôn đứng một dòng riêng và co lại cho vừa cột. Giờ hình có kiểu bao quanh vuông, sát, xuyên (wrap square, tight, through) thành một khối nổi bên trái hay bên phải, tùy chỗ Word đặt nó, giữ khoảng cách với chữ như Word; chữ chạy bên cạnh. Hình giữ đúng cỡ: rộng hơn cột (ví dụ trong một ô bảng hẹp) thì vươn ra lề như Word, không làm cột rộng ra. Bảng cũng được vươn ra lề như Word, không còn thanh cuộn ngang bên trong trang.
+
+Sau khi sửa, đề này 8 trang ở ezPDF, 9 trang ở LibreOffice (LibreOffice chia đoạn dài qua hai trang theo dòng; ezPDF chuyển cả đoạn). LibreOffice vẽ công thức MathType kém hơn ezPDF: chỉ số nhảy lên, phân số chồng chữ, mũ góc thành ô vuông.
+
+**Bộ kiểm trên CI lỗi lần nữa** (lần push 0.8.4). Lần này là bước kiểm phông mới: trên máy CI, chữ của phông tải về có độ rộng được làm tròn theo điểm ảnh, hẹp hơn phông đối chiếu 0,9 %, mà ngưỡng đặt là 0,3 %. Giờ ngưỡng là 1,5 % (một phông khác độ rộng, ví dụ DejaVu Serif, lệch 25 %). Bước gõ sau khi chọn cỡ chữ, lỗi lần trước, lần này đã đạt.
+
 ## Những phần chỉ xem
 
 Một số nội dung ezPDF hiện ra nhưng không cho sửa, vì sửa sẽ dễ làm hỏng tệp. Chúng có nền xám nhạt, chữ **Chỉ xem**, và được ghi lại y nguyên khi lưu. Thanh vàng đầu màn nói có bao nhiêu đoạn như vậy và vì sao.
@@ -225,7 +241,7 @@ Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề 
 
 | Bộ kiểm | Kết quả |
 |---|---|
-| `npm run test:word` (đọc/ghi trên Node, `tests/word-probe.ts`) | **107/107** (bản 0.8.3: 106). Chi tiết ngay dưới bảng. |
+| `npm run test:word` (đọc/ghi trên Node, `tests/word-probe.ts`) | **111/111** (bản 0.8.4: 107). Chi tiết ngay dưới bảng. |
 | `npm run e2e:word` (Chromium, cả luồng trong app) | **55/55** trên dev server và **55/55** trên bản build production (bản 0.8.3: 50). Chi tiết ngay dưới bảng. |
 | `scripts/smoke-desktop.cjs` (bản desktop thật, WebKitGTK, cùng nhân với Safari) | **30/30** (bản 0.8.4 không thêm bước; hai lần chạy đầu dừng ở bước 7 vì WebDriver không mở được phiên mới kịp, lần sau đạt). Bước mới của 0.8.3: `word-pages.docx` trong WebKitGTK (nhân của Safari, tức của web app trên iPhone): 8 tờ, ngắt trang bắt đầu trang mới, tab dòng đáp án dừng đúng điểm dừng, mỗi tờ “Trang k / 8”. Bước của 0.8.2: `word-images.docx` mở như “Mở bằng”, đủ 10 loại TIFF, EPS, PICT, WMZ hiện ra; nút + (110 %), Ctrl + bằng phím thật (125 %), Ctrl 0 (100 %), trang phóng đúng tỷ lệ; chọn Arial bằng chuột thật và gõ cỡ 20 cho một đoạn chữ, thanh công cụ hiện đúng. Bản 0.8.1: Bước Word: tệp `.docx` đưa vào app như “Mở bằng”, gõ bằng phím thật, làm đậm, lưu qua hộp thoại lưu của hệ thống; python-docx đọc đúng; tệp gốc không đổi. Bước mới của 0.8.1: `word-draw.docx` mở cùng cách, 6 hình, chữ trong lưu đồ, 2 công thức MathML có kích thước, ảnh WMF và EMF, chú thích đều được WebKitGTK dàn đúng. Lần chạy đầu dừng ở bước sau đó vì WebDriver không mở được phiên mới kịp; hai lần chạy lại đều đạt 26/26. |
 
@@ -247,6 +263,7 @@ Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề 
   - tệp cố tình độc hại (chữ chứa thẻ `<script>`, `<img onerror>`, màu và tên hình chứa mã, tên phông trong WMF chứa thẻ): không có thẻ, mã, trình xử lý sự kiện hay địa chỉ ngoài nào lọt ra; chữ hiện đúng là chữ;
   - mọi hình bị cắt ở lề nhỏ quanh khung;
   - 8 bước kiểm cho các ca của lượt rà soát 0.8.1 (dưới).
+- Bản 0.8.5: đoạn chỉ ghi `w:rFonts w:cs` vẫn giữ Times New Roman của kiểu Normal; WMF kiểu MathType có mũ rộng MT Extra B5, B7 (B̂, B̂AC) ra hai nét, nét rộng gấp hơn 2,5 lần nét hẹp, không có “�”; EMF có ảnh mặt nạ OR, ảnh AND và một BitBlt NOP: hai ảnh PNG có kênh trong suốt, không có hình chữ nhật trắng; ảnh nổi bao quanh vuông: đặt quá giữa cột thì nổi phải, ở đầu cột thì nổi trái, giữ cỡ, trong ô bảng hẹp thì lề phải âm (vươn ra ngoài, không nới cột).
 - Bản 0.8.4: chuỗi phông (Palatino Linotype → Palatino, Book Antiqua; Times → Times New Roman; Helvetica → Arial) và dòng đơn của Calibri (1,2207 em; đoạn giãn 1,5 dòng: 1,831).
 - Bản 0.8.3, `word-pages.docx`: điểm dừng tab đọc đúng (của đoạn, của kiểu cộng dồn, điểm “xóa”, dấu chấm dẫn, giữa, phải), điểm dừng mặc định; “ngắt trang trước đoạn”, ngắt section trang mới hay liên tục, dấu ngắt trang; lề đầu trang, chân trang, trường PAGE và NUMPAGES được đánh dấu; công thức trong phần mã trường QUOTE không hiện, vẫn được giữ, và được ghi lại nguyên khi đoạn bị sửa; ảnh MathType ra ≥ ∈ ℝ, không còn ³ Î ¡, hai mũi tên véc-tơ riêng.
 - Bản 0.8.2:
@@ -271,7 +288,7 @@ Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề 
 - Bản 0.8.1, `word-draw.docx`: 6 hình SVG có kích thước thật, lưu đồ căn giữa, chữ trong hình được dàn; 2 công thức MathML; ảnh WMF và EMF giải mã được; chú thích hiện sau bài; không đoạn nào bị khóa. Gõ cạnh công thức, sao chép rồi dán một công thức (ra công thức, không ra chữ), lưu: tệp có đủ 3 công thức, nhóm hình, khung vẽ, VML, OLE, biểu đồ, SmartArt, dấu chú thích. Clipboard giả mạo mang mã của tài liệu không đưa được ảnh từ ngoài hay mã hình vào. Điện thoại: mọi hình, ảnh, công thức vừa trang.
 - Không gửi gì ra ngoài.
 
-Cả bản 0.8.4 đều đạt (`e2e:m4` bản production có kiểm Content-Security-Policy: phông toán, phông cùng độ rộng, hình vẽ, ảnh và worker giải mã ảnh không vi phạm):
+Cả bản 0.8.5 đều đạt (`e2e:m4` bản production có kiểm Content-Security-Policy: phông toán, phông cùng độ rộng, hình vẽ, ảnh và worker giải mã ảnh không vi phạm):
 
 | Bộ | Dev | Production |
 |---|---|---|
@@ -377,11 +394,12 @@ Còn lại, ghi ở phần Giới hạn: đoạn dài không được chia qua h
 - Hiển thị gần giống Word, không giống từng điểm ảnh: định dạng có điều kiện của kiểu bảng (hàng tiêu đề đậm…) chưa áp dụng; tab thập phân căn như tab phải; tab trong đầu trang, chân trang dừng ở các điểm dừng mặc định (1,27 cm), chưa theo điểm dừng riêng của đoạn đó.
 - Hình vẽ, công thức, biểu đồ (bản 0.8.1):
   - **Chỉ xem, chưa sửa được trong ezPDF**: chữ trong hộp chữ và trong hình, bản thân công thức, biểu đồ. Chữ quanh chúng sửa được; có thể xóa, sao chép, dán cả hình hay công thức như một khối. Khi lưu, chúng được ghi lại y nguyên.
-  - Hình nổi được đặt trên dòng riêng (căn như trong tệp), không nằm đè hay để chữ chạy quanh như Word. Hình đặt sau chữ làm nền cũng hiện thành một khối riêng.
+  - Hình nổi: ảnh và hình vẽ có chữ chạy quanh là khối nổi trái hoặc phải (bản 0.8.5); hình nằm đè lên chữ, hình đặt sau chữ làm nền, hình “trên và dưới” hiện thành một khối trên dòng riêng (căn như trong tệp). Hình VML kiểu cũ vẫn đứng dòng riêng.
   - Bóng đổ, phát sáng, 3D, phản chiếu của hình chưa vẽ; tô chuyển màu (gradient) vẽ bằng màu đầu tiên.
   - Biểu đồ vẽ từ số liệu lưu sẵn, dạng phẳng: chưa có nhãn số liệu, biểu đồ 3D vẽ thành 2D, biểu đồ bề mặt vẽ thành các đường. Biểu đồ kiểu mới của Word 2016 (thác nước, sunburst…) hiện bản dự phòng Word lưu kèm.
   - SmartArt chỉ hiện được khi tệp có bản vẽ lưu sẵn (Word luôn lưu; vài chương trình khác thì không).
-  - Ảnh xem trước WMF/EMF: chưa áp vùng cắt (clipping); ảnh EMF chỉ có lệnh EMF+ (không có bản GDI kèm theo) hiện nhãn. MathType vẽ bằng phông MT Extra cho vài ký hiệu hiếm; máy không có phông này (ngoài Windows có Office) có thể hiện sai các ký hiệu đó.
+  - Ảnh xem trước WMF/EMF: chưa áp vùng cắt (clipping); ảnh EMF chỉ có lệnh EMF+ (không có bản GDI kèm theo) hiện nhãn. MathType vẽ bằng phông MT Extra cho vài ký hiệu hiếm; máy không có phông này (ngoài Windows có Office) có thể hiện sai các ký hiệu đó. Mũi tên véc-tơ (bản 0.8.3) và mũ rộng (bản 0.8.5) được vẽ thành nét; các ký hiệu riêng khác của MT Extra (cung, ngoặc nhọn ngang…) chưa có, gặp tệp nào xin gửi để thêm.
+  - Hình nổi có chữ chạy quanh (bản 0.8.5) là khối nổi trái hoặc phải, không đặt đúng từng điểm như Word; hình nổi “trước chữ”, “sau chữ”, “trên và dưới” vẫn đứng một dòng riêng.
   - Ảnh liên kết ra ngoài không bao giờ được tải, nên hiện nhãn “Hình (liên kết ngoài)”.
 - Ảnh (bản 0.8.2):
   - HEIC và JPEG XR chỉ hiện trên trình duyệt đọc được chúng (HEIC: Safari; JPEG XR: hầu như không còn trình duyệt nào). Nơi khác hiện nhãn có tên định dạng.

@@ -47,6 +47,7 @@ import { encodePng } from '../src/word/images';
 import { markers } from '../src/word/numbering';
 import { PAGE_BREAK, schema } from '../src/word/schema';
 import { fontStack, paraCss } from '../src/word/styles';
+import { metafileToSvg } from '../src/word/metafile';
 
 const dom = { DOMParser: DOMParser as never, XMLSerializer: XMLSerializer as never };
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1167,6 +1168,114 @@ async function pageCases() {
       stacks.cal === '"Calibri", "ezPDF Sans VN", sans-serif' && lh('Calibri') === '1.2207' && lh('Times New Roman') === '1.15' && lh('Calibri', 360) === '1.831',
     JSON.stringify({ stacks, cal: lh('Calibri'), tnr: lh('Times New Roman'), cal15: lh('Calibri', 360) }),
   );
+  // the sample exam of 0.8.5 (ĐỀ KHẢO SÁT): Word's text font from the Normal style, MathType's wide hats, a picture with a mask, floating pictures
+  {
+    const files = unzipSync(raw);
+    files['word/styles.xml'] = strToU8(
+      strFromU8(files['word/styles.xml']).replace(
+        /(<w:style w:type="paragraph" w:default="1" w:styleId="Normal">[^]*?)(<\/w:style>)/,
+        '$1<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr>$2',
+      ),
+    );
+    const rp = '<w:rPr><w:rFonts w:cs="Times New Roman"/><w:b/></w:rPr>';
+    const x = strFromU8(files['word/document.xml']);
+    files['word/document.xml'] = strToU8(x.replace(/(<w:body>)[^]*(<w:sectPr>(?:(?!<w:sectPr>)[^])*<\/w:body>)/, `$1<w:p><w:pPr>${rp}</w:pPr><w:r>${rp}<w:t>Chỉ có w:cs</w:t></w:r></w:p>$2`));
+    const m = await readDocx(zipSync(files), 'cs.docx', { dom, imageUrl: () => null });
+    const css = String(m.doc.firstChild?.attrs.css ?? '');
+    check('a run’s w:rFonts that names only w:cs (as Word writes for Vietnamese) leaves the Normal style’s Times New Roman in place', /font-family:"Times New Roman"/.test(css), css);
+  }
+  {
+    // a WMF as MathType writes it: B̂ (hat b5 over B), and B̂AC (hat b7 over three letters)
+    const recs: number[][] = [];
+    const rec = (fn: number, ...words: number[]) => recs.push([3 + words.length, fn, ...words]);
+    const str = (t: number[]) => { const w: number[] = []; for (let i = 0; i < t.length; i += 2) w.push(t[i] | ((t[i + 1] ?? 0) << 8)); return w; };
+    const font = (h: number, italic: number, charset: number, face: string) => {
+      const name = [...face].map((c) => c.charCodeAt(0)).concat(Array(32 - face.length).fill(0));
+      rec(0x02fb, h & 0xffff, 0, 0, 0, 400, italic | (0 << 8), 0 | (charset << 8), 0 | (0 << 8), 0 | (0x12 << 8), ...str(name));
+      rec(0x012d, recs.filter((r) => r[1] === 0x02fb).length - 1);
+    };
+    const text = (x: number, y: number, codes: number[], dx: number[]) => {
+      rec(0x0214, y, x);
+      rec(0x0a32, 0, 0, codes.length, 0, ...str(codes), ...dx);
+    };
+    rec(0x020b, 0, 0);
+    rec(0x020c, 640, 2816);
+    rec(0x012e, 25);
+    font(-384, 0, 1, 'MT Extra');
+    text(82, 348, [0xb7], [0]);
+    text(1114, 348, [0xb5], [0]);
+    font(-384, 1, 0, 'Times New Roman');
+    text(70, 480, [0x42, 0x41, 0x43], [234, 234, 768]);
+    text(1110, 480, [0x42], [768]);
+    rec(0x0000);
+    const body = recs.flatMap((r) => [r[0] & 0xffff, r[0] >> 16, ...r.slice(1)]);
+    const words = [0x0001, 0x0009, 0x0300, (9 + body.length) & 0xffff, (9 + body.length) >> 16, 2, 40, 0, 0, ...body];
+    const place = [0xcdd7, 0x9ac6, 0, 0, 0, 2816, 640, 2305, 0, 0];
+    place.push(place.reduce((a, b) => a ^ b, 0));
+    const bytes = new Uint8Array((place.length + words.length) * 2);
+    const dv = new DataView(bytes.buffer);
+    [...place, ...words].forEach((w, i) => dv.setUint16(i * 2, w & 0xffff, true));
+    const svg = metafileToSvg(bytes)?.inner ?? '';
+    const hats = [...svg.matchAll(/<path d="([^"]+)" fill="none"[^>]*stroke-linejoin="miter"/g)].map((mm) => mm[1]);
+    // the wide one spans three letters (about 1.9 em), the narrow one one letter
+    const span = (d: string) => {
+      const xs = [...d.matchAll(/[ML](-?[\d.]+),/g)].map((mm) => Number(mm[1]));
+      return Math.max(...xs) - Math.min(...xs);
+    };
+    check(
+      'MathType’s wide hats (MT Extra b5, b7: B̂, B̂AC) are drawn as strokes over the letters (the wide one about three times the narrow one), not as “\uFFFD”',
+      !svg.includes('\uFFFD') && hats.length === 2 && span(hats[0]) > 2.5 * span(hats[1]) && /BAC/.test(svg),
+      hats.join(' | ') || svg.slice(0, 200),
+    );
+  }
+  {
+    // an EMF picture with a mask (OR), then the picture (AND), then a BitBlt that does nothing (NOP)
+    const parts: Uint8Array[] = [];
+    const u32 = (...v: number[]) => { const b = new Uint8Array(v.length * 4); const d = new DataView(b.buffer); v.forEach((x, i) => d.setInt32(i * 4, x | 0, true)); return b; };
+    const join = (...a: Uint8Array[]) => { const out = new Uint8Array(a.reduce((n, b) => n + b.length, 0)); let o = 0; for (const b of a) { out.set(b, o); o += b.length; } return out; };
+    const bih = (w: number, h: number, bpp: number, colors: number) => u32(40, w, h, 1 | (bpp << 16), 0, 0, 0, 0, colors, 0);
+    const dib = (rop: number, bmi: Uint8Array, bits: Uint8Array) => {
+      const head = 80;
+      return join(u32(81, head + bmi.length + bits.length, 0, 0, 20, 20, 0, 0, 0, 0, 2, 2, head, bmi.length, head + bmi.length, bits.length, 0, rop, 20, 20), bmi, bits);
+    };
+    // the mask: black (keep the page) on the left, white on the right; the picture: white (keep the page) on the left, red on the right
+    const mask = dib(0x00ee0086, join(bih(2, 2, 1, 2), u32(0x000000, 0xffffff)), u32(0x40000000 >>> 0, 0x40000000 >>> 0).map((b, i, a) => a[i ^ 3]));
+    const pic = dib(0x008800c6, bih(2, 2, 24, 0), new Uint8Array([255, 255, 255, 0, 0, 255, 0, 0, 255, 255, 255, 0, 0, 255, 0, 0]));
+    const nop = join(u32(76, 100, 0, 0, 20, 20, 0, 0, 20, 20, 0x00aa0029), new Uint8Array(100 - 44));
+    const eof = u32(14, 20, 0, 0, 20);
+    const header = join(u32(1, 108, 0, 0, 20, 20, 0, 0, 529, 529, 0x464d4520, 0x10000, 0, 5, 1, 0, 0, 0, 0, 1000, 1000, 264, 264), new Uint8Array(108 - 92));
+    parts.push(header, mask, pic, nop, eof);
+    const emf = join(...parts);
+    new DataView(emf.buffer).setUint32(48, emf.length, true);
+    const svg = metafileToSvg(emf)?.inner ?? '';
+    const pngs = [...svg.matchAll(/href="data:image\/png;base64,([^"]+)"/g)].map((mm) => Buffer.from(mm[1], 'base64'));
+    check(
+      'an EMF picture drawn with a mask (OR, then AND) comes out transparent where it leaves the page as it was (two PNGs with alpha), and a BitBlt that does nothing (NOP) does not paint a white box over the drawing',
+      pngs.length === 2 && pngs.every((b) => b[25] === 6) && !/fill="#ffffff"/.test(svg),
+      `${pngs.length} PNG, colour types ${pngs.map((b) => b[25]).join(',')}, white fill ${/fill="#ffffff"/.test(svg)}`,
+    );
+  }
+  {
+    // floating pictures text runs round: a float on their side, kept at their size, reaching past a narrow table cell
+    const anchor = (off: number, cx: number) =>
+      `<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" relativeHeight="1" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>${off}</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="${cx}" cy="1240790"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapSquare wrapText="bothSides"/><wp:docPr id="5" name="P"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="p"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdW1"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="1240790"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>`;
+    const cell = (w: number, inner: string) => `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/></w:tcPr><w:p>${inner}</w:p></w:tc>`;
+    const fl = await crafted(
+      `<w:p>${anchor(4600909, 2047875)}${tx('Chữ chạy quanh hình bên phải.')}</w:p><w:p>${anchor(0, 1000000)}${tx('Hình bên trái.')}</w:p>` +
+        `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr><w:tblGrid><w:gridCol w:w="6487"/><w:gridCol w:w="3089"/></w:tblGrid><w:tr>${cell(6487, tx('Đề bài'))}${cell(3089, anchor(68580, 2457450))}</w:tr></w:tbl>`,
+    );
+    const floats: string[] = [];
+    fl.doc.descendants((n) => {
+      if (n.type.name === 'inl' && n.attrs.kind === 'image') floats.push(String(n.attrs.css));
+      return true;
+    });
+    const mr = Number(/float:left;margin:\S+ (-?\d+)px/.exec(floats[2] ?? '')?.[1]);
+    check(
+      'floating pictures text runs round (wrap square): a float on the right when placed past the middle, on the left at the column’s start, their own size; in a narrow table cell a wider picture reaches past it (negative margin) instead of widening the column',
+      floats.length === 3 && /^float:right/.test(floats[0]) && /^float:left/.test(floats[1]) && floats.every((c) => /max-width:none/.test(c)) && /^float:left/.test(floats[2]) && mr < 0,
+      floats.join(' | '),
+    );
+  }
   check(
     'a crafted page size (one twip high, ten metres wide, margins larger than the page) is held within Word’s limits',
     tiny.page.height >= 7.2 && tiny.page.width <= 1584 && tiny.page.top + tiny.page.bottom < tiny.page.height,

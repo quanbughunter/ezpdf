@@ -49,7 +49,20 @@ export interface Drawn {
   align: 'left' | 'center' | 'right' | null;
   /** px from the left of the text column (a floating drawing placed by an offset) */
   offset: number;
+  /** text runs round it (wrap square, tight, through): shown as a float, not on its own line */
+  wrap?: boolean;
+  /** the distance kept from the text, px: top, right, bottom, left */
+  dist?: [number, number, number, number];
   label: string;
+}
+
+/** how a drawing sits in the text (see placement) */
+export interface Placement {
+  block: boolean;
+  align: Drawn['align'];
+  offset: number;
+  wrap: boolean;
+  dist: [number, number, number, number];
 }
 
 // ---- small helpers ----------------------------------------------------------
@@ -1018,19 +1031,28 @@ const svgWrap = (w: number, h: number, inner: string, label: string, clipId: str
   );
 };
 
-/** how a drawing sits in the text: inline, or floating (shown on its own line) with its alignment */
-export function placement(drawing: Element): { block: boolean; align: Drawn['align']; offset: number } {
+/**
+ * How a drawing sits in the text: inline, or floating with its alignment.
+ * A floating one that text runs round (wrap square, tight, through) becomes
+ * a float; the others (top and bottom, in front of or behind the text) are
+ * shown on their own line.
+ */
+export function placement(drawing: Element): Placement {
   const anchor = kids(drawing).find((k) => k.localName === 'anchor');
-  if (!anchor) return { block: false, align: null, offset: 0 };
+  const none: [number, number, number, number] = [0, 0, 0, 0];
+  if (!anchor) return { block: false, align: null, offset: 0, wrap: false, dist: none };
+  const wrap = kids(anchor).some((k) => /^wrap(Square|Tight|Through)$/.test(k.localName)) && anchor.getAttribute('behindDoc') !== '1';
+  const d = (a: string) => Math.min(48, Math.max(0, n(anchor.getAttribute(a)) / EMU_PX));
+  const dist: [number, number, number, number] = [d('distT'), d('distR'), d('distB'), d('distL')];
   const posH = byName(anchor, 'positionH');
   const al = byName(posH, 'align')?.textContent?.trim();
-  if (al === 'center') return { block: true, align: 'center', offset: 0 };
-  if (al === 'right' || al === 'outside') return { block: true, align: 'right', offset: 0 };
+  if (al === 'center') return { block: true, align: 'center', offset: 0, wrap: false, dist };
+  if (al === 'right' || al === 'outside') return { block: true, align: 'right', offset: 0, wrap, dist };
   // placed by an offset from the column or the margin: kept, within reason (page-relative offsets are not)
   const from = posH?.getAttribute('relativeFrom') ?? '';
   const off = n(byName(posH, 'posOffset')?.textContent) / EMU_PX;
-  const offset = ['column', 'margin', 'character', 'insideMargin', 'leftMargin'].includes(from) && from !== 'leftMargin' && off > 0 ? Math.min(off, 600) : 0;
-  return { block: true, align: 'left', offset };
+  const offset = ['column', 'margin', 'character', 'insideMargin', 'leftMargin'].includes(from) && from !== 'leftMargin' && off > 0 ? Math.min(off, 1200) : 0;
+  return { block: true, align: 'left', offset, wrap, dist };
 }
 
 /**
@@ -1052,7 +1074,7 @@ export function drawingSvg(drawing: Element, ctx: DrawCtx): Drawn | null {
   const uri = graphicData?.getAttribute('uri') ?? '';
   const body = graphicData ? kids(graphicData)[0] : null;
   if (!body) return null;
-  const { block, align, offset } = placement(drawing);
+  const { block, align, offset, wrap, dist } = placement(drawing);
   const whole: Map2 = (x, y, w, h) => ({ x: x / EMU_PX, y: y / EMU_PX, w: w / EMU_PX, h: h / EMU_PX });
   let inner = '';
   let label = 'Hình vẽ';
@@ -1095,7 +1117,7 @@ export function drawingSvg(drawing: Element, ctx: DrawCtx): Drawn | null {
     label = 'SmartArt';
   } else return null;
   if (!inner) return null;
-  return { html: svgWrap(W, H, inner, label, `ezc${ctx.uid()}`), w: W, h: H, block, align, offset, label };
+  return { html: svgWrap(W, H, inner, label, `ezc${ctx.uid()}`), w: W, h: H, block, align, offset, wrap, dist, label };
 }
 
 // ---- VML ------------------------------------------------------------------------------

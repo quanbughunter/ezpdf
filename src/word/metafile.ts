@@ -16,6 +16,7 @@
  * escaped. A malformed file gives null, never a partial or unsafe drawing.
  */
 import { escapeHtml } from './xml';
+import { encodePng } from './images';
 
 export interface MetaSvg {
   /** SVG content (markup) drawn in a w × h px box */
@@ -132,6 +133,15 @@ const ARROW_PIECE: Record<number, 'line' | 'right' | 'left' | 'both' | 'harpoonR
   0x71: 'line', 0x75: 'line', 0x72: 'right', 0x73: 'left', 0x74: 'both', 0x76: 'harpoonR', 0x77: 'harpoonL',
 };
 
+/**
+ * MT Extra's wide hats, the circumflex MathType puts over one, two or three
+ * letters (an angle: B̂AC), in three widths (em). Private glyphs no other font
+ * has: drawn as two strokes. Their ink sits about 0.40–0.62 em above the
+ * baseline MathType gives them (it sets that baseline a third of an em above
+ * the letters' own).
+ */
+const WIDE_HAT: Record<number, number> = { 0xb5: 0.62, 0xb6: 1.05, 0xb7: 1.9 };
+
 /** character codes → a string, a slice at a time (one call with ~65k arguments fails in Safari's engine) */
 function fromCodes(codes: ArrayLike<number>): string {
   let s = '';
@@ -198,9 +208,98 @@ function base64(bytes: Uint8Array): string {
   return s;
 }
 
-/** a device-independent bitmap (header + bits) → a data: URL a browser shows */
-function dibUrl(bmi: Uint8Array, bits: Uint8Array): string | null {
+/**
+ * What a raster operation does here. With a picture: drawn as it is, or, for
+ * the two halves of a transparent picture (a mask ORed in, then the picture
+ * ANDed), with the part that leaves the page as it was made transparent:
+ * black where it is ORed, white where it is ANDed. (Blend modes would do it
+ * too, but not in an SVG shown as an image.) With no picture: a fill with the
+ * brush, black, white, or nothing at all (NOP, inverting the page…).
+ */
+type Rop = 'copy' | 'and' | 'or' | 'brush' | 'black' | 'white' | 'none';
+function ropOf(rop: number, withPicture: boolean): Rop {
+  const op = (rop >>> 16) & 0xff;
+  if (withPicture) return op === 0x88 ? 'and' : op === 0xee ? 'or' : op === 0xaa ? 'none' : 'copy';
+  return op === 0xf0 ? 'brush' : op === 0x00 ? 'black' : op === 0xff ? 'white' : 'none';
+}
+
+const DIB_MAX_PIXELS = 4_000_000;
+
+/**
+ * An uncompressed DIB (1, 4, 8, 16, 24 or 32 bits; BI_RGB or BI_BITFIELDS)
+ * → RGBA, with the pixels of one colour (the 'keep the page' colour of an
+ * AND or OR picture) made transparent. Null for anything else.
+ */
+function dibToRgba(bmi: Uint8Array, bits: Uint8Array, clear: number): { rgba: Uint8Array; w: number; h: number } | null {
+  if (bmi.length < 40) return null;
+  const dv = new DataView(bmi.buffer, bmi.byteOffset, bmi.byteLength);
+  const hs = dv.getUint32(0, true);
+  const w = dv.getInt32(4, true), hRaw = dv.getInt32(8, true), bpp = dv.getUint16(14, true), comp = dv.getUint32(16, true);
+  const h = Math.abs(hRaw);
+  if (!(w > 0 && h > 0) || w * h > DIB_MAX_PIXELS || hs < 40 || hs > bmi.length) return null;
+  if (comp !== 0 && !(comp === 3 && (bpp === 16 || bpp === 32))) return null;
+  const stride = Math.ceil((w * bpp) / 32) * 4;
+  if (stride * h > bits.length) return null;
+  const used = dv.getUint32(32, true);
+  // bit-field masks: after the header (BITMAPINFOHEADER) or inside it (V4, V5)
+  let masks: [number, number, number] | null = null;
+  if (comp === 3) {
+    const at = 40; // right after BITMAPINFOHEADER, or inside a V4/V5 header at the same place
+    if (at + 12 > bmi.length) return null;
+    masks = [dv.getUint32(at, true), dv.getUint32(at + 4, true), dv.getUint32(at + 8, true)];
+  } else if (bpp === 16) masks = [0x7c00, 0x03e0, 0x001f];
+  const palAt = hs + (comp === 3 && hs === 40 ? 12 : 0);
+  const palette: number[] = [];
+  if (bpp <= 8) {
+    const n = Math.min(used || 1 << bpp, 1 << bpp);
+    for (let i = 0; i < n; i++) {
+      const o = palAt + i * 4;
+      palette.push(o + 3 <= bmi.length ? (bmi[o + 2] << 16) | (bmi[o + 1] << 8) | bmi[o] : 0);
+    }
+  }
+  const field = (v: number, m: number) => {
+    if (!m) return 0;
+    const shift = Math.clz32(m & -m) ^ 31;
+    const max = m >>> shift;
+    return Math.round((((v & m) >>> shift) * 255) / max);
+  };
+  const rgba = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    const row = (hRaw > 0 ? h - 1 - y : y) * stride;
+    for (let x = 0; x < w; x++) {
+      let c: number;
+      if (bpp <= 8) {
+        const bit = x * bpp;
+        const v = (bits[row + (bit >> 3)] >> (8 - bpp - (bit & 7))) & ((1 << bpp) - 1);
+        c = palette[v] ?? 0;
+      } else if (bpp === 16) {
+        const v = bits[row + x * 2] | (bits[row + x * 2 + 1] << 8);
+        c = (field(v, masks![0]) << 16) | (field(v, masks![1]) << 8) | field(v, masks![2]);
+      } else if (bpp === 24) {
+        const o = row + x * 3;
+        c = (bits[o + 2] << 16) | (bits[o + 1] << 8) | bits[o];
+      } else if (bpp === 32) {
+        const o = row + x * 4;
+        const v = (bits[o + 3] << 24) | (bits[o + 2] << 16) | (bits[o + 1] << 8) | bits[o];
+        c = masks ? (field(v, masks[0]) << 16) | (field(v, masks[1]) << 8) | field(v, masks[2]) : v & 0xffffff;
+      } else return null;
+      const o = (y * w + x) * 4;
+      rgba[o] = c >> 16;
+      rgba[o + 1] = (c >> 8) & 255;
+      rgba[o + 2] = c & 255;
+      rgba[o + 3] = c === clear ? 0 : 255;
+    }
+  }
+  return { rgba, w, h };
+}
+
+/** a device-independent bitmap (header + bits) → a data: URL a browser shows; an AND or OR half of a transparent picture as a PNG with that part clear */
+function dibUrl(bmi: Uint8Array, bits: Uint8Array, rop: Rop = 'copy'): string | null {
   if (bmi.length < 12) return null;
+  if (rop === 'and' || rop === 'or') {
+    const bm = dibToRgba(bmi, bits, rop === 'and' ? 0xffffff : 0);
+    if (bm) return `data:image/png;base64,${base64(encodePng(bm))}`;
+  }
   const dv = new DataView(bmi.buffer, bmi.byteOffset, bmi.byteLength);
   const headerSize = dv.getUint32(0, true);
   if (headerSize >= 40) {
@@ -429,6 +528,7 @@ class Player {
     if (isExtraFont(f)) {
       const keys = codes.map((c) => (c >= 0xf020 && c <= 0xf0ff ? c - 0xf000 : c));
       if (keys.some((k) => ARROW_PIECE[k]) && keys.every((k) => ARROW_PIECE[k] || k === 0x20)) return this.arrow(x, y, keys, dx);
+      if (keys.some((k) => WIDE_HAT[k]) && keys.every((k) => WIDE_HAT[k] || k === 0x20)) return this.hats(x, y, keys, dx);
     }
     const symbol = isSymbolFont(f) || isExtraFont(f);
     let str = isSymbolFont(f) ? symbolText(codes) : isExtraFont(f) ? extraText(codes) : raw8 ? decode8(raw8, f.charset) : fromCodes(codes);
@@ -529,10 +629,50 @@ class Player {
     this.emit(`<path d="${d.trim()}" fill="none" stroke="${this.dc.textColor}" stroke-width="${num(w)}" stroke-linecap="round" stroke-linejoin="round"/>`);
   }
 
-  image(l: number, t: number, w: number, h: number, url: string | null) {
-    if (!url) return;
+  /** MT Extra's wide hats (WIDE_HAT): a circumflex over the letters, each as wide as its glyph */
+  hats(x: number, y: number, keys: number[], dx: number[] | null) {
+    const f = this.dc.font;
+    const em = f.height ? this.lenY(Math.abs(f.height)) : 16 * this.devScale;
+    if (!(em > 0.2)) return;
+    const align = this.dc.textAlign;
+    if (align & 1) [x, y] = this.dc.cur;
+    const [px, py] = this.pt(x, y);
+    const vert = align & 0x18;
+    const baseY = vert === 0x18 ? py : vert === 8 ? py - 0.22 * em : py + em;
+    const flipX = this.pt(1, 0)[0] < this.pt(0, 0)[0] ? -1 : 1;
+    // the glyph's own width (MathType often gives the last advance as 0)
+    const width = (k: number) => (WIDE_HAT[k] ?? 0.25) * em;
+    let at = px;
+    let d = '';
+    keys.forEach((k, i) => {
+      const own = width(k);
+      const step = dx && i < dx.length && dx[i] > 0 ? this.lenX(dx[i]) * flipX : own * flipX;
+      if (WIDE_HAT[k]) {
+        const inset = 0.05 * em, x0 = at + inset * flipX, x1 = at + (own - inset) * flipX;
+        const top = baseY - 0.62 * em, low = baseY - 0.4 * em;
+        d += ` M${num(x0)},${num(low)} L${num((x0 + x1) / 2)},${num(top)} L${num(x1)},${num(low)}`;
+      }
+      at += step;
+    });
+    if (align & 1 && dx) this.dc.cur = [x + dx.slice(0, keys.length).reduce((a, b) => a + b, 0), y];
+    if (d) this.emit(`<path d="${d.trim()}" fill="none" stroke="${this.dc.textColor}" stroke-width="${num(Math.max(0.5, 0.045 * em))}" stroke-linecap="round" stroke-linejoin="miter"/>`);
+  }
+
+  image(l: number, t: number, w: number, h: number, url: string | null, rop: Rop = 'copy') {
+    if (!url || rop === 'none') return;
     const [x0, y0] = this.pt(l, t), [x1, y1] = this.pt(l + w, t + h);
     this.emit(`<image x="${num(Math.min(x0, x1))}" y="${num(Math.min(y0, y1))}" width="${num(Math.abs(x1 - x0))}" height="${num(Math.abs(y1 - y0))}" preserveAspectRatio="none" href="${url}"/>`);
+  }
+
+  /** a raster operation with no picture (PatBlt, BitBlt without a bitmap): the brush, black, white, or nothing */
+  blit(l: number, t: number, r: number, b: number, rop: Rop) {
+    if (rop !== 'brush' && rop !== 'black' && rop !== 'white') return;
+    const save = { pen: this.dc.pen, brush: this.dc.brush };
+    this.dc.pen = { style: 5, width: 0, color: '#000000' };
+    if (rop !== 'brush') this.dc.brush = { style: 0, color: rop === 'black' ? '#000000' : '#ffffff' };
+    this.rect(l, t, r, b);
+    this.dc.pen = save.pen;
+    this.dc.brush = save.brush;
   }
 
   // ---- paths (EMF BeginPath … FillPath) ----
@@ -768,33 +908,29 @@ function wmfToSvg(bytes: Uint8Array, size?: { w: number; h: number }): MetaSvg |
       case 0x061d: { // PatBlt (rop 4, height, width, y, x): a rectangle filled with the brush
         const rop = dv.getUint32(a, true);
         const h = i16(a + 4), w = i16(a + 6), y = i16(a + 8), x = i16(a + 10);
-        const save = { pen: p.dc.pen, brush: p.dc.brush };
-        p.dc.pen = { style: 5, width: 0, color: '#000000' };
-        if (rop === 0x00000042) p.dc.brush = { style: 0, color: '#000000' }; // BLACKNESS
-        else if (rop === 0x00ff0062) p.dc.brush = { style: 0, color: '#ffffff' }; // WHITENESS
-        else if (rop === 0x00550009) break; // DSTINVERT: nothing to show here
-        p.rect(x, y, x + w, y + h);
-        p.dc.pen = save.pen;
-        p.dc.brush = save.brush;
+        p.blit(x, y, x + w, y + h, ropOf(rop, false));
         break;
       }
       case 0x0f43: { // StretchDIB (rop 4, usage 2, srcH, srcW, ySrc, xSrc, destH, destW, yDest, xDest, DIB)
         const dh = i16(a + 14), dw = i16(a + 16), yd = i16(a + 18), xd = i16(a + 20);
         const dib = bytes.subarray(a + 22, pos + words * 2);
-        p.image(xd, yd, dw, dh, dibFromPacked(dib));
+        const rop = ropOf(dv.getUint32(a, true), true);
+        p.image(xd, yd, dw, dh, dibFromPacked(dib, rop), rop);
         break;
       }
       case 0x0b41: { // DibStretchBlt (rop 4, srcH, srcW, ySrc, xSrc, destH, destW, yDest, xDest, DIB)
         if (words * 2 > 6 + 22) {
           const dh = i16(a + 12), dw = i16(a + 14), yd = i16(a + 16), xd = i16(a + 18);
-          p.image(xd, yd, dw, dh, dibFromPacked(bytes.subarray(a + 20, pos + words * 2)));
+          const rop = ropOf(dv.getUint32(a, true), true);
+          p.image(xd, yd, dw, dh, dibFromPacked(bytes.subarray(a + 20, pos + words * 2), rop), rop);
         }
         break;
       }
       case 0x0940: { // DibBitBlt (rop 4, ySrc, xSrc, height, width, yDest, xDest, DIB)
         if (words * 2 > 6 + 18) {
           const h = i16(a + 8), w = i16(a + 10), yd = i16(a + 12), xd = i16(a + 14);
-          p.image(xd, yd, w, h, dibFromPacked(bytes.subarray(a + 16, pos + words * 2)));
+          const rop = ropOf(dv.getUint32(a, true), true);
+          p.image(xd, yd, w, h, dibFromPacked(bytes.subarray(a + 16, pos + words * 2), rop), rop);
         }
         break;
       }
@@ -809,7 +945,7 @@ function wmfToSvg(bytes: Uint8Array, size?: { w: number; h: number }): MetaSvg |
 }
 
 /** a packed DIB (BITMAPINFO followed by the bits) → data: URL */
-function dibFromPacked(dib: Uint8Array): string | null {
+function dibFromPacked(dib: Uint8Array, rop: Rop = 'copy'): string | null {
   if (dib.length < 40) return null;
   const dv = new DataView(dib.buffer, dib.byteOffset, dib.byteLength);
   const headerSize = dv.getUint32(0, true);
@@ -824,7 +960,7 @@ function dibFromPacked(dib: Uint8Array): string | null {
   }
   const bmiLen = headerSize + colors * 4;
   if (bmiLen > dib.length) return null;
-  return dibUrl(dib.subarray(0, bmiLen), dib.subarray(bmiLen));
+  return dibUrl(dib.subarray(0, bmiLen), dib.subarray(bmiLen), rop);
 }
 
 // ---- EMF --------------------------------------------------------------------------
@@ -1096,23 +1232,19 @@ function emfToSvg(bytes: Uint8Array): MetaSvg | null {
         const xd = i32(a + 16), yd = i32(a + 20);
         const offBmi = u32(a + 40), cbBmi = u32(a + 44), offBits = u32(a + 48), cbBits = u32(a + 52);
         const cw = i32(a + 64), ch = i32(a + 68);
+        const rop = ropOf(u32(a + 60), true);
         if (offBmi && cbBmi && offBits && pos + offBmi + cbBmi <= end && pos + offBits + cbBits <= end)
-          p.image(xd, yd, cw, ch, dibUrl(bytes.subarray(pos + offBmi, pos + offBmi + cbBmi), bytes.subarray(pos + offBits, pos + offBits + cbBits)));
+          p.image(xd, yd, cw, ch, dibUrl(bytes.subarray(pos + offBmi, pos + offBmi + cbBmi), bytes.subarray(pos + offBits, pos + offBits + cbBits), rop), rop);
         break;
       }
       case 76: // BitBlt
       case 77: { // StretchBlt
         const xd = i32(a + 16), yd = i32(a + 20), wd = i32(a + 24), hd = i32(a + 28);
         const offBmi = u32(a + 76), cbBmi = u32(a + 80), offBits = u32(a + 84), cbBits = u32(a + 88);
+        const rop = u32(a + 32);
         if (offBmi && cbBmi && pos + offBmi + cbBmi <= end && pos + offBits + cbBits <= end)
-          p.image(xd, yd, wd, hd, dibUrl(bytes.subarray(pos + offBmi, pos + offBmi + cbBmi), bytes.subarray(pos + offBits, pos + offBits + cbBits)));
-        else if (!offBmi) {
-          // a fill with the brush (PatBlt-like)
-          const save = p.dc.pen;
-          p.dc.pen = { style: 5, width: 0, color: '#000000' };
-          p.rect(xd, yd, xd + wd, yd + hd);
-          p.dc.pen = save;
-        }
+          p.image(xd, yd, wd, hd, dibUrl(bytes.subarray(pos + offBmi, pos + offBmi + cbBmi), bytes.subarray(pos + offBits, pos + offBits + cbBits), ropOf(rop, true)), ropOf(rop, true));
+        else if (!offBmi) p.blit(xd, yd, xd + wd, yd + hd, ropOf(rop, false)); // no picture: PatBlt-like (a NOP one draws nothing)
         break;
       }
       default:

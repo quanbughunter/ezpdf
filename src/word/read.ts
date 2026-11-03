@@ -160,6 +160,8 @@ interface Ctx {
   model: WordModel;
   part: string;
   opts: ReadOptions;
+  /** the width of the column being read, px: a table cell's (inside its padding), else the page's text width */
+  colW?: number;
   /** current table style (cell paragraphs) */
   inTable: number;
   /** state every part read shares */
@@ -321,10 +323,7 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
     const type = wVal(next, 'type') ?? 'nextPage';
     if (type !== 'continuous' && type !== 'nextColumn') shared.newPageAfter.add(p);
   });
-  const blocks = readBlocks(ctx, sectPr ? children.slice(0, -1) : children, (pending) => (model.tail = pending));
-  if (!blocks.length) blocks.push(schema.nodes.paragraph.create({ css: model.defaultCss }));
-  model.doc = schema.nodes.doc.create(null, blocks);
-
+  // the page first: floating drawings are placed in its text column
   if (sectPr) {
     const pg = wChild(sectPr, 'pgSz');
     const mar = wChild(sectPr, 'pgMar');
@@ -346,6 +345,12 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
       header: margin(t(mar, 'header', 36), height),
       footer: margin(t(mar, 'footer', 36), height),
     };
+  }
+  const blocks = readBlocks(ctx, sectPr ? children.slice(0, -1) : children, (pending) => (model.tail = pending));
+  if (!blocks.length) blocks.push(schema.nodes.paragraph.create({ css: model.defaultCss }));
+  model.doc = schema.nodes.doc.create(null, blocks);
+
+  if (sectPr) {
     const hf = (kind: 'header' | 'footer') => {
       const refs = wChildren(sectPr, `${kind}Reference`);
       const ref = refs.find((r) => wAttr(r, 'type') === 'default') ?? refs[0];
@@ -822,13 +827,36 @@ interface InlAttrs {
 const O = 'urn:schemas-microsoft-com:office:office';
 const pt = (px: number) => +(px * 0.75).toFixed(1);
 
-/** The holder of a floating drawing: on its own line, aligned as in the file */
-function blockCss(block: boolean, align: Drawn['align'], offset: number, image: boolean): string {
+/**
+ * The holder of a floating drawing. One that text runs round is a float on
+ * the side it is nearer (by its offset in a column `textW` px wide), kept at
+ * Word's distance from the text, and may reach into the margin as in Word.
+ * The others: on their own line, aligned as in the file.
+ */
+function blockCss(block: boolean, align: Drawn['align'], offset: number, image: boolean, float?: { wrap: boolean; w: number; dist: [number, number, number, number]; textW: number }): string {
   if (!block) return '';
+  if (float?.wrap && align !== 'center') {
+    const { w, dist, textW } = float;
+    const [t, r, b, l] = dist.map((v) => Math.round(v));
+    // (a picture wider than its column stays where its offset puts it: from the left)
+    const right = align === 'right' || (offset > 0 && w < textW && offset + w / 2 > textW / 2);
+    const keep = image ? ';max-width:none' : '';
+    // a picture wider than what is left of the column reaches past it (negative margins), as in Word, without widening a table cell
+    if (right) {
+      // as far from the right edge as Word puts it (a negative margin: into the page margin, at most 72 px)
+      const mr = Math.min(align === 'right' ? 0 : Math.max(-72, Math.round(textW - offset - w)), Math.round(textW / 2));
+      const ml = Math.round(l - Math.max(0, w + mr + l - textW));
+      return `float:right;margin:${t}px ${mr}px ${b}px ${ml}px${keep}`;
+    }
+    const ml = Math.round(Math.min(offset, textW));
+    const mr = Math.round(r - Math.max(0, ml + w + r - textW));
+    return `float:left;margin:${t}px ${mr}px ${b}px ${ml}px${keep}`;
+  }
   if (image) {
-    if (align === 'center') return 'display:block;margin-left:auto;margin-right:auto';
-    if (align === 'right') return 'display:block;margin-left:auto';
-    return `display:block${offset ? `;margin-left:${Math.round(offset)}px` : ''}`;
+    // its own size, as Word draws it, even when that runs past a narrow table cell into the margin
+    if (align === 'center') return 'display:block;margin-left:auto;margin-right:auto;max-width:none';
+    if (align === 'right') return 'display:block;margin-left:auto;max-width:none';
+    return `display:block${offset ? `;margin-left:${Math.round(offset)}px` : ''};max-width:none`;
   }
   if (align === 'center' || align === 'right') return `text-align:${align}`;
   return offset ? `padding-left:${Math.round(offset)}px` : '';
@@ -859,7 +887,7 @@ function visualOf(ctx: Ctx, el: Element): InlAttrs {
     const pic = drawingPicture(ctx, drawing);
     if (pic) return pic;
     const d = safeDraw(ctx, () => drawingSvg(drawing, dc));
-    if (d) return shapeAttrs(d);
+    if (d) return shapeAttrs(d, textWidthPx(ctx));
   }
   const pict = isW(el, 'pict') || isW(el, 'object') ? el : (el.getElementsByTagNameNS(NS.w, 'pict')[0] ?? el.getElementsByTagNameNS(NS.w, 'object')[0]);
   if (pict) {
@@ -898,9 +926,13 @@ function safeDraw(ctx: Ctx, f: () => Drawn | null): Drawn | null {
   }
 }
 
-function shapeAttrs(d: Drawn): InlAttrs {
-  return { kind: 'shape', label: d.label, html: d.html, w: pt(d.w), h: pt(d.h), block: d.block, css: blockCss(d.block, d.align, d.offset, false) };
+function shapeAttrs(d: Drawn, textW = 0): InlAttrs {
+  const float = d.wrap && textW ? { wrap: true, w: d.w, dist: d.dist ?? [0, 0, 0, 0] as [number, number, number, number], textW } : undefined;
+  return { kind: 'shape', label: d.label, html: d.html, w: pt(d.w), h: pt(d.h), block: d.block, css: blockCss(d.block, d.align, d.offset, false, float) };
 }
+
+/** the text column's width, px (the page's, between its margins) */
+const textWidthPx = (ctx: Ctx) => ctx.colW ?? Math.max(48, ((ctx.model.page.width - ctx.model.page.left - ctx.model.page.right) * 4) / 3);
 
 /** a plain picture in a w:drawing (graphicData …/picture) */
 function drawingPicture(ctx: Ctx, drawing: Element): InlAttrs | null {
@@ -913,7 +945,8 @@ function drawingPicture(ctx: Ctx, drawing: Element): InlAttrs | null {
   const h = emuToPt(Number(extent?.getAttribute('cy') ?? 0));
   const place = placement(drawing);
   if (!rid) return { kind: 'mark', label: 'Hình' };
-  return pictureAttrs(ctx, rid, w, h, blockCss(place.block, place.align, place.offset, true), place.block);
+  const float = place.wrap ? { wrap: true, w: (w * 4) / 3, dist: place.dist, textW: textWidthPx(ctx) } : undefined;
+  return pictureAttrs(ctx, rid, w, h, blockCss(place.block, place.align, place.offset, true, float), place.block);
 }
 
 function pictureAttrs(ctx: Ctx, rid: string, w: number, h: number, css: string, block: boolean): InlAttrs {
@@ -1160,11 +1193,10 @@ function readTable(ctx: Ctx, tbl: Element, before: number[] | null): PMNode {
       const tcPr = wChild(tc, 'tcPr');
       const cellCss: string[] = ['padding:0 5.4pt', 'vertical-align:top'];
       const w = wChild(tcPr, 'tcW');
-      if (wAttr(w, 'type') === 'dxa' && num(wAttr(w, 'w'))) cellCss.push(`width:${num(wAttr(w, 'w'))! / 20}pt`);
-      else if (grid.length) {
-        const sum = grid.slice(col, col + span).reduce((a, b) => a + b, 0);
-        if (sum) cellCss.push(`width:${sum}pt`);
-      }
+      let cellPt = 0;
+      if (wAttr(w, 'type') === 'dxa' && num(wAttr(w, 'w'))) cellPt = num(wAttr(w, 'w'))! / 20;
+      else if (grid.length) cellPt = grid.slice(col, col + span).reduce((a, b) => a + b, 0);
+      if (cellPt) cellCss.push(`width:${cellPt}pt`);
       const va = wVal(tcPr, 'vAlign');
       if (va === 'center') cellCss[1] = 'vertical-align:middle';
       else if (va === 'bottom') cellCss[1] = 'vertical-align:bottom';
@@ -1182,11 +1214,15 @@ function readTable(ctx: Ctx, tbl: Element, before: number[] | null): PMNode {
       cellCss.push(`border-right:${side('right', col + span >= totalCols ? 'right' : 'insideV')}`);
       col += span;
       let tail: number[] | null = null;
+      // floating pictures in the cell are placed in its width
+      const outerW = ctx.colW;
+      if (cellPt) ctx.colW = Math.max(24, ((cellPt - 10.8) * 4) / 3);
       const content = readBlocks(
         ctx,
         elements(tc).filter((e) => !isW(e, 'tcPr')),
         (pending) => (tail = pending),
       );
+      ctx.colW = outerW;
       if (!content.length) content.push(schema.nodes.paragraph.create({ css: model.defaultCss }));
       return schema.nodes.table_cell.create({ colspan: span, css: cellCss.join(';'), tail }, content);
     });

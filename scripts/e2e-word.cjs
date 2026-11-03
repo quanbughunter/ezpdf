@@ -803,7 +803,9 @@ let onCrash = async () => {};
       loaded: [...new Set(loaded)].filter((f) => /Times|Palatino|Calibri|Arial/.test(f)),
     };
   });
-  const near1 = (a, b) => Math.abs(a - b) / b < 0.003; // kerning between two letter-range files of one font is not applied: a hair's difference
+  // a hair's difference: kerning between two letter-range files of one font is not applied, and some machines (the CI runner)
+  // round a downloaded font's letter widths to whole pixels (0.9 % there); a font of other widths is off by 5 % and more
+  const near1 = (a, b) => Math.abs(a - b) / b < 0.015;
   check(
     'Word’s fonts on a machine without them (as Android): Times New Roman, Arial, Calibri drawn by the app’s Tinos, Arimo, Carlito with the letter widths of their metric twins; Palatino Linotype by the app’s Pagella',
     near1(fontsUsed.times, fontsUsed.liberation) && near1(fontsUsed.arial, fontsUsed.liberationSans) && near1(fontsUsed.calibri, fontsUsed.carlito) &&

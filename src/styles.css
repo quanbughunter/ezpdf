@@ -134,9 +134,9 @@
   min-height: 1.15em;
   overflow-wrap: break-word;
 }
+/* a table (and a picture floating in it) may reach into the margin, as in Word: the page keeps its width, nothing scrolls inside it */
 .ez-wtable {
-  overflow-x: auto;
-  max-width: 100%;
+  overflow: visible;
 }
 .ez-wtable table {
   margin: 2pt 0;

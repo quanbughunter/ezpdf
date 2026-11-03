@@ -5,11 +5,12 @@ import {
   PdfTextAlignment,
   type PdfAnnotationObject,
   type PdfFreeTextAnnoObject,
+  type PdfMetadataObject,
 } from '@embedpdf/models';
 import { useAnnotation } from '@embedpdf/plugin-annotation/react';
 import type { TrackedAnnotation } from '@embedpdf/plugin-annotation';
 import { useScroll } from '@embedpdf/plugin-scroll/react';
-import { useDocumentState } from '@embedpdf/core/react';
+import { useDocumentState, useRegistry } from '@embedpdf/core/react';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
 import { Label } from '@/components/ui/label';
@@ -24,6 +25,7 @@ import { growToFit } from './viewer/free-text';
 import { isEzImage, isLockedForeignStamp } from './images/stamp-guard';
 import type { DocumentSession } from './use-document-session';
 import { formatWhen } from './draft-list';
+import { Fact, FactList, FileFacts, formatDate } from './file-info';
 
 const KIND: Record<number, string> = {
   [PdfAnnotationSubtype.FREETEXT]: 'Ô chữ',
@@ -58,15 +60,18 @@ export function PropertiesPanel({
   documentId,
   fileName,
   session,
+  onOpenFile,
 }: {
   documentId: string;
   fileName: string;
   session: DocumentSession;
+  /** opens a file picked in the folder the information panel shows */
+  onOpenFile?: (file: File) => void;
 }) {
   const { state, provides } = useAnnotation(documentId);
   const selected = state.selectedUids.map((id) => state.byUid[id]).filter(Boolean) as TrackedAnnotation[];
 
-  if (selected.length === 0) return <DocumentInfo documentId={documentId} fileName={fileName} session={session} />;
+  if (selected.length === 0) return <DocumentInfo documentId={documentId} fileName={fileName} session={session} onOpenFile={onOpenFile} />;
 
   const remove = () => provides?.deleteAnnotations(selected.map((t) => ({ pageIndex: t.object.pageIndex, id: t.object.id })));
   if (selected.length > 1) {
@@ -211,9 +216,64 @@ function FreeTextProps({ obj, update }: { obj: PdfFreeTextAnnoObject; update: (p
   );
 }
 
-function DocumentInfo({ documentId, fileName, session }: { documentId: string; fileName: string; session: DocumentSession }) {
+/** the PDF's own properties (its Info dictionary), as the engine reads them */
+function usePdfMetadata(documentId: string) {
+  const { registry } = useRegistry();
+  const doc = useDocumentState(documentId)?.document;
+  const [meta, setMeta] = useState<PdfMetadataObject | null>(null);
+  useEffect(() => {
+    setMeta(null);
+    if (!registry || !doc) return;
+    let live = true;
+    registry
+      .getEngine()
+      .getMetadata(doc)
+      .wait(
+        (m) => live && setMeta(m),
+        () => {},
+      );
+    return () => {
+      live = false;
+    };
+  }, [registry, doc]);
+  return { meta, encrypted: !!doc?.isEncrypted };
+}
+
+/** a text value from a file, tidied and bounded; empty → undefined */
+const shown = (s: string | null | undefined) => {
+  const t = (s ?? '').replace(/\s+/g, ' ').trim();
+  return t ? t.slice(0, 300) : undefined;
+};
+const validDate = (d: Date | null | undefined) => (d instanceof Date && Number.isFinite(d.getTime()) && d.getFullYear() > 1970 ? d.getTime() : undefined);
+
+function DocumentInfo({
+  documentId,
+  fileName,
+  session,
+  onOpenFile,
+}: {
+  documentId: string;
+  fileName: string;
+  session: DocumentSession;
+  onOpenFile?: (file: File) => void;
+}) {
   const { state } = useScroll(documentId);
   const pageCount = useDocumentState(documentId)?.document?.pageCount ?? state.totalPages;
+  const { meta, encrypted } = usePdfMetadata(documentId);
+  const info = session.fileInfo ?? { name: fileName };
+  const props: [string, string | undefined][] = [
+    ['Tiêu đề', shown(meta?.title)],
+    ['Tác giả', shown(meta?.author)],
+    ['Chủ đề', shown(meta?.subject)],
+    ['Từ khóa', shown(meta?.keywords)],
+    ['Ứng dụng tạo', shown(meta?.creator)],
+    ['Trình tạo PDF', shown(meta?.producer)],
+    ['Ngày tạo', validDate(meta?.creationDate) !== undefined ? formatDate(validDate(meta?.creationDate)!) : undefined],
+    ['Ngày sửa', validDate(meta?.modificationDate) !== undefined ? formatDate(validDate(meta?.modificationDate)!) : undefined],
+    ['Phiên bản PDF', session.fileInfo?.pdfVersion],
+    ['Bảo vệ', encrypted ? 'Có mật khẩu hoặc giới hạn quyền' : undefined],
+  ];
+  const present = props.filter((p): p is [string, string] => !!p[1]);
   const d = session.draftStatus;
   const draftText =
     d.kind === 'saved'
@@ -227,11 +287,8 @@ function DocumentInfo({ documentId, fileName, session }: { documentId: string; f
     session.exportStatus.kind === 'done' ? 'Đã xuất bản mới nhất' : session.dirty ? 'Có thay đổi chưa xuất' : 'Không có thay đổi';
   return (
     <Panel title="Tài liệu">
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[13px]">
-        <dt className="text-muted-foreground">Tệp gốc</dt>
-        <dd className="truncate" title={fileName}>
-          {fileName}
-        </dd>
+      <FileFacts info={info} onOpenFile={onOpenFile} />
+      <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[13px]">
         <dt className="text-muted-foreground">Số trang</dt>
         <dd data-testid="info-pages">{pageCount}</dd>
         <dt className="text-muted-foreground">Đang xem</dt>
@@ -243,6 +300,18 @@ function DocumentInfo({ documentId, fileName, session }: { documentId: string; f
         <dt className="text-muted-foreground">Xuất</dt>
         <dd>{exportText}</dd>
       </dl>
+      {present.length > 0 && (
+        <div data-testid="info-props">
+          <h3 className="mb-2 text-[13px] font-bold">Thuộc tính trong tệp</h3>
+          <FactList>
+            {present.map(([k, v]) => (
+              <Fact key={k} label={k}>
+                {v}
+              </Fact>
+            ))}
+          </FactList>
+        </div>
+      )}
       <p className="text-xs leading-relaxed text-muted-foreground">
         Tệp gốc không bao giờ bị ghi đè. Mọi thay đổi tự lưu thành bản nháp trên máy này; “Xuất PDF” tạo một tệp mới.
       </p>

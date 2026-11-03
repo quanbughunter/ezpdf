@@ -42,6 +42,8 @@ interface Brush {
 }
 interface Font {
   height: number;
+  /** lfWidth: the average character width asked for (logical units; 0: the font's own) */
+  width: number;
   escapement: number;
   weight: number;
   italic: boolean;
@@ -72,7 +74,7 @@ interface DC {
 
 const BLACK_PEN: Pen = { style: 0, width: 0, color: '#000000' };
 const WHITE_BRUSH: Brush = { style: 0, color: '#ffffff' };
-const DEFAULT_FONT: Font = { height: -16, escapement: 0, weight: 400, italic: false, underline: false, strike: false, charset: 0, family: 0, face: 'Arial' };
+const DEFAULT_FONT: Font = { height: -16, width: 0, escapement: 0, weight: 400, italic: false, underline: false, strike: false, charset: 0, family: 0, face: 'Arial' };
 
 const colorRef = (r: number, g: number, b: number) => `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
@@ -141,6 +143,58 @@ const ARROW_PIECE: Record<number, 'line' | 'right' | 'left' | 'both' | 'harpoonR
  * the letters' own).
  */
 const WIDE_HAT: Record<number, number> = { 0xb5: 0.62, 0xb6: 1.05, 0xb7: 1.9 };
+
+/**
+ * Symbol's pieces of tall brackets: MathType builds a bracket taller than a
+ * line from a top, a bottom, a middle (braces) and as many extenders as it
+ * needs, each a character drawn at its own place. Unicode has these pieces
+ * (⎛ ⎜ ⎝, ⎧ ⎨ ⎩ ⎪…), but each font draws them at its own height, so with any
+ * font but Symbol they leave gaps or overlap (Android, which has no font with
+ * Symbol's shapes, showed broken braces and parentheses). They are drawn
+ * here as shapes with Symbol's own extents, from Adobe's Symbol metrics
+ * (units of 1/1000 em, y up from the baseline): advance, then the outline.
+ * Right-hand pieces are the left-hand ones mirrored.
+ */
+const PAREN_TP = 'M24,-293 L24,330 C24,640 190,850 420,926 L436,906 C250,830 108,640 108,330 L108,-293 Z';
+const PAREN_EX = 'M24,-85 L24,925 L108,925 L108,-85 Z';
+const BRACKET_TP = 'M0,-80 L0,926 L349,926 L349,876 L77,876 L77,-80 Z';
+const BRACKET_EX = 'M0,-79 L0,925 L77,925 L77,-79 Z';
+// MathType lets the extenders run over most of a brace's top, middle and bottom: their stroke stays straight nearly to the ends
+const BRACE_TP = 'M209,-85 L209,760 C209,870 290,920 445,925 L445,893 C340,888 284,850 284,760 L284,-85 Z';
+const BRACE_MID = 'M209,-85 L209,250 C209,350 120,410 20,425 C120,440 209,500 209,600 L209,935 L284,935 L284,-85 Z';
+const BRACE_EX = 'M209,-85 L209,935 L284,935 L284,-85 Z';
+const INTEGRAL_TP = 'M308,-88 L308,620 C308,840 430,920 560,920 C620,920 675,900 675,870 L640,858 C610,882 580,890 550,890 C450,890 378,820 378,620 L378,-88 Z';
+/** an outline with every point (u, v) moved by `f` */
+const mapPath = (d: string, f: (u: number, v: number) => [number, number]) =>
+  d.replace(/(-?[\d.]+),(-?[\d.]+)/g, (_, u, v) => f(Number(u), Number(v)).join(','));
+const flipV = (d: string, sum: number) => mapPath(d, (u, v) => [u, sum - v]);
+const flipH = (d: string, sum: number) => mapPath(d, (u, v) => [sum - u, v]);
+const PIECE: Record<number, [number, string]> = {
+  0xe6: [384, PAREN_TP], 0xe7: [384, PAREN_EX], 0xe8: [384, flipV(PAREN_TP, 633)],
+  0xf6: [384, flipH(PAREN_TP, 490)], 0xf7: [384, flipH(PAREN_EX, 490)], 0xf8: [384, flipH(flipV(PAREN_TP, 633), 490)],
+  0xe9: [384, BRACKET_TP], 0xea: [384, BRACKET_EX], 0xeb: [384, flipV(BRACKET_TP, 846)],
+  0xf9: [384, flipH(BRACKET_TP, 371)], 0xfa: [384, flipH(BRACKET_EX, 371)], 0xfb: [384, flipH(flipV(BRACKET_TP, 846), 371)],
+  0xec: [494, BRACE_TP], 0xed: [494, BRACE_MID], 0xee: [494, flipV(BRACE_TP, 850)], 0xef: [494, BRACE_EX],
+  0xfc: [494, flipH(BRACE_TP, 493)], 0xfd: [494, flipH(BRACE_MID, 493)], 0xfe: [494, flipH(flipV(BRACE_TP, 850), 493)],
+  0xf3: [686, INTEGRAL_TP], 0xf4: [686, 'M308,-88 L308,975 L378,975 L378,-88 Z'],
+  0xf5: [686, mapPath(INTEGRAL_TP, (u, v) => [686 - u, 833 - v])],
+  // the vertical and horizontal line extenders (tall bars, long arrows)
+  0xbd: [603, 'M280,-120 L280,1010 L336,1010 L336,-120 Z'], 0xbe: [1000, 'M-60,220 L-60,276 L1050,276 L1050,220 Z'],
+};
+
+/** a piece's outline (PIECE) at `x0` on `baseY`, `em` high, `sx` times its width (negative: mirrored); '' for other characters */
+function piecePath(k: number, x0: number, baseY: number, em: number, sx: number): string {
+  const piece = PIECE[k];
+  return piece ? ` ${mapPath(piece[1], (u, v) => [r2(x0 + (u / 1000) * em * sx), r2(baseY - (v / 1000) * em)])}` : '';
+}
+
+/**
+ * The average character width GDI gives Symbol and Euclid Symbol (em). A
+ * font asked with a width (lfWidth) is drawn narrower or wider by that
+ * width over this one: MathType makes a bracket a little taller than the
+ * text this way and keeps it as narrow as at the text's size.
+ */
+const AVERAGE_WIDTH: Record<string, number> = { symbol: 0.591, 'euclid symbol': 0.607 };
 
 /** character codes → a string, a slice at a time (one call with ~65k arguments fails in Safari's engine) */
 function fromCodes(codes: ArrayLike<number>): string {
@@ -530,6 +584,10 @@ class Player {
       if (keys.some((k) => ARROW_PIECE[k]) && keys.every((k) => ARROW_PIECE[k] || k === 0x20)) return this.arrow(x, y, keys, dx);
       if (keys.some((k) => WIDE_HAT[k]) && keys.every((k) => WIDE_HAT[k] || k === 0x20)) return this.hats(x, y, keys, dx);
     }
+    if (isSymbolFont(f)) {
+      const keys = codes.map((c) => (c >= 0xf020 && c <= 0xf0ff ? c - 0xf000 : c));
+      if (keys.some((k) => PIECE[k]) && keys.every((k) => PIECE[k] || k === 0x20)) return this.pieces(x, y, keys, dx);
+    }
     const symbol = isSymbolFont(f) || isExtraFont(f);
     let str = isSymbolFont(f) ? symbolText(codes) : isExtraFont(f) ? extraText(codes) : raw8 ? decode8(raw8, f.charset) : fromCodes(codes);
     if (!str) return;
@@ -558,9 +616,24 @@ class Player {
       });
       if (align & 1) this.dc.cur = [x + dx.reduce((a, b) => a + b, 0), y];
     }
+    const sx = this.squeeze(f, em);
+    // MathType also puts pieces of tall brackets in a string with other characters ("⎡−>⎡>"): the pieces are drawn as shapes, the rest as text
+    if (xs && isSymbolFont(f)) {
+      const keys = codes.map((c) => (c >= 0xf020 && c <= 0xf0ff ? c - 0xf000 : c));
+      if (keys.length === chars.length && keys.some((k) => PIECE[k])) {
+        const d = keys.map((k, i) => piecePath(k, xs![i], baseY, em, sx * flipX)).join('');
+        if (d) this.emit(`<path d="${d.trim()}" fill="${this.dc.textColor}"/>`);
+        const keep = keys.map((k, i) => !PIECE[k] && chars[i] !== ' ');
+        const pos = xs.filter((_, i) => keep[i]);
+        const rest = chars.filter((_, i) => keep[i]);
+        if (!rest.length) return;
+        chars.length = 0;
+        chars.push(...rest);
+        xs = pos;
+      }
+    }
     const anchor = xs ? 'start' : horiz === 2 ? 'end' : horiz === 6 ? 'middle' : 'start';
     const attrs = [
-      `x="${xs ? xs.map(num).join(' ') : num(px)}"`,
       `y="${num(baseY)}"`,
       `font-family="${escapeHtml(fontStack(f, symbol))}"`,
       `font-size="${num(em)}"`,
@@ -570,9 +643,52 @@ class Player {
     if (f.weight >= 600) attrs.push('font-weight="bold"');
     if (f.underline || f.strike) attrs.push(`text-decoration="${f.underline ? 'underline' : 'line-through'}"`);
     if (anchor !== 'start') attrs.push(`text-anchor="${anchor}"`);
-    if (f.escapement) attrs.push(`transform="rotate(${num(-f.escapement / 10)} ${num(px)} ${num(py)})"`);
-    str = chars.join('');
-    this.emit(`<text ${attrs.join(' ')} style="white-space:pre">${escapeHtml(str)}</text>`);
+    const rotate = f.escapement ? `rotate(${num(-f.escapement / 10)} ${num(px)} ${num(py)})` : '';
+    if (sx === 1) {
+      if (rotate) attrs.push(`transform="${rotate}"`);
+      this.emit(`<text x="${xs ? xs.map(num).join(' ') : num(px)}" ${attrs.join(' ')} style="white-space:pre">${escapeHtml(chars.join(''))}</text>`);
+      return;
+    }
+    // narrower or wider glyphs, each at its own place: one element per character, squeezed about where it starts
+    const at = xs ?? [px];
+    const runs = xs ? chars : [chars.join('')];
+    runs.forEach((run, i) => {
+      const scale = `matrix(${num(sx)} 0 0 1 ${num(at[i] * (1 - sx))} 0)`;
+      this.emit(`<text x="${num(at[i])}" ${attrs.join(' ')} transform="${rotate ? `${rotate} ` : ''}${scale}" style="white-space:pre">${escapeHtml(run)}</text>`);
+    });
+  }
+
+  /** how much narrower (or wider) than its own a font asked with a width is drawn (AVERAGE_WIDTH); 1 when not asked or not known */
+  squeeze(f: Font, em: number): number {
+    const avg = AVERAGE_WIDTH[f.face.trim().toLowerCase()];
+    if (!f.width || !avg || !(em > 0)) return 1;
+    const s = this.lenX(Math.abs(f.width)) / (avg * em);
+    return Number.isFinite(s) && Math.abs(s - 1) > 0.02 ? Math.min(4, Math.max(0.25, s)) : 1;
+  }
+
+  /** Symbol's pieces of tall brackets (PIECE), each drawn as its shape at its place */
+  pieces(x: number, y: number, keys: number[], dx: number[] | null) {
+    const f = this.dc.font;
+    const em = f.height ? (f.height < 0 ? this.lenY(-f.height) : this.lenY(f.height) * 0.82) : 16 * this.devScale;
+    if (!(em > 0.2)) return;
+    const align = this.dc.textAlign;
+    if (align & 1) [x, y] = this.dc.cur;
+    const [px, py] = this.pt(x, y);
+    const vert = align & 0x18;
+    const baseY = vert === 0x18 ? py : vert === 8 ? py - 0.22 * em : py + em;
+    const flipX = this.pt(1, 0)[0] < this.pt(0, 0)[0] ? -1 : 1;
+    const sx = this.squeeze(f, em) * flipX;
+    const adv = keys.map((k, i) => (dx && i < dx.length && dx[i] > 0 ? this.lenX(dx[i]) * flipX : ((PIECE[k]?.[0] ?? 250) / 1000) * em * sx));
+    const total = adv.reduce((a, b) => a + b, 0);
+    const horiz = align & 6;
+    let at = horiz === 2 ? px - total : horiz === 6 ? px - total / 2 : px;
+    let d = '';
+    keys.forEach((k, i) => {
+      d += piecePath(k, at, baseY, em, sx);
+      at += adv[i];
+    });
+    if (align & 1 && dx) this.dc.cur = [x + dx.slice(0, keys.length).reduce((a, b) => a + b, 0), y];
+    if (d) this.emit(`<path d="${d.trim()}" fill="${this.dc.textColor}"/>`);
   }
 
   /**
@@ -815,6 +931,7 @@ function wmfToSvg(bytes: Uint8Array, size?: { w: number; h: number }): MetaSvg |
         addObject({
           font: {
             height: i16(a),
+            width: i16(a + 2),
             escapement: i16(a + 4),
             weight: i16(a + 8),
             italic: !!dv.getUint8(a + 10),
@@ -1092,6 +1209,7 @@ function emfToSvg(bytes: Uint8Array): MetaSvg | null {
           p.objects[u32(a)] = {
             font: {
               height: i32(a + 4),
+              width: i32(a + 8),
               escapement: i32(a + 12),
               weight: i32(a + 20),
               italic: !!dv.getUint8(a + 24),

@@ -18,14 +18,14 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { createTauriBackend } from './storage/tauri-fs';
-import { asDocFile, baseName, dirName, incomingQueue, type Platform, type ShareWay } from './types';
+import { asDocFile, baseName, dirName, incomingQueue, rememberSource, type Platform, type ShareWay } from './types';
 
 const PDF = [{ name: 'PDF', extensions: ['pdf'] }];
 const WORD = [{ name: 'Word', extensions: ['docx'] }];
 const ANY = [{ name: 'PDF hoặc Word', extensions: ['pdf', 'docx'] }, ...PDF, ...WORD];
 
 async function fileAt(path: string) {
-  return asDocFile(await readFile(path), baseName(path));
+  return rememberSource(asDocFile(await readFile(path), baseName(path)), { path });
 }
 
 export async function createTauriPlatform(): Promise<Platform> {

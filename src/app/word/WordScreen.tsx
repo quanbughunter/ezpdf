@@ -12,6 +12,7 @@ import {
   Bold,
   Check,
   FolderOpen,
+  Info,
   Italic,
   Loader2,
   Lock,
@@ -37,7 +38,9 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { usePlatform } from '@/platform';
-import { DOCX_MIME, type ShareWay } from '@/platform/types';
+import { DOCX_MIME, sourceOf, type ShareWay } from '@/platform/types';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Fact, FactList, FileFacts, formatDate, type FileFactsInfo } from '../file-info';
 import { readDocx, type WordModel } from '@/word/read';
 import { writeDocx } from '@/word/write';
 import { markers } from '@/word/numbering';
@@ -72,8 +75,11 @@ const isAbort = (e: unknown) => e instanceof DOMException && e.name === 'AbortEr
 /** "Hợp đồng.docx" → "Hợp đồng (ezPDF).docx": the original is never overwritten */
 export const savedName = (name: string) => `${name.replace(/\.docx$/i, '').replace(/ \(ezPDF\)$/, '')} (ezPDF).docx`;
 
-export const WordScreen = forwardRef<WordScreenHandle, { file: File; onClose: () => void; onOpen: () => void; phone: boolean }>(
-  function WordScreen({ file, onClose, onOpen, phone }, ref) {
+export const WordScreen = forwardRef<
+  WordScreenHandle,
+  { file: File; onClose: () => void; onOpen: () => void; phone: boolean; onOpenFile?: (file: File) => void }
+>(
+  function WordScreen({ file, onClose, onOpen, phone, onOpenFile }, ref) {
     const [model, setModel] = useState<WordModel | null>(null);
     const [error, setError] = useState<string | null>(null);
     const dirtyRef = useRef(false);
@@ -111,6 +117,11 @@ export const WordScreen = forwardRef<WordScreenHandle, { file: File; onClose: ()
         made?.urls.forEach((u) => URL.revokeObjectURL(u));
       };
     }, [file]);
+
+    const info = useMemo<FileFactsInfo>(() => {
+      const source = sourceOf(file);
+      return { name: file.name, size: file.size, source, modified: source?.modified ?? (platform.kind === 'web' ? file.lastModified : undefined) };
+    }, [file, platform]);
 
     const leave = useCallback((go: () => void) => {
       if (!dirtyRef.current) go();
@@ -152,7 +163,15 @@ export const WordScreen = forwardRef<WordScreenHandle, { file: File; onClose: ()
         className="fixed inset-0 z-50 flex flex-col bg-canvas"
       >
         {model ? (
-          <WordEditor model={model} phone={phone} onDirty={(d) => (dirtyRef.current = d)} onClose={() => leave(onClose)} onOpen={onOpen} />
+          <WordEditor
+            model={model}
+            phone={phone}
+            info={info}
+            onDirty={(d) => (dirtyRef.current = d)}
+            onClose={() => leave(onClose)}
+            onOpen={onOpen}
+            onOpenFile={onOpenFile ? (f) => leave(() => onOpenFile(f)) : undefined}
+          />
         ) : (
           <>
             <header className="ez-topbar sticky top-0 z-30 flex shrink-0 items-center gap-1 border-b bg-background px-2">
@@ -321,16 +340,21 @@ const READ_FIRST = '(pointer: coarse) and (max-width: 999px) and (max-height: 99
 function WordEditor({
   model,
   phone,
+  info,
   onDirty,
   onClose,
   onOpen,
+  onOpenFile,
 }: {
   model: WordModel;
   phone: boolean;
+  info: FileFactsInfo;
   onDirty: (dirty: boolean) => void;
   onClose: () => void;
   onOpen: () => void;
+  onOpenFile?: (file: File) => void;
 }) {
+  const [infoOpen, setInfoOpen] = useState(false);
   const platform = usePlatform();
   const mount = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -840,6 +864,9 @@ function WordEditor({
         <span className="mr-1 md:hidden">
           <WordState dirty={dirty} saved={everSaved} compact />
         </span>
+        <WBtn label="Thông tin tệp" testId="word-info" onClick={() => setInfoOpen(true)} pressed={infoOpen}>
+          <Info />
+        </WBtn>
         {ways.length > 0 && <WordShare ways={ways} busy={busy === 'share'} disabled={!!busy} onShare={(w) => void share(w)} />}
         {editing && !phone && editToggle}
         {(editing || dirty) && (
@@ -857,6 +884,7 @@ function WordEditor({
         )}
         {reading && editToggle}
       </header>
+      <WordInfoDialog open={infoOpen} onOpenChange={setInfoOpen} info={info} model={model} pages={pages} onOpenFile={onOpenFile} />
       {phone && editing && (
         <div data-testid="word-format-bar" className="flex h-11 shrink-0 items-center gap-0.5 border-b bg-background px-1">
           {formatTools}
@@ -1076,5 +1104,83 @@ function WordShare({ ways, busy, disabled, onShare }: { ways: readonly ShareWay[
         })}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** the Word file's information: its name and place (each to copy), size, date, pages, and the properties Word keeps in it */
+function WordInfoDialog({
+  open,
+  onOpenChange,
+  info,
+  model,
+  pages,
+  onOpenFile,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  info: FileFactsInfo;
+  model: WordModel;
+  pages: PagesInfo | null;
+  onOpenFile?: (file: File) => void;
+}) {
+  const p = model.props;
+  const rows: [string, string | undefined][] = [
+    ['Tiêu đề', p.title],
+    ['Chủ đề', p.subject],
+    ['Tác giả', p.creator],
+    ['Người lưu lần cuối', p.lastModifiedBy],
+    ['Ngày tạo', p.created !== undefined ? formatDate(p.created) : undefined],
+    ['Ngày lưu trong tệp', p.modified !== undefined ? formatDate(p.modified) : undefined],
+    ['Số lần lưu', p.revision !== undefined ? String(p.revision) : undefined],
+    ['Ứng dụng', p.application],
+    ['Số trang lúc lưu', p.pages !== undefined ? String(p.pages) : undefined],
+    ['Số từ', p.words !== undefined ? p.words.toLocaleString('vi-VN') : undefined],
+  ];
+  const present = rows.filter((r): r is [string, string] => !!r[1]);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[440px]"
+        data-testid="word-info-panel"
+        closeTestId="word-info-close"
+        // nothing focused on opening: the first button would be the copy button, with its focus ring
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>Thông tin tệp</DialogTitle>
+          <DialogDescription className="sr-only">Tên, vị trí, dung lượng và thuộc tính của tệp Word đang mở</DialogDescription>
+        </DialogHeader>
+        <FileFacts
+          info={info}
+          onOpenFile={
+            onOpenFile
+              ? (f) => {
+                  onOpenChange(false);
+                  onOpenFile(f);
+                }
+              : undefined
+          }
+        />
+        {pages && (
+          <FactList>
+            <Fact label="Số trang" testId="word-info-pages">
+              {pages.count}
+            </Fact>
+          </FactList>
+        )}
+        {present.length > 0 && (
+          <div data-testid="word-info-props">
+            <h3 className="mb-2 text-[13px] font-bold">Thuộc tính trong tệp</h3>
+            <FactList>
+              {present.map(([k, v]) => (
+                <Fact key={k} label={k}>
+                  {v}
+                </Fact>
+              ))}
+            </FactList>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

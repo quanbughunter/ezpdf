@@ -218,6 +218,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
                     documentId={documentId}
                     fileName={session.fileName}
                     session={session}
+                    onOpenFile={(f) => void openAny(f)}
                     leftOpen={leftOpen}
                     rightOpen={rightOpen}
                     phone={phone}
@@ -254,7 +255,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
       )}
       {word && (
         <Suspense fallback={<div className="fixed inset-0 z-50 bg-canvas" data-ez-overlay="" data-testid="word-loading" />}>
-          <WordScreen ref={wordRef} file={word} phone={phone} onClose={() => setWord(null)} onOpen={openPicker} />
+          <WordScreen ref={wordRef} file={word} phone={phone} onClose={() => setWord(null)} onOpen={openPicker} onOpenFile={(f) => void openAny(f)} />
         </Suspense>
       )}
     </div>
@@ -353,6 +354,7 @@ function LoadedDocument(p: {
   documentId: string;
   fileName: string;
   session: DocumentSession;
+  onOpenFile: (file: File) => void;
   leftOpen: boolean;
   rightOpen: boolean;
   phone: boolean;
@@ -416,7 +418,7 @@ function LoadedDocument(p: {
             p.narrow && 'absolute inset-y-0 right-0 shadow-[-4px_0_16px_rgba(0,0,0,0.12)]',
           )}
         >
-          <PropertiesPanel documentId={p.documentId} fileName={p.fileName} session={p.session} />
+          <PropertiesPanel documentId={p.documentId} fileName={p.fileName} session={p.session} onOpenFile={p.onOpenFile} />
         </aside>
       )}
     </>

@@ -178,6 +178,28 @@ let onCrash = async () => {};
   check('the equation shows as an equation (MathML) in an editable paragraph', eq && eq.text === 'E=mc²' && eq.w > 20 && eq.editable, JSON.stringify(eq));
   await page.screenshot({ path: path.join(OUT, 'opened.png') });
 
+  // the file's information (0.8.6): name to copy, where it is, size, pages, the properties Word keeps in the file
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  await page.click(tid('word-info'));
+  await page.waitForSelector(tid('word-info-panel'));
+  await page.click(tid('info-copy-name'));
+  await sleep(200);
+  const wInfo = await page.evaluate(() => ({
+    name: document.querySelector('[data-testid="info-name"]')?.textContent,
+    where: document.querySelector('[data-testid="info-path"]')?.textContent,
+    pages: document.querySelector('[data-testid="word-info-pages"]')?.textContent,
+    laidOut: document.querySelector('[data-testid="word-page"]')?.dataset.pages,
+    props: document.querySelector('[data-testid="word-info-props"]')?.textContent ?? '',
+  }));
+  const wCopied = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => `(${e.message})`);
+  check(
+    'the Word file’s information: its name (copied with its button), where it is (a browser is never told), its pages as laid out, the properties in the file (author, program)',
+    wInfo.name === 'word-a.docx' && wCopied === 'word-a.docx' && /Trình duyệt không cho/.test(wInfo.where ?? '') && wInfo.pages === wInfo.laidOut && /Tác giảpython-docx/.test(wInfo.props),
+    JSON.stringify({ ...wInfo, wCopied }),
+  );
+  await page.click(tid('word-info-close'));
+  await page.waitForSelector(tid('word-info-panel'), { state: 'detached' });
+
   // ── 2. editing ──────────────────────────────────────────────────────────
   // a real click at the end of a paragraph, then the keyboard
   const last = page.locator('.ez-wdoc p', { hasText: 'Đoạn cuối của tài liệu.' });

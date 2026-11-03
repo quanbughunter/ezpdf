@@ -48,6 +48,8 @@ import { markers } from '../src/word/numbering';
 import { PAGE_BREAK, schema } from '../src/word/schema';
 import { fontStack, paraCss } from '../src/word/styles';
 import { metafileToSvg } from '../src/word/metafile';
+import { androidLocation } from '../src/platform/android-location';
+import { cleanSource } from '../src/platform/types';
 
 const dom = { DOMParser: DOMParser as never, XMLSerializer: XMLSerializer as never };
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -351,6 +353,7 @@ async function main() {
   await imageCases();
   await fontCases();
   await pageCases();
+  await fileInfoCases();
   console.log(failed ? `\n${failed} failed, ${passed} passed` : `\nall ${passed} word checks passed`);
   process.exit(failed ? 1 : 0);
 }
@@ -1229,6 +1232,73 @@ async function pageCases() {
     );
   }
   {
+    // 0.8.6: MathType's tall brackets, built from Symbol's pieces, and a bracket made taller with a narrower font (lfWidth)
+    const recs: number[][] = [];
+    const rec = (fn: number, ...words: number[]) => recs.push([3 + words.length, fn, ...words]);
+    const str = (t: number[]) => { const w: number[] = []; for (let i = 0; i < t.length; i += 2) w.push(t[i] | ((t[i + 1] ?? 0) << 8)); return w; };
+    const font = (h: number, width: number, face: string) => {
+      const name = [...face].map((c) => c.charCodeAt(0)).concat(Array(32 - face.length).fill(0));
+      rec(0x02fb, h & 0xffff, width, 0, 0, 400, 0, 1 << 8, 0, 0x12 << 8, ...str(name));
+      rec(0x012d, recs.filter((r) => r[1] === 0x02fb).length - 1);
+    };
+    const text = (x: number, y: number, codes: number[], dx: number[]) => {
+      rec(0x0214, y, x);
+      rec(0x0a32, 0, 0, codes.length, 0, ...str(codes), ...dx);
+    };
+    rec(0x020b, 0, 0);
+    rec(0x020c, 1344, 3296);
+    rec(0x012e, 25);
+    // (AB/AC) as MathType writes it: top, extender and bottom of both parentheses
+    font(-384, 0, 'Symbol');
+    text(100, 524, [0xe6, 0xf6], [844, 768]);
+    text(100, 839, [0xe7, 0xf7], [844, 768]);
+    text(100, 1080, [0xe8, 0xf8], [844, 768]);
+    // a brace of two lines: top, extenders, middle, bottom
+    for (const [y, k] of [[352, 0xec], [420, 0xef], [624, 0xef], [813, 0xed], [1025, 0xef], [1271, 0xef], [1280, 0xee]]) text(1400, y, [k], [768]);
+    // a piece in a string with other characters, as MathType also writes them ("+⎟=")
+    text(2000, 1200, [0x2b, 0xf7, 0x3d], [400, 400, 768]);
+    // a parenthesis 1.42 times the text's height, as narrow as at the text's size
+    font(-545, 246, 'Symbol');
+    text(2400, 900, [0x28], [0]);
+    rec(0x0000);
+    const body = recs.flatMap((r) => [r[0] & 0xffff, r[0] >> 16, ...r.slice(1)]);
+    const words = [0x0001, 0x0009, 0x0300, (9 + body.length) & 0xffff, (9 + body.length) >> 16, 2, 40, 0, 0, ...body];
+    const place = [0xcdd7, 0x9ac6, 0, 0, 0, 3296, 1344, 2304, 0, 0];
+    place.push(place.reduce((a, b) => a ^ b, 0));
+    const bytes = new Uint8Array((place.length + words.length) * 2);
+    const dv = new DataView(bytes.buffer);
+    [...place, ...words].forEach((w, i) => dv.setUint16(i * 2, w & 0xffff, true));
+    const svg = metafileToSvg(bytes)?.inner ?? '';
+    // every piece is a shape: its vertical extent, and its left edge
+    const shapes = [...svg.matchAll(/<path d="([^"]+)" fill="#000000"\/>/g)].flatMap((mm) => mm[1].split(/ (?=M)/));
+    const extent = (d: string) => {
+      const pts = [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((q) => [Number(q[1]), Number(q[2])]);
+      return { x: Math.min(...pts.map((q) => q[0])), y0: Math.min(...pts.map((q) => q[1])), y1: Math.max(...pts.map((q) => q[1])) };
+    };
+    const ext = shapes.map(extent);
+    const unbroken = (list: { y0: number; y1: number }[]) => {
+      const sorted = [...list].sort((a, b) => a.y0 - b.y0);
+      return sorted.length > 1 && sorted.every((e, i) => i === 0 || e.y0 <= sorted[i - 1].y1 + 0.01);
+    };
+    const r = metafileToSvg(bytes)!;
+    const unitY = r.h / 1344;
+    const unitX = r.w / 3296;
+    const leftParen = ext.filter((e) => e.x < 500 * unitX);
+    const rightParen = ext.filter((e) => e.x >= 500 * unitX && e.x < 1300 * unitX);
+    const brace = ext.filter((e) => e.x > 1300 * unitX && e.x < 2000 * unitX);
+    check(
+      'MathType’s tall parentheses and braces (Symbol e6–f8, ec–ef) are drawn as shapes that join with no gap, the same on every device, also a piece in a string with other characters (+⎟=); no bracket-piece character is left to the device’s fonts',
+      !/[\u239b-\u23ad]/.test(svg) && shapes.length === 14 && />\+=<\/text>/.test(svg) && leftParen.length === 3 && unbroken(leftParen) && rightParen.length === 3 && unbroken(rightParen) && brace.length === 7 && unbroken(brace),
+      `${shapes.length} shapes; parenthesis ${leftParen.map((e) => `${(e.y0 / unitY) | 0}–${(e.y1 / unitY) | 0}`).join(' ')}; brace ${brace.map((e) => `${(e.y0 / unitY) | 0}–${(e.y1 / unitY) | 0}`).join(' ')}`,
+    );
+    const squeezed = svg.match(/<text x="[\d.]+" [^>]*transform="matrix\(([\d.]+) 0 0 1 [-\d.]+ 0\)"[^>]*>\(<\/text>/);
+    check(
+      'a parenthesis MathType makes taller with a font width (lfWidth 246 at 545) is drawn about as narrow as at the text’s size (×0.76), not 1.4 times as wide',
+      !!squeezed && Math.abs(Number(squeezed[1]) - 0.764) < 0.02,
+      squeezed?.[0] ?? svg.slice(-300),
+    );
+  }
+  {
     // an EMF picture with a mask (OR), then the picture (AND), then a BitBlt that does nothing (NOP)
     const parts: Uint8Array[] = [];
     const u32 = (...v: number[]) => { const b = new Uint8Array(v.length * 4); const d = new DataView(b.buffer); v.forEach((x, i) => d.setInt32(i * 4, x | 0, true)); return b; };
@@ -1281,4 +1351,58 @@ async function pageCases() {
     tiny.page.height >= 7.2 && tiny.page.width <= 1584 && tiny.page.top + tiny.page.bottom < tiny.page.height,
     JSON.stringify(tiny.page),
   );
+}
+
+/** 0.8.6: what the information panel says about a file: where it is (Android's addresses), and a Word file's own properties */
+async function fileInfoCases() {
+  const ext = 'content://com.android.externalstorage.documents';
+  const cases: [string, string | undefined, { path?: string; from?: string; browsable: boolean }][] = [
+    [`${ext}/document/primary%3ADownload%2FDe%20thi%20to%C3%A1n.docx`, undefined, { path: '/storage/emulated/0/Download/De thi toán.docx', browsable: true }],
+    [`${ext}/tree/1A2B-3C4D%3ATai%20lieu/document/1A2B-3C4D%3ATai%20lieu%2Fa.pdf`, undefined, { path: '/storage/1A2B-3C4D/Tai lieu/a.pdf', browsable: true }],
+    [`${ext}/document/home%3Abao%20cao.pdf`, undefined, { path: '/storage/emulated/0/Documents/bao cao.pdf', browsable: true }],
+    ['content://com.android.providers.downloads.documents/document/raw%3A%2Fstorage%2Femulated%2F0%2FDownload%2Fa.pdf', undefined, { path: '/storage/emulated/0/Download/a.pdf', browsable: true }],
+    ['content://com.android.providers.downloads.documents/document/msf%3A1000012345', 'Downloads', { from: 'Tải xuống (Download)', browsable: true }],
+    ['content://com.google.android.apps.docs.storage/document/acc%3D1%3Bdoc%3Dencoded%3Dabc', undefined, { from: 'Google Drive', browsable: true }],
+    ['content://com.zing.zalo.provider/external/Zalo/a.pdf', 'Zalo', { from: 'Zalo', browsable: false }],
+    // crafted: a path that climbs out, a volume that is not one, not a content address
+    [`${ext}/document/primary%3A..%2F..%2Fdata%2Fdata`, undefined, { from: 'Bộ nhớ máy', browsable: true }],
+    [`${ext}/document/%3Cimg%3E%3Ax.pdf`, undefined, { from: 'Bộ nhớ máy', browsable: true }],
+    ['file:///sdcard/a.pdf', 'X', { browsable: false }],
+  ];
+  const same = (a: object, b: object) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
+  const wrong = cases.filter(([uri, label, want]) => !same(androidLocation(uri, label), want));
+  check(
+    'Android: the full path from the system storage’s addresses (phone, SD card, Documents, Downloads raw:); where it came from otherwise (Tải xuống, Google Drive, Zalo); a climbing or made-up path gives none',
+    wrong.length === 0,
+    wrong.map(([u, l]) => `${u} → ${JSON.stringify(androidLocation(u, l))}`).join(' | ') || `${cases.length} addresses`,
+  );
+  const cleaned = cleanSource({ path: '/storage/emulated/0/a.pdf', from: 5, uri: 'javascript:alert(1)', modified: 'soon', evil: '<b>' });
+  check(
+    'a stored file location is read back with its own fields only (no foreign address, no wrong types)',
+    JSON.stringify(cleaned) === JSON.stringify({ path: '/storage/emulated/0/a.pdf' }) && cleanSource('x') === undefined && cleanSource({}) === undefined,
+    JSON.stringify(cleaned),
+  );
+
+  // a Word file's own properties: docProps/core.xml and app.xml, one date broken, a title that looks like markup
+  const files = unzipSync(new Uint8Array(readFileSync(FIX('word-a.docx'))));
+  files['docProps/core.xml'] = strToU8(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
+      '<dc:title>&lt;img src=x onerror=alert(1)&gt; Đề   khảo sát</dc:title><dc:creator>Phượng</dc:creator><cp:lastModifiedBy>Phuong</cp:lastModifiedBy><cp:revision>5</cp:revision>' +
+      '<dcterms:created xsi:type="dcterms:W3CDTF">2025-07-29T01:41:00Z</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">0001-01-01T00:00:00Z</dcterms:modified></cp:coreProperties>',
+  );
+  files['docProps/app.xml'] = strToU8(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Microsoft Office Word</Application><Pages>8</Pages><Words>1667</Words></Properties>',
+  );
+  const m = await readDocx(zipSync(files), 'props.docx', { dom, imageUrl: () => null });
+  const p = m.props;
+  check(
+    'a Word file’s properties are read as plain text and numbers (title, author, last saved by, revision, created, program, pages, words); a broken date is left out',
+    p.title === '<img src=x onerror=alert(1)> Đề khảo sát' && p.creator === 'Phượng' && p.lastModifiedBy === 'Phuong' && p.revision === 5 &&
+      p.created === Date.UTC(2025, 6, 29, 1, 41) && p.modified === undefined && p.application === 'Microsoft Office Word' && p.pages === 8 && p.words === 1667,
+    JSON.stringify(p),
+  );
+  delete files['docProps/core.xml'];
+  delete files['docProps/app.xml'];
+  const bare = await readDocx(zipSync(files), 'bare.docx', { dom, imageUrl: () => null });
+  check('a Word file without its property parts opens; it simply has no properties', Object.keys(bare.props).length === 0, JSON.stringify(bare.props));
 }

@@ -746,7 +746,8 @@ print(json.dumps([pix.pixel(int(x), int(y)) for x, y in pts]))`, fexp, JSON.stri
 
   // ── 19. buttons, privacy, errors ────────────────────────────────────────
   // M1/M2 controls are exercised by scripts/e2e.cjs; this run must cover what M3 added.
-  const M2_COVERED = /^(btn-toggle-left|btn-toggle-right|btn-open|tool-select|tool-text|tool-highlight|tool-note|btn-undo|btn-redo|btn-page-prev|btn-page-next|zoom-menu|btn-zoom-in|btn-zoom-out|btn-search|btn-export|btn-delete|tab-pages|tab-search|thumb-\d+|ft-.*|hl-color-\d|note-color-\d|search-.*|btn-open-empty)$/;
+  // the information panel's copy button (0.8.6): scripts/e2e.cjs
+  const M2_COVERED = /^(btn-toggle-left|btn-toggle-right|btn-open|tool-select|tool-text|tool-highlight|tool-note|btn-undo|btn-redo|btn-page-prev|btn-page-next|zoom-menu|btn-zoom-in|btn-zoom-out|btn-search|btn-export|btn-delete|tab-pages|tab-search|thumb-\d+|ft-.*|hl-color-\d|note-color-\d|search-.*|btn-open-empty|info-copy-name)$/;
   // editing existing text: scripts/e2e-edit.cjs; scanning: scripts/e2e-scan.cjs
   // covered by e2e-edit, e2e-scan and e2e-share-print
   const LATER_COVERED = /^(tool-edit-text|btn-scan|btn-scan-empty|tool-hand|btn-share|btn-print|btn-more|btn-pages|share-(copy|sheet|reveal))$/;

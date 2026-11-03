@@ -1,4 +1,4 @@
-# 11 · Đọc và sửa nhẹ tệp Word (.docx) (bản 0.8.5)
+# 11 · Đọc và sửa nhẹ tệp Word (.docx) (bản 0.8.6)
 
 Mở tệp Word ngay trên máy, sửa nhẹ rồi lưu ra một tệp Word mới. Tài liệu không rời thiết bị. Tính năng dùng chung một mã cho Windows, web (cả iPhone) và Android.
 
@@ -160,6 +160,50 @@ Sau khi sửa, đề này 8 trang ở ezPDF, 9 trang ở LibreOffice (LibreOffic
 
 **Bộ kiểm trên CI lỗi lần nữa** (lần push 0.8.4). Lần này là bước kiểm phông mới: trên máy CI, chữ của phông tải về có độ rộng được làm tròn theo điểm ảnh, hẹp hơn phông đối chiếu 0,9 %, mà ngưỡng đặt là 0,3 %. Giờ ngưỡng là 1,5 % (một phông khác độ rộng, ví dụ DejaVu Serif, lệch 25 %). Bước gõ sau khi chọn cỡ chữ, lỗi lần trước, lần này đã đạt.
 
+## Ngoặc của MathType, thông tin tệp, ảnh chụp máy ảo (bản 0.8.6)
+
+Anh thử đề khảo sát trên iPhone thì mở tốt; dấu ngoặc trong công thức vẫn lỗi. Bản web trên Samsung lỗi ít hơn, còn APK Android lỗi nặng hơn, ở cả ngoặc nhọn hệ phương trình lẫn ngoặc tròn bao phân số.
+
+**Ngoặc cao hơn một dòng thành từng khúc rời.** MathType dựng ngoặc tròn, ngoặc vuông, ngoặc nhọn và dấu tích phân cao hơn một dòng từ các mảnh của phông Symbol: một mảnh đầu, một mảnh cuối, một mảnh giữa (ngoặc nhọn) và bao nhiêu mảnh thân cũng được. Mỗi mảnh là một ký tự, đặt ở chỗ riêng của nó (Symbol E6–FE, BD, BE). Bản trước đổi các mảnh thành ký tự Unicode tương ứng (⎛ ⎜ ⎝, ⎧ ⎨ ⎩ ⎪…) rồi để phông của máy vẽ. Mỗi phông lại vẽ các mảnh với chiều cao riêng. Chỉ phông Symbol khớp với chỗ MathType đặt, và Android không có phông nào như thế: mảnh hở ra, chồng lên nhau, hay lệch sang bên. Giờ ezPDF tự vẽ từng mảnh thành một hình, đúng kích thước của mảnh đó trong phông Symbol (lấy từ bảng số đo phông Symbol của Adobe, phông Symbol của Windows có cùng số đo). Các mảnh nối liền, và giống nhau trên mọi máy.
+
+**Ngoặc chỉ cao hơn chữ một chút thì béo ra.** Với ngoặc chỉ cao hơn chữ một chút, ví dụ (100% − 10%), MathType dùng ký tự ngoặc thường của Symbol ở cỡ to hơn. Nó xin phông đó với độ rộng chữ của cỡ thường (lfWidth), để ngoặc cao lên mà không béo ra. Bản trước bỏ qua độ rộng đó, nên ngoặc rộng gấp 1,3 đến 1,5 lần. Giờ ngoặc được ép hẹp đúng tỷ lệ MathType xin. Độ rộng trung bình của phông được đo từ chính các công thức của đề: Symbol 0,591 em, Euclid Symbol 0,607 em.
+
+MathType còn đặt mảnh ngoặc chung một chuỗi với ký tự khác (“⎡−>⎡>”, “+⎟=”): khi đó mảnh được vẽ thành hình, phần còn lại vẫn là chữ, mỗi ký tự ở đúng chỗ của nó.
+
+Các công thức trong ảnh anh gửi đều nằm trong chính đề khảo sát (phần lời giải): hệ có 24.(1/x + 1/y) = 1, ngoặc vuông lồng ngoặc nhọn ở Câu 5, (AB/AC)³. Kiểm bằng chương trình trên cả đề: 32 ngoặc ghép từ mảnh (trong 16 công thức) đều nối liền, không còn mảnh nào để phông của máy vẽ.
+
+**Thông tin tệp.** Bảng “Tài liệu” của PDF cũ cắt tên tệp dài và không cho chép. Bảng mới có:
+- tên tệp đầy đủ (xuống dòng khi dài), có nút chép;
+- đường dẫn hoặc vị trí, có nút chép khi có đường dẫn;
+- dung lượng và lần sửa cuối;
+- số trang, trang đang xem, bản nháp, xuất (như trước);
+- thuộc tính ghi trong tệp: tiêu đề, tác giả, chủ đề, từ khóa, ứng dụng tạo, trình tạo PDF, ngày tạo, ngày sửa, phiên bản PDF, có mật khẩu hay giới hạn quyền không.
+
+Màn hình Word có thêm nút ⓘ **Thông tin tệp** trên thanh trên cùng, hiện cùng các dòng về tệp. Kèm theo là số trang ezPDF dàn được và thuộc tính Word ghi trong tệp (`docProps/core.xml`, `docProps/app.xml`): tiêu đề, chủ đề, tác giả, người lưu lần cuối, ngày tạo, ngày lưu, số lần lưu, ứng dụng, số trang và số từ lúc lưu. Mọi giá trị chỉ được hiện thành chữ. Ngày hỏng (ví dụ năm 0001) bị bỏ qua.
+
+Đường dẫn có hay không tùy nền tảng:
+- **Android:** hệ thống chỉ đưa cho app một địa chỉ `content://`, không đưa đường dẫn.
+  - Tệp chọn từ bộ nhớ máy (bộ nhớ trong, thẻ nhớ, thư mục Documents): địa chỉ đã chứa sẵn đường dẫn, nên ezPDF hiện đường dẫn đầy đủ, ví dụ `/storage/emulated/0/Download/De thi.docx`, kèm nút chép.
+  - Tệp chọn trong mục Tải xuống (Android 10 trở lên chỉ ghi số thứ tự, không ghi đường dẫn), từ Google Drive hay từ app khác: ezPDF chỉ biết tệp đến từ đâu, nên chỉ hiện nơi đó.
+  - Khi tệp do trình quản lý tài liệu của Android đưa ra, đường dẫn (hay vị trí) **bấm được**: bộ chọn tệp của Android mở ngay thư mục chứa tệp, và tệp nào chọn ở đó thì ezPDF mở tệp đó. Tệp nhận qua “Mở bằng” từ một app có địa chỉ riêng (Zalo chẳng hạn) thì không bấm được, vì không có thư mục để mở.
+- **Web, cả trên iPhone:** trình duyệt chỉ cho trang web tên và nội dung của tệp, không bao giờ cho biết tệp nằm ở thư mục nào. Bảng ghi đúng như vậy; không có đường dẫn nên không có liên kết.
+- **Windows:** hiện đường dẫn đầy đủ, có nút chép; không bấm được (bản Windows không làm tiếp).
+
+Bản nháp ghi lại vị trí của tệp gốc, nên mở lại từ bản nháp vẫn có bảng thông tin đầy đủ.
+
+**Ảnh chụp trên máy ảo sau mỗi lần push.** CI có thêm ba job, và cả ba không bao giờ làm đỏ lần build:
+- `android-screens`: cài APK debug vừa build lên máy ảo Android 14, màn hình đặt như Galaxy S24 Ultra (1080 × 2340, 450 dpi, tức trang rộng 384 px), rồi điều khiển WebView của app bằng Playwright.
+- `iphone-screens`: Safari trên máy ảo iPhone 15 Pro Max của Xcode, chạy trên máy Mac của GitHub, hiện bản web build kèm `src/shots.ts`.
+- `screens` (chỉ khi push lên main): đưa ảnh lên nhánh `screens` của repo, mỗi lần thay hết bằng một commit duy nhất, và hiện ảnh ngay trên trang Summary của lần chạy.
+
+Mỗi máy chụp sáu cảnh: màn hình đầu, `word-math.docx`, chính tệp đó phóng 150 % ở chỗ các công thức, bảng thông tin Word, `word-pages.docx`, `sample.pdf` có bảng thông tin. Tệp thử mới `word-math.docx` (`scripts/make_word_math.py`) có bốn công thức viết đúng như MathType ghi:
+- (AB/AC)³ với ngoặc tròn ghép từ mảnh;
+- một hệ hai phương trình dưới ngoặc nhọn ghép từ mảnh;
+- x(2x − 1) + 4x − 2 = 0 với ngoặc ép hẹp;
+- góc B̂AC có mũ rộng.
+
+`src/shots.ts` chỉ có trong bản build `--mode shots` dùng để chụp. Bản web, Android và Windows không chứa nó: Vite bỏ nhánh đó khi build, và đã kiểm `dist/` không có tệp nào của nó. `scripts/device-shots.cjs` cũng chạy được ngay trên Chromium (`SHOTS_BROWSER=chromium`) để kiểm kịch bản khi không có máy ảo; cả sáu cảnh đã chạy được như vậy trên máy này.
+
 ## Những phần chỉ xem
 
 Một số nội dung ezPDF hiện ra nhưng không cho sửa, vì sửa sẽ dễ làm hỏng tệp. Chúng có nền xám nhạt, chữ **Chỉ xem**, và được ghi lại y nguyên khi lưu. Thanh vàng đầu màn nói có bao nhiêu đoạn như vậy và vì sao.
@@ -229,6 +273,8 @@ Mọi tệp ezPDF lưu đều được **đọc lại bằng chương trình kh�
 
 Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề kiểm tra có đầu trang, chân trang “Trang {PAGE} / {NUMPAGES}”, các dòng đáp án ở bốn điểm dừng tab trái, một kiểu đoạn có điểm dừng riêng với đoạn thêm một điểm, xóa một điểm, điểm dừng phải có dấu chấm dẫn, điểm dừng giữa; một ảnh công thức kiểu MathType (WMF xin phông Symbol với bảng mã mặc định: ≥, ∈; MT Extra: ℝ và mũi tên của hai véc-tơ trong cùng một chuỗi); một công thức trong phần mã của trường QUOTE; 45 đoạn văn và một bảng 40 hàng vắt qua cuối trang; ngắt trang sau một dòng chữ, “ngắt trang trước đoạn”, một ngắt section trang mới và một ngắt section liên tục. LibreOffice chia tệp này thành 8 trang; ezPDF cũng 8 trang, các trang bắt đầu ở cùng chỗ.
 
+Bản 0.8.6 thêm `word-math.docx` (`scripts/make_word_math.py`): bốn công thức viết đúng như MathType ghi: ngoặc tròn và ngoặc nhọn ghép từ mảnh của Symbol, ngoặc ép hẹp bằng độ rộng phông, mũ rộng trên góc. Đây là tệp CI mở trên máy ảo Android và iPhone để chụp màn hình.
+
 **Thử trên tệp Word thật** (bản 0.8.1). Ngoài các tệp mẫu, bộ đọc được chạy trên 1.666 tệp `.docx` thật mà hai dự án lớn dùng để kiểm thử: 130 tệp của Apache POI và 1.536 tệp của LibreOffice (thư mục kiểm thử nhập/xuất OOXML), do Word, LibreOffice và nhiều chương trình khác tạo, kể cả tệp hỏng cố ý.
 - 1.634 tệp mở được. 32 tệp còn lại bị từ chối kèm lý do rõ ràng: có mật khẩu, chuẩn Strict, tệp mẫu, gói zip hoặc XML hỏng.
 - Vẽ được 685 hình (nhóm, khung vẽ, hộp chữ, VML, biểu đồ, SmartArt) và 146 công thức.
@@ -241,9 +287,9 @@ Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề 
 
 | Bộ kiểm | Kết quả |
 |---|---|
-| `npm run test:word` (đọc/ghi trên Node, `tests/word-probe.ts`) | **111/111** (bản 0.8.4: 107). Chi tiết ngay dưới bảng. |
-| `npm run e2e:word` (Chromium, cả luồng trong app) | **55/55** trên dev server và **55/55** trên bản build production (bản 0.8.3: 50). Chi tiết ngay dưới bảng. |
-| `scripts/smoke-desktop.cjs` (bản desktop thật, WebKitGTK, cùng nhân với Safari) | **30/30** (bản 0.8.4 không thêm bước; hai lần chạy đầu dừng ở bước 7 vì WebDriver không mở được phiên mới kịp, lần sau đạt). Bước mới của 0.8.3: `word-pages.docx` trong WebKitGTK (nhân của Safari, tức của web app trên iPhone): 8 tờ, ngắt trang bắt đầu trang mới, tab dòng đáp án dừng đúng điểm dừng, mỗi tờ “Trang k / 8”. Bước của 0.8.2: `word-images.docx` mở như “Mở bằng”, đủ 10 loại TIFF, EPS, PICT, WMZ hiện ra; nút + (110 %), Ctrl + bằng phím thật (125 %), Ctrl 0 (100 %), trang phóng đúng tỷ lệ; chọn Arial bằng chuột thật và gõ cỡ 20 cho một đoạn chữ, thanh công cụ hiện đúng. Bản 0.8.1: Bước Word: tệp `.docx` đưa vào app như “Mở bằng”, gõ bằng phím thật, làm đậm, lưu qua hộp thoại lưu của hệ thống; python-docx đọc đúng; tệp gốc không đổi. Bước mới của 0.8.1: `word-draw.docx` mở cùng cách, 6 hình, chữ trong lưu đồ, 2 công thức MathML có kích thước, ảnh WMF và EMF, chú thích đều được WebKitGTK dàn đúng. Lần chạy đầu dừng ở bước sau đó vì WebDriver không mở được phiên mới kịp; hai lần chạy lại đều đạt 26/26. |
+| `npm run test:word` (đọc/ghi trên Node, `tests/word-probe.ts`) | **117/117** (bản 0.8.5: 111). Bước mới của 0.8.6: ngoặc ghép từ mảnh vẽ thành hình nối liền, không còn ký tự mảnh nào; ngoặc ép hẹp ×0,76; đường dẫn từ địa chỉ Android (bộ nhớ trong, thẻ nhớ, Documents, Tải xuống `raw:`; nơi đến với `msf:`, Drive, Zalo; đường dẫn leo ra ngoài hay ổ giả thì không có); vị trí đọc lại từ bản nháp chỉ giữ đúng trường; thuộc tính Word (chữ thuần, ngày hỏng bị bỏ, tệp không có phần thuộc tính vẫn mở). Chi tiết ngay dưới bảng. |
+| `npm run e2e:word` (Chromium, cả luồng trong app) | **56/56** trên dev server và **56/56** trên bản build production (bản 0.8.5: 55). Bước mới của 0.8.6: nút ⓘ mở bảng thông tin tệp Word: tên tệp (nút chép đưa đúng tên vào bộ nhớ tạm), vị trí (trình duyệt không cho biết), số trang khớp số tờ đã dàn, thuộc tính trong tệp. Chi tiết ngay dưới bảng. |
+| `scripts/smoke-desktop.cjs` (bản desktop thật, WebKitGTK, cùng nhân với Safari) | Bản 0.8.6 không chạy lại (bản Windows không làm tiếp; WebKit giờ được kiểm bằng Safari trên máy ảo iPhone của CI). **30/30** ở bản 0.8.5 (bản 0.8.4 không thêm bước; hai lần chạy đầu dừng ở bước 7 vì WebDriver không mở được phiên mới kịp, lần sau đạt). Bước mới của 0.8.3: `word-pages.docx` trong WebKitGTK (nhân của Safari, tức của web app trên iPhone): 8 tờ, ngắt trang bắt đầu trang mới, tab dòng đáp án dừng đúng điểm dừng, mỗi tờ “Trang k / 8”. Bước của 0.8.2: `word-images.docx` mở như “Mở bằng”, đủ 10 loại TIFF, EPS, PICT, WMZ hiện ra; nút + (110 %), Ctrl + bằng phím thật (125 %), Ctrl 0 (100 %), trang phóng đúng tỷ lệ; chọn Arial bằng chuột thật và gõ cỡ 20 cho một đoạn chữ, thanh công cụ hiện đúng. Bản 0.8.1: Bước Word: tệp `.docx` đưa vào app như “Mở bằng”, gõ bằng phím thật, làm đậm, lưu qua hộp thoại lưu của hệ thống; python-docx đọc đúng; tệp gốc không đổi. Bước mới của 0.8.1: `word-draw.docx` mở cùng cách, 6 hình, chữ trong lưu đồ, 2 công thức MathML có kích thước, ảnh WMF và EMF, chú thích đều được WebKitGTK dàn đúng. Lần chạy đầu dừng ở bước sau đó vì WebDriver không mở được phiên mới kịp; hai lần chạy lại đều đạt 26/26. |
 
 `test:word` kiểm:
 - Đọc đúng cả ba tệp: khối, định dạng, danh sách `• • 1. 2. 3.`, bảng có ô gộp, ảnh đúng cỡ, liên kết, đầu trang, chân trang, 3 khối chỉ xem.
@@ -288,18 +334,18 @@ Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề 
 - Bản 0.8.1, `word-draw.docx`: 6 hình SVG có kích thước thật, lưu đồ căn giữa, chữ trong hình được dàn; 2 công thức MathML; ảnh WMF và EMF giải mã được; chú thích hiện sau bài; không đoạn nào bị khóa. Gõ cạnh công thức, sao chép rồi dán một công thức (ra công thức, không ra chữ), lưu: tệp có đủ 3 công thức, nhóm hình, khung vẽ, VML, OLE, biểu đồ, SmartArt, dấu chú thích. Clipboard giả mạo mang mã của tài liệu không đưa được ảnh từ ngoài hay mã hình vào. Điện thoại: mọi hình, ảnh, công thức vừa trang.
 - Không gửi gì ra ngoài.
 
-Cả bản 0.8.5 đều đạt (`e2e:m4` bản production có kiểm Content-Security-Policy: phông toán, phông cùng độ rộng, hình vẽ, ảnh và worker giải mã ảnh không vi phạm):
+Cả bản 0.8.6 đều đạt (`e2e` có thêm bước bảng thông tin PDF: tên đầy đủ, nút chép, vị trí, phiên bản PDF, trình tạo PDF; `e2e:m4` bản production có kiểm Content-Security-Policy: phông toán, phông cùng độ rộng, hình vẽ, ảnh và worker giải mã ảnh không vi phạm):
 
 | Bộ | Dev | Production |
 |---|---|---|
-| `e2e` | 57/57 | 57/57 |
+| `e2e` | 58/58 | 58/58 |
 | `e2e:m3` | 50/50 | 49/49 |
 | `e2e:m4` | 14/14 | 22/22 |
 | `e2e:edit` | 24/24 | 24/24 |
 | `e2e:scan` | 26/26 | 16/16 |
 | `e2e:share` | 36/36 | 36/36 |
 | `e2e:pages` | 28/28 | 28/28 |
-| `e2e:word` | 55/55 | 55/55 |
+| `e2e:word` | 56/56 | 56/56 |
 
 Cùng đạt:
 - `typecheck`, `test:layout`, `test:engine`, `verify`, `test:m3`, `test:storage`, `test:edit`, `test:pages`, `test:word`;
@@ -398,7 +444,7 @@ Còn lại, ghi ở phần Giới hạn: đoạn dài không được chia qua h
   - Bóng đổ, phát sáng, 3D, phản chiếu của hình chưa vẽ; tô chuyển màu (gradient) vẽ bằng màu đầu tiên.
   - Biểu đồ vẽ từ số liệu lưu sẵn, dạng phẳng: chưa có nhãn số liệu, biểu đồ 3D vẽ thành 2D, biểu đồ bề mặt vẽ thành các đường. Biểu đồ kiểu mới của Word 2016 (thác nước, sunburst…) hiện bản dự phòng Word lưu kèm.
   - SmartArt chỉ hiện được khi tệp có bản vẽ lưu sẵn (Word luôn lưu; vài chương trình khác thì không).
-  - Ảnh xem trước WMF/EMF: chưa áp vùng cắt (clipping); ảnh EMF chỉ có lệnh EMF+ (không có bản GDI kèm theo) hiện nhãn. MathType vẽ bằng phông MT Extra cho vài ký hiệu hiếm; máy không có phông này (ngoài Windows có Office) có thể hiện sai các ký hiệu đó. Mũi tên véc-tơ (bản 0.8.3) và mũ rộng (bản 0.8.5) được vẽ thành nét; các ký hiệu riêng khác của MT Extra (cung, ngoặc nhọn ngang…) chưa có, gặp tệp nào xin gửi để thêm.
+  - Ảnh xem trước WMF/EMF: chưa áp vùng cắt (clipping); ảnh EMF chỉ có lệnh EMF+ (không có bản GDI kèm theo) hiện nhãn. MathType vẽ bằng phông MT Extra cho vài ký hiệu hiếm; máy không có phông này (ngoài Windows có Office) có thể hiện sai các ký hiệu đó. Mũi tên véc-tơ (bản 0.8.3) và mũ rộng (bản 0.8.5) được vẽ thành nét, các mảnh ngoặc cao của Symbol thành hình (bản 0.8.6); các ký hiệu riêng khác của MT Extra (cung, ngoặc nhọn ngang…) chưa có, gặp tệp nào xin gửi để thêm.
   - Hình nổi có chữ chạy quanh (bản 0.8.5) là khối nổi trái hoặc phải, không đặt đúng từng điểm như Word; hình nổi “trước chữ”, “sau chữ”, “trên và dưới” vẫn đứng một dòng riêng.
   - Ảnh liên kết ra ngoài không bao giờ được tải, nên hiện nhãn “Hình (liên kết ngoài)”.
 - Ảnh (bản 0.8.2):
@@ -413,7 +459,8 @@ Còn lại, ghi ở phần Giới hạn: đoạn dài không được chia qua h
   - Trên điện thoại (Android, web app iPhone), app bị tắt hẳn thì thay đổi chưa lưu bị mất.
   - Trên trình duyệt, nếu người dùng hủy lời hỏi tải về thì app vẫn coi là đã lưu.
 - Chưa mở được `.doc` kiểu cũ, tệp có mật khẩu, tệp Strict Open XML.
-- Chưa thử trên máy thật: Windows (WebView2), Android, iPhone (Safari). WebKit đã được thử qua bản desktop Linux (WebKitGTK).
+- Chưa thử trên máy thật: Windows (WebView2), Android, iPhone (Safari). WebKit đã được thử qua bản desktop Linux (WebKitGTK). Từ bản 0.8.6, mỗi lần push lên main, CI chụp màn hình APK trên máy ảo Android và bản web trên Safari của máy ảo iPhone; các job này chưa chạy lần nào trước khi giao bản 0.8.6 (máy làm việc không có máy ảo Android, không có Mac), nên vài lần đầu có thể phải chỉnh.
+- Thông tin tệp (bản 0.8.6): trình duyệt (cả iPhone) không cho biết thư mục của tệp nên không có đường dẫn. Trên Android, đường dẫn chỉ có khi địa chỉ của tệp chứa nó (tệp chọn từ bộ nhớ máy); tệp chọn trong mục Tải xuống, từ Drive hay app khác chỉ biết nơi đến. Bấm đường dẫn mở bộ chọn tệp của Android ở thư mục đó (Android 8 trở lên), không mở app quản lý tệp. Ngày sửa của tệp chỉ có khi nơi giữ tệp cho biết.
 
 ## Tự kiểm
 

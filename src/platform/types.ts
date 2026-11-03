@@ -81,6 +81,53 @@ export interface Platform {
   readonly printPdf: ((bytes: Uint8Array, name: string, pages: number) => Promise<void>) | null;
   /** said when printing starts, when printPdf needs a word of guidance (iPhone: "choose Print") */
   readonly printHint?: string;
+  /**
+   * The system's file picker opened in the folder of a file opened before
+   * (its FileSource.uri; Android): the user sees where the file is and may
+   * pick another one there, which is returned to be opened. Absent where a
+   * folder cannot be shown (the browser never says where a file is).
+   */
+  readonly showFolder?: (source: FileSource) => Promise<File | null>;
+}
+
+/**
+ * Where an opened file is, as far as the platform can tell: shown in the
+ * file's information panel. The browser never says (a page gets a file's
+ * name and bytes, not its folder).
+ */
+export interface FileSource {
+  /** the full path as the system shows it (desktop; Android when the file's address tells it) */
+  path?: string;
+  /** the app or storage the file came from, when there is no path (Android: Tải xuống, Google Drive…) */
+  from?: string;
+  /** last change, ms since 1970, when the system says */
+  modified?: number;
+  /** Android: the document's content:// address, when the system's file picker can show its folder */
+  uri?: string;
+}
+
+const sources = new WeakMap<File, FileSource>();
+
+/** `file` came from `source` (kept with the File object, nowhere else) */
+export function rememberSource<T extends File>(file: T, source: FileSource): T {
+  sources.set(file, source);
+  return file;
+}
+
+export const sourceOf = (file: Blob | null | undefined): FileSource | undefined => (file instanceof File ? sources.get(file) : undefined);
+
+/** a FileSource read back from storage: only its own fields, of their own types and sizes */
+export function cleanSource(v: unknown): FileSource | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  const str = (x: unknown) => (typeof x === 'string' && x.length > 0 && x.length <= 2000 ? x : undefined);
+  const out: FileSource = {};
+  const path = str(o.path), from = str(o.from), uri = str(o.uri);
+  if (path) out.path = path;
+  if (from) out.from = from.slice(0, 100);
+  if (uri && uri.startsWith('content://')) out.uri = uri;
+  if (typeof o.modified === 'number' && Number.isFinite(o.modified) && o.modified > 0) out.modified = o.modified;
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** Keeps incoming files until a listener is attached. */

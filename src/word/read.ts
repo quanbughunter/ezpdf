@@ -17,6 +17,7 @@ import { ommlParaToMathml, ommlText, ommlToMathml } from './omml';
 import type { MetaSvg } from './metafile';
 import { dosEpsPreview, IMAGE_MIME, KIND_LABEL, MAYBE, NATIVE, pictJpeg, sniffImage, type ImageKind } from './images';
 import { openPackage, rId, type DocxPackage } from './package';
+import { readProps, type WordProps } from './props';
 import { formatNumber, Numbering } from './numbering';
 import {
   borderCss,
@@ -96,6 +97,8 @@ export interface WordModel {
   fonts: string[];
   /** points between default tab stops (settings.xml w:defaultTabStop) */
   defaultTab: number;
+  /** the file's own properties (title, author, dates…), for the information panel */
+  props: WordProps;
 }
 
 export interface ReadOptions {
@@ -263,6 +266,7 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
       const v = num(wVal(wChild(partDoc(partByType('/settings'))?.documentElement ?? null, 'defaultTabStop'), 'val'));
       return v && v >= 36 && v <= 14400 ? v / 20 : 36;
     })(),
+    props: readProps(pkg, dom),
   };
   // what each picture really is (by its bytes): the decoders a file needs are loaded only for it
   const kinds = new Map<string, ImageKind>();

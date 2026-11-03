@@ -1,7 +1,8 @@
 /**
  * Android app (Capacitor 8) with ezPDF's own native plugin "EzFiles"
  * (android/app/src/main/java/app/ezpdf/EzFilesPlugin.java):
- *  - open: Storage Access Framework, ACTION_OPEN_DOCUMENT for PDFs
+ *  - open: Storage Access Framework, ACTION_OPEN_DOCUMENT for PDFs; the same
+ *          picker opened in an opened file's folder for its information panel
  *  - save: ACTION_CREATE_DOCUMENT, then the bytes are streamed to the
  *          returned document in base64 chunks (the bridge carries JSON only)
  *  - incoming: PDFs opened with ezPDF (ACTION_VIEW) or shared to it
@@ -13,17 +14,22 @@
  */
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { createCapacitorBackend, base64Of } from './storage/capacitor-fs';
-import { asDocFile, DOCX_MIME, incomingQueue, type Platform } from './types';
+import { asDocFile, DOCX_MIME, incomingQueue, rememberSource, type FileSource, type Platform } from './types';
+import { androidLocation } from './android-location';
 
 interface DocRef {
   uri: string;
   name: string;
   size?: number;
+  /** last change (ms), when the provider says */
+  modified?: number;
+  /** the provider's own name, as the system gives it */
+  from?: string;
 }
 
 interface EzFilesPlugin {
   clearCaptures(): Promise<{ removed: number }>;
-  openDocument(o?: { mimes?: string[] }): Promise<{ cancelled: boolean; file?: DocRef }>;
+  openDocument(o?: { mimes?: string[]; initialUri?: string }): Promise<{ cancelled: boolean; file?: DocRef }>;
   createDocument(o: { name: string; mime: string }): Promise<{ cancelled: boolean; file?: DocRef }>;
   openWrite(o: { uri: string }): Promise<{ handle: string }>;
   write(o: { handle: string; data: string }): Promise<void>;
@@ -64,7 +70,13 @@ async function cacheCopy(bytes: Uint8Array, name: string) {
 async function fileOf(ref: DocRef) {
   const res = await fetch(Capacitor.convertFileSrc(ref.uri));
   if (!res.ok) throw new Error(`Không đọc được “${ref.name}” (${res.status}).`);
-  return asDocFile(await res.blob(), ref.name || 'tai-lieu.pdf');
+  const where = androidLocation(ref.uri, ref.from);
+  const source: FileSource = {};
+  if (where.path) source.path = where.path;
+  if (where.from) source.from = where.from;
+  if (where.browsable) source.uri = ref.uri;
+  if (typeof ref.modified === 'number' && ref.modified > 0) source.modified = ref.modified;
+  return rememberSource(asDocFile(await res.blob(), ref.name || 'tai-lieu.pdf'), source);
 }
 
 export async function createAndroidPlatform(): Promise<Platform> {
@@ -119,5 +131,10 @@ export async function createAndroidPlatform(): Promise<Platform> {
       await EzFiles.printFile({ path: await cacheCopy(bytes, name), name, pages });
     },
     onIncomingFiles: incoming.subscribe,
+    async showFolder(source) {
+      if (!source.uri) return null;
+      const r = await EzFiles.openDocument({ mimes: ['application/pdf', DOCX_MIME], initialUri: source.uri });
+      return r.cancelled || !r.file ? null : fileOf(r.file);
+    },
   };
 }

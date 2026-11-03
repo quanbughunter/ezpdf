@@ -4,11 +4,17 @@
 #            (pushes to main only; needs Settings → Pages → Source: GitHub Actions)
 #   windows  Tauri installers (.msi and setup .exe), cargo test
 #   android  debug APK (Capacitor 8, Gradle)
+#   android-screens  that APK on an Android emulator set like a Galaxy S24 Ultra
+#   iphone-screens   the web app in Safari on an iPhone 15 Pro Max simulator
+#   screens  their screenshots on the run's summary page and on the "screens"
+#            branch (pushes to main only); these three never fail the build
 # Nothing here uploads documents: the tests use the fixtures in tests/.
 name: build
 
 on:
   push:
+    # the screenshots' own branch (written by the screens job) is not built
+    branches-ignore: [screens]
   pull_request:
   workflow_dispatch:
 
@@ -101,3 +107,96 @@ jobs:
         working-directory: android
       - uses: actions/upload-artifact@v4
         with: { name: ezpdf-android-debug, path: android/app/build/outputs/apk/debug/app-debug.apk }
+
+  # ── screenshots on the phones ezPDF is used on ─────────────────────────
+  # scripts/device-shots.cjs opens the same test files on both. A machine
+  # that cannot start its emulator only loses its pictures: the build stays green.
+
+  android-screens:
+    needs: android
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with: { name: ezpdf-android-debug, path: out/apk }
+      # the emulator needs hardware virtualisation (KVM), which GitHub's Linux machines allow
+      - name: KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: node scripts/device-shots.cjs android out/apk/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: screens-android, path: out/screens/android, if-no-files-found: ignore }
+
+  iphone-screens:
+    needs: web
+    runs-on: macos-15
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      # the web app as tested, plus src/shots.ts, which opens each test file in the simulator's Safari
+      - run: npx vite build --mode shots --outDir out/shots-dist
+      - run: node scripts/device-shots.cjs ios out/shots-dist
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: screens-iphone, path: out/screens/iphone, if-no-files-found: ignore }
+
+  screens:
+    needs: [android-screens, iphone-screens]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { pattern: screens-*, path: screens }
+      # one commit on an orphan branch, replaced each time: the latest pictures, no history piling up
+      - name: Publish on the run's page and the screens branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          mkdir -p screens && cd screens
+          for d in screens-android screens-iphone; do [ -d "$d" ] && mv "$d" "${d#screens-}"; done
+          sha=$(echo "$GITHUB_SHA" | cut -c1-7)
+          {
+            echo "# Ảnh chụp ezPDF trên máy ảo (bản $sha)"
+            echo
+            echo "Chụp tự động sau lần đẩy lên main lúc $(TZ=Asia/Ho_Chi_Minh date '+%H:%M %d/%m/%Y'). Tệp mở ra là tệp thử trong tests/fixtures."
+            for d in android iphone; do
+              [ -f "$d/notes.json" ] || { echo; echo "## $d: không có ảnh (máy ảo không chạy được)"; continue; }
+              title=$([ "$d" = android ] && echo "Android (APK, màn hình như Galaxy S24 Ultra)" || echo "iPhone 15 Pro Max (Safari, bản web)")
+              echo; echo "## $title"; echo
+              node -e 'for (const n of require(process.argv[1])) console.log(`**${n.title}**${n.note === "ok" ? "" : " (lỗi: " + n.note + ")"}\n\n<img src="'"$d"'/${n.id}.png" width="300">\n`)' "$PWD/$d/notes.json"
+            done
+          } > README.md
+          git init -q -b screens
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Ảnh chụp máy ảo cho $sha"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" screens
+          url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/$(git rev-parse HEAD)"
+          sed -E "s#<img src=\"([^\"]+)\"#<img src=\"${url}/\1\"#" README.md >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Xem trên điện thoại: https://github.com/${GITHUB_REPOSITORY}/tree/screens" >> "$GITHUB_STEP_SUMMARY"

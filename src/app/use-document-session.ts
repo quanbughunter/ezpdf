@@ -22,6 +22,7 @@ import {
 } from './storage/drafts';
 import { describeStorageError } from '@/platform/storage/backend';
 import { usePlatform } from '@/platform';
+import { cleanSource, sourceOf, type FileSource } from '@/platform/types';
 
 export const asPromise = <T>(task: Task<T, any>) =>
   new Promise<T>((resolve, reject) =>
@@ -40,6 +41,17 @@ export type DraftStatus =
   | { kind: 'saving' }
   | { kind: 'saved'; at: number }
   | { kind: 'error'; message: string };
+
+/** what the information panel shows about the opened file */
+export interface FileInfo {
+  name: string;
+  size: number;
+  /** last change of the original, when known */
+  modified?: number;
+  source?: FileSource;
+  /** from the file's header (%PDF-1.7) */
+  pdfVersion?: string;
+}
 
 export interface DraftOffer {
   name: string;
@@ -78,6 +90,8 @@ interface Current {
   hash: string;
   name: string;
   original: Blob;
+  /** where the original came from (the information panel) */
+  source?: FileSource;
   /** null until the first autosave of this session */
   record: DraftRecord | null;
 }
@@ -109,6 +123,7 @@ export function useDocumentSession(documentId: string | null) {
   const { provides: viewport } = useViewportCapability();
   const docState = useDocumentState(documentId);
   const [fileName, setFileName] = useState('');
+  const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
   const [changes, setChanges] = useState({ seq: 0, exportedSeq: 0, savedSeq: 0 });
   const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: 'idle' });
@@ -250,6 +265,7 @@ export function useDocumentSession(documentId: string | null) {
           updatedAt: now,
           exported: changesRef.current.exportedSeq === seq,
         };
+        if (cur.source) rec.source = cur.source;
         if (cur.record) await updateDraft(rec, draft);
         else await createDraft(rec, cur.original, draft);
         cur.record = rec;
@@ -324,6 +340,14 @@ export function useDocumentSession(documentId: string | null) {
       clearContentStack();
       setDocEpoch((n) => n + 1);
       setFileName(cur.name);
+      setFileInfo({ name: cur.name, size: cur.original.size, source: cur.source, modified: cur.source?.modified ?? (cur.original instanceof File && platform.kind === 'web' ? cur.original.lastModified : undefined) });
+      void cur.original
+        .slice(0, 1024)
+        .arrayBuffer()
+        .then((head) => {
+          const v = /%PDF-(\d\.\d)/.exec(new TextDecoder('latin1').decode(head))?.[1];
+          if (v && current.current === cur) setFileInfo((i) => (i ? { ...i, pdfVersion: v } : i));
+        }, () => {});
       setExportStatus({ kind: 'idle' });
       // a document made in the app (a scan) exists nowhere else yet: draft it at once
       setChanges(
@@ -337,7 +361,7 @@ export function useDocumentSession(documentId: string | null) {
       restore.current = resumed ? { rotations: resumed.rotations, lastPage: resumed.lastPage } : null;
       await asPromise(docs.openDocumentBuffer({ buffer, name: cur.name, autoActivate: true }));
     },
-    [docs],
+    [docs, platform],
   );
 
   const openBuffer = useCallback(
@@ -385,7 +409,7 @@ export function useDocumentSession(documentId: string | null) {
           setDraftOffer({ name: file.name, buffer, original: file, hash, record: existing });
           return;
         }
-        await openBuffer(buffer, { draftId: uuidV4(), hash, name: file.name, original: file, record: null });
+        await openBuffer(buffer, { draftId: uuidV4(), hash, name: file.name, original: file, source: sourceOf(file), record: null });
       } catch (e) {
         setOpenError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -448,7 +472,7 @@ export function useDocumentSession(documentId: string | null) {
         const files = await loadDraftFiles(record.id);
         if (!files) throw new Error('Bản nháp này không còn đủ dữ liệu trên máy.');
         const buffer = await files.draft.arrayBuffer();
-        await openBuffer(buffer, { draftId: record.id, hash: record.hash, name: record.name, original: files.original, record }, record);
+        await openBuffer(buffer, { draftId: record.id, hash: record.hash, name: record.name, original: files.original, source: cleanSource(record.source), record }, record);
       } catch (e) {
         setOpenError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -465,7 +489,7 @@ export function useDocumentSession(documentId: string | null) {
     setDraftOffer(null);
     setBusy(true);
     try {
-      await openBuffer(offer.buffer, { draftId: uuidV4(), hash: offer.hash, name: offer.name, original: offer.original, record: null });
+      await openBuffer(offer.buffer, { draftId: uuidV4(), hash: offer.hash, name: offer.name, original: offer.original, source: sourceOf(offer.original), record: null });
     } catch (e) {
       setOpenError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -485,6 +509,7 @@ export function useDocumentSession(documentId: string | null) {
     clearContentStack();
     setDocEpoch((n) => n + 1);
     setFileName('');
+    setFileInfo(null);
     setChanges({ seq: 0, exportedSeq: 0, savedSeq: 0 });
     setDraftStatus({ kind: 'none' });
     setExportStatus({ kind: 'idle' });
@@ -664,6 +689,7 @@ export function useDocumentSession(documentId: string | null) {
 
   return {
     fileName,
+    fileInfo,
     openError,
     dirty,
     unsaved,

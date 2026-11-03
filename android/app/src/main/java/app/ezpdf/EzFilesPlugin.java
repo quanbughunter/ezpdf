@@ -6,8 +6,11 @@ import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ProviderInfo;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.Environment;
@@ -48,7 +51,8 @@ import java.util.UUID;
  * Storage Access Framework, so the app needs no storage permission:
  *
  *  - openDocument    system picker (ACTION_OPEN_DOCUMENT) for one PDF, or for
- *                    one PDF or Word file when the page passes `mimes`
+ *                    one PDF or Word file when the page passes `mimes`; with
+ *                    `initialUri`, it starts in that document's folder
  *  - createDocument  system "save as" (ACTION_CREATE_DOCUMENT)
  *  - openWrite/write/closeWrite  stream the exported bytes into that document
  *  - takeIncoming + "incoming" event  PDFs and Word files opened with ezPDF (ACTION_VIEW)
@@ -142,6 +146,13 @@ public class EzFilesPlugin extends Plugin {
             intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes);
         } else {
             intent.setType(mimes != null ? mimes[0] : PDF);
+        }
+        // the folder of a file opened before (its information panel): the picker starts there
+        String initial = call.getString("initialUri");
+        // DocumentsContract.EXTRA_INITIAL_URI, Android 8 (API 26) and later; spelled out so the
+        // file also compiles against older SDKs (scripts/check_android_java.sh)
+        if (initial != null && initial.startsWith("content://") && Build.VERSION.SDK_INT >= 26) {
+            intent.putExtra("android.provider.extra.INITIAL_URI", Uri.parse(initial));
         }
         startActivityForResult(call, intent, "openDocumentResult");
     }
@@ -530,6 +541,24 @@ public class EzFilesPlugin extends Plugin {
         }
         doc.put("name", name);
         if (size >= 0) doc.put("size", size);
+        // asked apart: a provider that does not know the column may refuse the whole query
+        try (Cursor c = getContext().getContentResolver().query(uri, new String[] { DocumentsContract.Document.COLUMN_LAST_MODIFIED }, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int m = c.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED);
+                if (m >= 0 && !c.isNull(m) && c.getLong(m) > 0) doc.put("modified", c.getLong(m));
+            }
+        } catch (Exception ignored) {
+            // not a documents provider: no date
+        }
+        // the provider's own name (Downloads, Drive, an app), for the information panel
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            ProviderInfo info = uri.getAuthority() != null ? pm.resolveContentProvider(uri.getAuthority(), 0) : null;
+            CharSequence label = info != null ? info.loadLabel(pm) : null;
+            if (label != null && label.length() > 0) doc.put("from", label.toString());
+        } catch (Exception ignored) {
+            // hidden from this app: no name
+        }
         return doc;
     }
 }

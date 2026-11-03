@@ -225,6 +225,18 @@ const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.tes
   check('PDF opens; toolbar shows 4 pages', true);
   check('left panel shows page thumbnails', await page.isVisible(tid('thumb-0')));
   check('right panel shows document info (4 pages)', (await page.textContent(tid('info-pages'))) === '4');
+  // the file's information: its whole name (copied with one click), where it is (a browser is never told), the PDF's own properties
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  await click('info-copy-name');
+  await page.waitForTimeout(200);
+  const copied = await page.evaluate(() => navigator.clipboard.readText()).catch((e) => `(${e.message})`);
+  const where = await page.textContent(tid('info-path'));
+  const propsText = (await page.textContent(tid('info-props')).catch(() => '')) ?? '';
+  check(
+    'the information panel: the whole file name, copied with its button; the place says the browser does not tell it; the PDF’s own properties (version, producer)',
+    (await page.textContent(tid('info-name'))) === 'sample.pdf' && copied === 'sample.pdf' && /Trình duyệt không cho/.test(where ?? '') && /Phiên bản PDF\s*1\.\d/.test(propsText) && /Trình tạo PDF/.test(propsText),
+    `${copied} | ${where} | ${propsText.slice(0, 120)}`,
+  );
   await collectButtons();
   await click('btn-toggle-left');
   await click('btn-toggle-right');

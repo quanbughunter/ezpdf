@@ -14,6 +14,7 @@
  * Where they are kept depends on the platform (see platform/storage).
  */
 import { storage } from '@/platform';
+import type { FileSource } from '@/platform/types';
 
 export interface DraftRecord {
   id: string;
@@ -30,6 +31,8 @@ export interface DraftRecord {
   updatedAt: number;
   /** the saved state has been exported since it was saved */
   exported: boolean;
+  /** where the original was opened from, for the information panel (see FileSource) */
+  source?: FileSource;
 }
 
 export async function sha256(buffer: ArrayBuffer): Promise<string> {

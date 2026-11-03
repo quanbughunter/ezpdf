@@ -97,7 +97,40 @@ const SYMBOL: Record<number, number> = {
   0xfc: 0x23ab, 0xfd: 0x23ac, 0xfe: 0x23ad,
 };
 
-const isSymbolFont = (f: Font) => f.charset === 2 && /^symbol$/i.test(f.face.trim());
+/**
+ * Symbol and Euclid Symbol (Equation Editor 3.0) share one encoding. Matched
+ * by name, whatever character set the font was asked with: MathType asks for
+ * Symbol with DEFAULT_CHARSET (1).
+ */
+const isSymbolFont = (f: Font) => /^(symbol|euclid symbol)$/i.test(f.face.trim());
+/** MathType's MT Extra and the Equation Editor's Euclid Extra: double-struck letters, accents, arrow pieces drawn over letters */
+const isExtraFont = (f: Font) => /^(mt extra|euclid extra)$/i.test(f.face.trim());
+
+/**
+ * MT Extra → Unicode, where Unicode has the character (from LibreOffice's
+ * font conversion tables, unotools/source/misc/fontcvt.cxx, MPL 2.0);
+ * private-use and missing ones are left out.
+ */
+const MT_EXTRA: Record<number, number> = {
+  0x3a: 0x223c, 0x3b: 0x2243, 0x3c: 0x22b2, 0x3d: 0x226a, 0x3e: 0x22b3, 0x3f: 0x226b, 0x40: 0x225c, 0x41: 0x2259,
+  0x42: 0x2250, 0x43: 0x2210, 0x44: 0x019b, 0x49: 0x2229, 0x4a: 0x2127, 0x4b: 0x2026, 0x4c: 0x22ef, 0x4d: 0x22ee,
+  0x4e: 0x22f0, 0x4f: 0x22f1, 0x50: 0x2225, 0x51: 0x2235, 0x52: 0x2221, 0x53: 0x2222, 0x55: 0x222a, 0x56: 0x25b3,
+  0x57: 0x25a1, 0x58: 0x25ad, 0x59: 0x25b1, 0x5a: 0x2197, 0x5b: 0x2199, 0x5d: 0x2198, 0x5e: 0x2196, 0x60: 0x2035,
+  0x61: 0x21a6, 0x62: 0x2195, 0x63: 0x21d5, 0x64: 0x25cb, 0x65: 0x2299, 0x66: 0x227b, 0x68: 0x210f, 0x6c: 0x2113,
+  0x6d: 0x2213, 0x6f: 0x2218, 0x70: 0x227a, 0x7b: 0xfe38, 0x7d: 0xfe37, 0x80: 0x21c4, 0x83: 0x21cc, 0x86: 0x21c0,
+  0x87: 0x21bd, 0xa1: 0x211d, 0xa2: 0x2124, 0xa3: 0x2102, 0xa4: 0x211a, 0xa5: 0x2115, 0xa7: 0x301a, 0xa8: 0x301b,
+  // accents MathType places above a letter: spacing forms (the combining ones would sit on nothing)
+  0x23: 0x02cb, 0x24: 0x02c6, 0x25: 0x02dc, 0x26: 0x02d9,
+};
+/**
+ * MT Extra's pieces of an arrow over letters (a vector): q and u extend the
+ * line, r ends it with a head on the right, s on the left, t on both; v and
+ * w with half a head (harpoons). They are drawn as lines, not text: no
+ * other font has these glyphs at their place.
+ */
+const ARROW_PIECE: Record<number, 'line' | 'right' | 'left' | 'both' | 'harpoonR' | 'harpoonL'> = {
+  0x71: 'line', 0x75: 'line', 0x72: 'right', 0x73: 'left', 0x74: 'both', 0x76: 'harpoonR', 0x77: 'harpoonL',
+};
 
 /** character codes → a string, a slice at a time (one call with ~65k arguments fails in Safari's engine) */
 function fromCodes(codes: ArrayLike<number>): string {
@@ -111,7 +144,20 @@ function symbolText(codes: number[]): string {
   return fromCodes(
     codes.map((c) => {
       const k = c >= 0xf020 && c <= 0xf0ff ? c - 0xf000 : c;
+      // real Unicode (an EMF's wide text) is kept as it is
+      if (k > 0xff) return k;
       return SYMBOL[k] ?? (k >= 0x20 && k < 0x7f ? k : 0xfffd);
+    }),
+  );
+}
+
+/** MT Extra / Euclid Extra text → Unicode; what Unicode lacks shows as a replacement mark */
+function extraText(codes: number[]): string {
+  return fromCodes(
+    codes.map((c) => {
+      const k = c >= 0xf020 && c <= 0xf0ff ? c - 0xf000 : c;
+      if (k > 0xff) return k;
+      return MT_EXTRA[k] ?? (k === 0x20 ? 0x20 : 0xfffd);
     }),
   );
 }
@@ -380,8 +426,12 @@ class Player {
   /** text at a logical point; `dx`: the advance of each character (logical units), when given */
   text(x: number, y: number, codes: number[], raw8: Uint8Array | null, dx: number[] | null) {
     const f = this.dc.font;
-    const symbol = isSymbolFont(f);
-    let str = symbol ? symbolText(codes) : raw8 ? decode8(raw8, f.charset) : fromCodes(codes);
+    if (isExtraFont(f)) {
+      const keys = codes.map((c) => (c >= 0xf020 && c <= 0xf0ff ? c - 0xf000 : c));
+      if (keys.some((k) => ARROW_PIECE[k]) && keys.every((k) => ARROW_PIECE[k] || k === 0x20)) return this.arrow(x, y, keys, dx);
+    }
+    const symbol = isSymbolFont(f) || isExtraFont(f);
+    let str = isSymbolFont(f) ? symbolText(codes) : isExtraFont(f) ? extraText(codes) : raw8 ? decode8(raw8, f.charset) : fromCodes(codes);
     if (!str) return;
     // the chars the advances refer to (a decoded 8-bit string can be shorter: double-byte charsets)
     const chars = [...str];
@@ -423,6 +473,60 @@ class Player {
     if (f.escapement) attrs.push(`transform="rotate(${num(-f.escapement / 10)} ${num(px)} ${num(py)})"`);
     str = chars.join('');
     this.emit(`<text ${attrs.join(' ')} style="white-space:pre">${escapeHtml(str)}</text>`);
+  }
+
+  /**
+   * An arrow over letters from MT Extra pieces (see ARROW_PIECE): one line
+   * from the first piece to the end of the last, with its heads. MathType
+   * sets these pieces' baseline above the letters; the line sits a little
+   * below that baseline, as the glyphs do.
+   */
+  arrow(x: number, y: number, keys: number[], dx: number[] | null) {
+    const f = this.dc.font;
+    const em = f.height ? this.lenY(Math.abs(f.height)) : 16 * this.devScale;
+    if (!(em > 0.2)) return;
+    const align = this.dc.textAlign;
+    if (align & 1) [x, y] = this.dc.cur;
+    const [px, py] = this.pt(x, y);
+    const vert = align & 0x18;
+    const baseY = vert === 0x18 ? py : vert === 8 ? py - 0.22 * em : py + em;
+    const flipX = this.pt(1, 0)[0] < this.pt(0, 0)[0] ? -1 : 1;
+    // where each piece starts; the last one is about 0.42 em wide (the glyph's own width)
+    let at = px;
+    const xs = keys.map((_, i) => {
+      const here = at;
+      at += dx && i < dx.length ? this.lenX(dx[i]) * flipX : 0.42 * em;
+      return here;
+    });
+    if (align & 1 && dx) this.dc.cur = [x + dx.slice(0, keys.length).reduce((a, b) => a + b, 0), y];
+    const ly = baseY + 0.13 * em, head = 0.16 * em, half = 0.075 * em, w = Math.max(0.5, 0.045 * em);
+    // one string can hold several arrows (one over each of two letters): a head on the right ends one, a head on the left starts one
+    const arrows: { x0: number; x1: number; kinds: Set<string> }[] = [];
+    let cur: { x0: number; x1: number; kinds: Set<string> } | null = null;
+    keys.forEach((k, i) => {
+      const kind = ARROW_PIECE[k];
+      if (!kind) {
+        // a space between two arrows
+        cur = null;
+        return;
+      }
+      if (!cur || kind === 'left' || kind === 'harpoonL') {
+        cur = { x0: xs[i], x1: xs[i] + 0.42 * em, kinds: new Set() };
+        arrows.push(cur);
+      }
+      cur.x1 = xs[i] + 0.42 * em;
+      cur.kinds.add(kind);
+      if (kind === 'right' || kind === 'harpoonR' || kind === 'both') cur = null;
+    });
+    let d = '';
+    for (const { x0, x1, kinds } of arrows) {
+      d += ` M${num(x0)},${num(ly)} H${num(x1)}`;
+      if (kinds.has('right') || kinds.has('both')) d += ` M${num(x1 - head)},${num(ly - half)} L${num(x1)},${num(ly)} L${num(x1 - head)},${num(ly + half)}`;
+      if (kinds.has('left') || kinds.has('both')) d += ` M${num(x0 + head)},${num(ly - half)} L${num(x0)},${num(ly)} L${num(x0 + head)},${num(ly + half)}`;
+      if (kinds.has('harpoonR')) d += ` M${num(x1 - head)},${num(ly - half)} L${num(x1)},${num(ly)}`;
+      if (kinds.has('harpoonL')) d += ` M${num(x0 + head)},${num(ly - half)} L${num(x0)},${num(ly)}`;
+    }
+    this.emit(`<path d="${d.trim()}" fill="none" stroke="${this.dc.textColor}" stroke-width="${num(w)}" stroke-linecap="round" stroke-linejoin="round"/>`);
   }
 
   image(l: number, t: number, w: number, h: number, url: string | null) {

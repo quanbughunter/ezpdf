@@ -21,6 +21,12 @@
  *    refused quickly
  *  - font and size (0.8.2): w:rFonts for every script and w:sz/w:szCs in
  *    Word's order, theme fonts replaced, read back by python-docx
+ *  - pages and tabs (word-pages.docx, 0.8.3): tab stops merged from style
+ *    and paragraph (a clear one removes), default stop; page break before,
+ *    section breaks that start a page or not; page-number fields in the
+ *    footer; an equation in a field's instruction kept and not shown;
+ *    MathType's fonts as MathType asks for them (Symbol with the default
+ *    character set, MT Extra: ℝ and the arrows of two vectors)
  * Usage: npm run test:word
  */
 import { execFileSync } from 'child_process';
@@ -39,7 +45,7 @@ import { backspace, del, deleteParagraphs, lineBreak, lockedGuard, setFont, setS
 import { decodeTiff } from '../src/word/tiff';
 import { encodePng } from '../src/word/images';
 import { markers } from '../src/word/numbering';
-import { schema } from '../src/word/schema';
+import { PAGE_BREAK, schema } from '../src/word/schema';
 
 const dom = { DOMParser: DOMParser as never, XMLSerializer: XMLSerializer as never };
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -342,6 +348,7 @@ async function main() {
   await drawingCases();
   await imageCases();
   await fontCases();
+  await pageCases();
   console.log(failed ? `\n${failed} failed, ${passed} passed` : `\nall ${passed} word checks passed`);
   process.exit(failed ? 1 : 0);
 }
@@ -1056,4 +1063,103 @@ async function fontCases() {
     { encoding: 'utf8' },
   ).trim();
   check('python-docx reads the font and size back', py === 'Arial 18.0 Times New Roman', py);
+}
+
+/** Pages, tab stops, fields and MathType's fonts (0.8.3). */
+async function pageCases() {
+  const store = new Map<string, { mime: string; b: Uint8Array }>();
+  const m = await readDocx(new Uint8Array(readFileSync(FIX('word-pages.docx'))), 'word-pages.docx', {
+    dom,
+    imageUrl: (b, mime) => {
+      const u = `img:${store.size}`;
+      store.set(u, { mime, b });
+      return u;
+    },
+  });
+  const para = (needle: string) => {
+    let hit: PMNode | null = null;
+    m.doc.descendants((n) => {
+      if (hit) return false;
+      if (n.type === schema.nodes.paragraph && n.textContent.includes(needle)) hit = n;
+      return !hit;
+    });
+    return hit as PMNode | null;
+  };
+  const tabsOf = (needle: string) => para(needle)?.attrs.tabs;
+  check(
+    'tab stops: a paragraph’s own (four left stops), a right stop with dots, centre and right, and a style’s stops with one added and one cleared',
+    tabsOf('A. 19.') === 'l14.15 l141.75 l269.3 l396.85' && tabsOf('Họ và tên') === 'r450.' && tabsOf('Giữa trang') === 'c240.95 r481.9' && tabsOf('Kiểu') === 'l141.75 l396.85' && m.defaultTab === 36,
+    JSON.stringify({ a: tabsOf('A. 19.'), r: tabsOf('Họ và tên'), c: tabsOf('Giữa trang'), s: tabsOf('Kiểu'), d: m.defaultTab }),
+  );
+  check(
+    'page starts: “page break before”; a section break starts a new page when the next section says so (not when it is continuous); the page break is a mark of its own',
+    para('ngắt trang trước đoạn')?.attrs.breakBefore === true &&
+      para('Cuối section một')?.attrs.newPage === true &&
+      para('Cuối section hai')?.attrs.newPage === false &&
+      (() => {
+        let found = false;
+        para('HẾT')?.forEach((c) => (found ||= c.type === schema.nodes.inl && c.attrs.label === PAGE_BREAK));
+        return found;
+      })(),
+  );
+  check(
+    'page margins for the header and footer read; the footer’s PAGE and NUMPAGES fields are marked for each page’s number',
+    Math.abs(m.page.header - 28.35) < 0.01 && Math.abs(m.page.footer - 28.35) < 0.01 && /<span data-ezpage="">1<\/span>/.test(m.footerHtml) && /<span data-ezpages="">1<\/span>/.test(m.footerHtml) && /đầu trang/.test(m.headerHtml),
+    m.footerHtml.replace(/<[^>]*style="[^"]*"/g, '<').slice(0, 200),
+  );
+  const q = para('Trước trường');
+  let mathShown = false, hiddenKept = 0;
+  q?.forEach((c) => {
+    if (c.type === schema.nodes.inl && c.attrs.kind === 'math') mathShown = true;
+    if (c.type === schema.nodes.inl && c.attrs.kind === 'hidden') hiddenKept++;
+  });
+  check('an equation inside a QUOTE field’s instruction is not shown (Word does not show it), and is kept', q?.textContent === 'Trước trường sau trường.' && !mathShown && hiddenKept >= 5, `${q?.textContent} · hidden ${hiddenKept}`);
+  // edited, the paragraph keeps the field and its equation
+  const ed = new Ed(m);
+  ed.caretAfter('sau trường.');
+  ed.type(' Thêm.');
+  const x = buildDocumentXml(ed.model, ed.state.doc);
+  const pq = x.slice(x.lastIndexOf('<w:p', x.indexOf('Trước trường')), x.indexOf('</w:p>', x.indexOf('Trước trường')));
+  check('…and an edited paragraph writes the field back whole, equation included', /QUOTE/.test(pq) && /<m:oMath>/.test(pq) && /fldCharType="separate"/.test(pq) && /Thêm\./.test(pq));
+  // the MathType picture: Symbol with the default character set and MT Extra become Unicode; the two arrows are drawn apart
+  const svg = [...store.values()].filter((v) => v.mime === 'image/svg+xml').map((v) => strFromU8(v.b)).find((t) => t.includes('<text')) ?? '';
+  const arrows = /<path d="([^"]+)" fill="none" stroke="[^"]+" stroke-width="[^"]+" stroke-linecap="round"/.exec(svg)?.[1] ?? '';
+  check(
+    'MathType’s fonts as MathType asks for them: Symbol (default character set) gives ≥ and ∈, MT Extra gives ℝ; no Latin-1 stand-ins (³ Î ¡)',
+    svg.includes('≥') && svg.includes('∈') && svg.includes('ℝ') && !/[³Î¡]/.test(svg),
+    svg.slice(0, 160),
+  );
+  check('the arrows of two vectors in one MT Extra string are drawn as two arrows, each over its letter', (arrows.match(/H/g) ?? []).length === 2, arrows.slice(0, 160));
+
+  // fields in odd places (the review of 0.8.3): nothing after them must disappear
+  const raw = new Uint8Array(readFileSync(FIX('word-pages.docx')));
+  const crafted = (body: string, footer?: string) => {
+    const files = unzipSync(raw);
+    const x = strFromU8(files['word/document.xml']);
+    files['word/document.xml'] = strToU8(x.replace(/(<w:body>)[^]*(<w:sectPr>(?:(?!<w:sectPr>)[^])*<\/w:body>)/, `$1${body}$2`));
+    if (footer) files['word/footer1.xml'] = strToU8(strFromU8(files['word/footer1.xml']).replace(/<w:p>[^]*<\/w:p>/, footer));
+    return readDocx(zipSync(files), 'fields.docx', { dom, imageUrl: (b, mime) => `data:${mime};n=${b.length}` });
+  };
+  const fc = (t: string) => `<w:r><w:fldChar w:fldCharType="${t}"/></w:r>`;
+  const it = (t: string) => `<w:r><w:instrText xml:space="preserve">${t}</w:instrText></w:r>`;
+  const tx = (t: string) => `<w:r><w:t xml:space="preserve">${t}</w:t></w:r>`;
+  const nested = await crafted(`<w:p>${fc('begin')}${it(' IF ')}${fc('begin')}${it(' MERGEFIELD x ')}${fc('separate')}${tx('INNER')}${fc('end')}${it(' = "1" "yes" "no" ')}${fc('separate')}${tx('yes')}${fc('end')}</w:p><w:p>${tx('Sau.')}</w:p>`);
+  const smart = await crafted(`<w:p>${fc('begin')}${it(' REF x ')}<w:smartTag w:uri="u" w:element="e">${fc('separate')}${tx('kết quả')}${fc('end')}</w:smartTag>${tx(' đuôi')}</w:p><w:p>${tx('Đoạn sau.')}</w:p>`);
+  const unended = await crafted(`<w:p>${fc('begin')}${it(' PAGE ')}${tx('một')}</w:p><w:p>${tx('Hai')}</w:p><w:p>${tx('Ba')}</w:p>`);
+  const ifPage = await crafted(`<w:p>${tx('Thân')}</w:p>`, `<w:p>${fc('begin')}${it(' IF ')}${fc('begin')}${it(' PAGE ')}${fc('separate')}${tx('1')}${fc('end')}${it(' = 1 "" "Tiếp" ')}${fc('separate')}${tx('')}${fc('end')}${tx('Chân')}</w:p>`);
+  const tn = (m: WordModel) => texts(m.doc).join('|');
+  check(
+    'fields in odd places: a field in another field’s instruction shows nothing of its own; a separator inside a smart tag still ends the instruction; a begin never ended does not hide what follows; a PAGE inside an IF’s instruction is no page number',
+    tn(nested) === 'yes|Sau.' && tn(smart) === 'kết quả đuôi|Đoạn sau.' && tn(unended) === 'một|Hai|Ba' && !/data-ezpage/.test(ifPage.footerHtml) && /Chân/.test(ifPage.footerHtml),
+    JSON.stringify({ nested: tn(nested), smart: tn(smart), unended: tn(unended), foot: ifPage.footerHtml.replace(/<[^>]+>/g, '') }),
+  );
+  // a crafted page size stays within what Word accepts
+  const files = unzipSync(raw);
+  files['word/document.xml'] = strToU8(strFromU8(files['word/document.xml']).replace(/<w:pgSz [^>]*\/>(<w:pgMar [^>]*\/>)(?=(?:(?!<w:sectPr>)[^])*<\/w:body>)/, '<w:pgSz w:w="99999999" w:h="1"/><w:pgMar w:top="90000" w:right="0" w:bottom="90000" w:left="0" w:header="0" w:footer="0" w:gutter="0"/>'));
+  const tiny = await readDocx(zipSync(files), 'tiny.docx', { dom, imageUrl: () => null });
+  check(
+    'a crafted page size (one twip high, ten metres wide, margins larger than the page) is held within Word’s limits',
+    tiny.page.height >= 7.2 && tiny.page.width <= 1584 && tiny.page.top + tiny.page.bottom < tiny.page.height,
+    JSON.stringify(tiny.page),
+  );
 }

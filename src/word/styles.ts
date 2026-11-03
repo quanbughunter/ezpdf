@@ -5,7 +5,7 @@
  * inherits. Units in the XML: twips (1/20 pt), half-points for font sizes,
  * EMU for drawings (12 700 per pt).
  */
-import { attrNS, elements, isW, num, NS, onOff, wAttr, wChild, wVal } from './xml';
+import { attrNS, elements, isW, num, NS, onOff, wAttr, wChild, wChildren, wVal } from './xml';
 
 export interface RunProps {
   b?: boolean;
@@ -54,6 +54,33 @@ export interface ParaProps {
   shd?: string;
   pageBreakBefore?: boolean;
   borders?: Partial<Record<'top' | 'bottom' | 'left' | 'right', Border>>;
+  /** w:tabs as written at this level (a 'clear' one removes a stop set by a style); see mergeTabs */
+  tabs?: TabStop[];
+}
+
+/** a tab stop: where (twips from the text's left edge), how text lines up at it, what fills the gap */
+export interface TabStop {
+  pos: number;
+  val: string;
+  leader?: string;
+}
+
+/**
+ * The tab stops in force: each level's w:tabs (document defaults, list
+ * level, style chain, paragraph) added in turn, a 'clear' removing the stop
+ * at its place. 'bar' stops draw a line in Word and do not stop text: left out.
+ */
+export function mergeTabs(...levels: (TabStop[] | undefined)[]): TabStop[] {
+  const at = new Map<number, TabStop>();
+  for (const level of levels) for (const t of level ?? []) (t.val === 'clear' ? at.delete(t.pos) : at.set(t.pos, t));
+  return [...at.values()].filter((t) => t.val !== 'bar' && t.val !== 'num').sort((a, b) => a.pos - b.pos);
+}
+
+/** tab stops in a paragraph attribute: "l14.15 c234 r467.5." (align l/c/r/d, points, leader . - _ or ·) */
+export function encodeTabs(tabs: TabStop[]): string {
+  const align = (v: string) => (v === 'center' ? 'c' : v === 'right' || v === 'end' ? 'r' : v === 'decimal' ? 'd' : 'l');
+  const lead = (l?: string) => (l === 'dot' ? '.' : l === 'hyphen' ? '-' : l === 'underscore' || l === 'heavy' ? '_' : l === 'middleDot' ? '·' : '');
+  return tabs.map((t) => `${align(t.val)}${+(t.pos / 20).toFixed(2)}${lead(t.leader)}`).join(' ');
 }
 
 const merge = <T extends object>(...layers: (T | undefined)[]): T => Object.assign({}, ...layers.filter(Boolean)) as T;
@@ -238,6 +265,15 @@ export function readParaProps(pPr: Element | null): ParaProps {
   const shd = shading(wChild(pPr, 'shd'));
   if (shd) p.shd = shd;
   if (onOff(wChild(pPr, 'pageBreakBefore'))) p.pageBreakBefore = true;
+  const tabs = wChild(pPr, 'tabs');
+  if (tabs) {
+    p.tabs = [];
+    for (const t of wChildren(tabs, 'tab')) {
+      const pos = num(wAttr(t, 'pos'));
+      const val = wAttr(t, 'val') ?? 'left';
+      if (pos !== undefined && Number.isFinite(pos) && Math.abs(pos) < 31680) p.tabs.push({ pos, val, leader: wAttr(t, 'leader') ?? undefined });
+    }
+  }
   const bdr = wChild(pPr, 'pBdr');
   if (bdr) {
     p.borders = {};
@@ -333,6 +369,7 @@ export class Styles {
       const chain = this.chain(styleId, 'paragraph');
       hit = { p: merge<ParaProps>(this.defaults.p, ...chain.map((c) => c.p)), r: merge<RunProps>(this.defaults.r, ...chain.map((c) => c.r)) };
       delete hit.p.styleId;
+      hit.p.tabs = mergeTabs(this.defaults.p.tabs, ...chain.map((c) => c.p.tabs));
       this.cacheP.set(key, hit);
     }
     return hit;
@@ -447,7 +484,8 @@ export function paraCss(p: ParaProps, r: RunProps): string {
   else if (p.firstLine) css.push(`text-indent:${pt(p.firstLine)}`);
   const before = p.beforeAuto ? 280 : p.before;
   const after = p.afterAuto ? 280 : p.after;
-  css.push(`margin-top:${before ? pt(before) : '0'}`);
+  // the page layout can make it larger, when the paragraph starts a page (app/word/page-layout.ts, styles.css)
+  css.push(`margin-top:var(--ezpg,${before ? pt(before) : '0'})`);
   css.push(`margin-bottom:${after ? pt(after) : '0'}`);
   if (p.line) {
     if (p.lineRule === 'exact' || p.lineRule === 'atLeast') css.push(`line-height:${pt(p.line)}`);

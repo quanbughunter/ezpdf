@@ -1,4 +1,4 @@
-# 11 · Đọc và sửa nhẹ tệp Word (.docx) (bản 0.8.2)
+# 11 · Đọc và sửa nhẹ tệp Word (.docx) (bản 0.8.3)
 
 Mở tệp Word ngay trên máy, sửa nhẹ rồi lưu ra một tệp Word mới. Tài liệu không rời thiết bị. Tính năng dùng chung một mã cho Windows, web (cả iPhone) và Android.
 
@@ -36,14 +36,15 @@ Trạng thái bên cạnh tên tệp: chấm cam **Chưa lưu** khi có thay đ�
 
 ## Hiển thị
 
-- Trang theo đúng khổ và lề của tệp. Màn hình hẹp (điện thoại): trang co theo chiều rộng màn hình, lề co theo, chữ tự xuống dòng; bảng co vừa trang.
+- Trang theo đúng khổ và lề của tệp, **chia thành từng trang như Word** (bản 0.8.3, xem phần **Trang và điểm dừng tab** dưới). Trên mọi máy trang giữ đúng chiều rộng của nó; điện thoại hiện cả trang thu nhỏ vừa màn hình, chụm hai ngón để phóng to.
 - Kiểu đoạn và kiểu chữ của tệp (Normal, Heading…), phông chữ của theme, cỡ, màu, tô nền, gạch ngang, chỉ số trên/dưới, căn lề, thụt lề, khoảng cách đoạn, viền đoạn.
 - Danh sách: dấu đầu dòng và số được đếm lại sau mỗi lần sửa (1. 2. 3., a. b., i. ii., số nhiều cấp).
 - Bảng: viền theo kiểu bảng (ví dụ “Table Grid”) và viền riêng của ô, ô gộp ngang và dọc, màu nền ô, chiều rộng cột.
 - Ảnh mọi định dạng tệp Word có thể chứa (bản 0.8.2, xem phần **Ảnh mọi định dạng** dưới). Ảnh nằm trên đường chân chữ như trong Word.
 - Hình vẽ, công thức toán, biểu đồ, SmartArt, chú thích cuối trang: xem phần **Hình vẽ, công thức, biểu đồ** ngay dưới.
-- Đầu trang và chân trang hiện mờ, chỉ để xem.
-- Trường (số trang…) hiện giá trị đã lưu trong tệp; ngắt trang hiện nhãn “ngắt trang”.
+- Đầu trang và chân trang hiện mờ trên từng trang, chỉ để xem; trường số trang (PAGE, NUMPAGES) hiện đúng số của trang đó.
+- Các trường khác hiện giá trị đã lưu trong tệp; phần mã của trường (Word không hiện) cũng không hiện.
+- Điểm dừng tab của đoạn (trái, giữa, phải, thập phân, có dấu chấm dẫn) và điểm dừng mặc định của tệp.
 
 ## Hình vẽ, công thức, biểu đồ (bản 0.8.1)
 
@@ -90,6 +91,32 @@ Bộ giải mã TIFF là UTIF.js (MIT, của Photopea; cùng pako, MIT và Zlib;
 **Phóng to.** Trang được phóng to cả khối bằng CSS (`transform: scale`), như Word: dòng chữ giữ nguyên chỗ xuống dòng. Mức 100 % là chữ đúng cỡ thật. Ở 100 %, trang rộng bằng khổ giấy, hoặc bằng màn hình nếu màn hình hẹp hơn (lề co lại, chữ chạy lại dòng như trước). Phóng bằng chuột hay hai ngón thì điểm dưới con trỏ hay giữa hai ngón đứng yên. Bản Windows trước đây không phóng được vì WebView2 của app tắt phóng to của trình duyệt; giờ màn Word tự lo việc này trên cả ba bản.
 
 **Phông và cỡ chữ.** Chọn phông thì đoạn chữ được ghi `w:rFonts` với cùng một phông cho mọi loại chữ (Latin, Đông Á, chữ phức tạp), bỏ phông theo theme của đoạn đó, nếu không Word sẽ vẫn dùng phông theme. Chọn cỡ thì ghi `w:sz` và `w:szCs` (nửa điểm: 10,5 pt là 21). Các phần tử được chèn đúng thứ tự Word yêu cầu; màu, đậm, gạch chân và mọi thuộc tính khác của đoạn chữ giữ nguyên. Tên phông chỉ nhận chữ, số và vài dấu (`. _ - + & ( )`): tên khác bị từ chối, không ghi gì. Sao chép, dán trong tài liệu giữ phông và cỡ.
+
+## Trang và điểm dừng tab (bản 0.8.3)
+
+Theo yêu cầu sau khi mở một đề kiểm tra toán (đầy công thức MathType, đáp án A. B. C. D. xếp cột): trên Android không xem được gì; trên Windows khá hơn nhưng chưa giống Word; không chia trang mà chỉ có nhãn “ngắt trang” trong ô nét đứt.
+
+**Trên điện thoại** trước đây trang co theo chiều rộng màn hình và chữ chạy lại dòng, nên đề thi xếp cột vỡ hết. Từ bản 0.8.3, trang **giữ đúng chiều rộng của nó trên mọi máy** (như chế độ Print Layout của Word) và được thu nhỏ cho vừa màn hình; chụm, mở hai ngón hay chạm vào số % để phóng to. Xoay ngang điện thoại thì trang vẫn vừa màn hình.
+
+**Công thức MathType trên Android.** Ảnh xem trước của MathType viết chữ bằng phông Symbol và MT Extra, mà Android không có, nên ≥ thành ³, ∈ thành Î, ℝ thành ¡, ∞ thành ¥, mũi tên véc-tơ thành chữ r nhỏ. Bộ đọc metafile trước đây chỉ đổi phông Symbol khi tệp xin đúng bảng mã Symbol, mà MathType lại xin bảng mã mặc định. Giờ ezPDF đổi theo tên phông: Symbol và Euclid Symbol (của Equation Editor 3.0) sang Unicode; MT Extra và Euclid Extra sang Unicode theo bảng của LibreOffice (ℝ ℤ ℂ ℚ ℕ, ∥, ∡…); mũi tên véc-tơ, mũi tên hai chiều, nửa mũi tên trên chữ được **vẽ thành đường** đúng chỗ, mỗi véc-tơ một mũi tên. Windows có sẵn các phông này nên trước đó đã hiện đúng.
+
+**Công thức hiện hai lần.** Một số tệp (thường do MathType chuyển đổi) có công thức Word nằm trong phần mã của trường QUOTE ngay sau ảnh MathType. Word không hiện phần mã của trường; ezPDF trước đây lại hiện. Giờ mọi thứ nằm giữa dấu bắt đầu và dấu ngăn của một trường đều không hiện, và vẫn được ghi lại nguyên vẹn.
+
+**Điểm dừng tab.** Trước đây tab chỉ là một khoảng trắng cố định. Giờ mỗi tab rộng đúng tới điểm dừng tiếp theo, đo từ lề trái của cột chữ như Word:
+- điểm dừng riêng của đoạn, cộng dồn từ kiểu đoạn, cấp danh sách và chính đoạn đó; điểm dừng “xóa” bỏ điểm dừng của kiểu;
+- căn trái, căn giữa, căn phải, thập phân (căn như căn phải); dấu chấm, gạch, gạch dưới dẫn tới điểm dừng;
+- điểm dừng ngầm ở thụt treo (hanging indent) cho dòng đầu;
+- sau điểm dừng riêng cuối cùng là các điểm dừng mặc định của tệp (thường 1,27 cm).
+
+**Chia trang.** Văn bản được chia thành từng tờ đúng khổ giấy của tệp, giữa các tờ có khoảng xám:
+- một đoạn không vừa phần còn lại của trang sang trang sau; bảng thì sang trang ở hàng không vừa, đường kẻ dừng ở cuối trang này và tiếp ở trang sau;
+- ngắt trang, “ngắt trang trước đoạn” (pageBreakBefore), ngắt section kiểu trang mới (cả trang lẻ, trang chẵn) bắt đầu trang mới; ngắt section liên tục thì không. Ngắt trang ở cuối đoạn mang dấu đoạn theo như Word: đoạn sau bắt đầu ngay đầu trang mới;
+- đầu trang, chân trang hiện trên từng tờ, trong lề trên, lề dưới, với số trang của tờ đó (“Trang 3 / 8”);
+- chú thích cuối trang, cuối tài liệu hiện sau phần thân bài, sang trang mới nếu không vừa.
+
+Việc chia trang và tab là phần hiển thị: tệp Word không bị đổi gì. Khi gõ, các trang được chia lại sau khoảng một phần mười giây, màn hình không nhảy.
+
+Cách làm (`src/app/word/page-layout.ts`): một plugin ProseMirror đo văn bản sau khi trình duyệt dàn chữ. Tab: mỗi ký tự tab được bọc trong một hộp có chiều rộng tính được (decoration), lặp vài lượt cho tới khi các tab không đổi. Trang: bỏ khoảng cách trang cũ, đo vị trí từng khối, rồi đặt lại (khoảng trên của khối mở đầu trang, chiều cao của dấu ngắt trang giữa đoạn, một hàng trống không viền trong bảng), tất cả trong cùng một lượt nên trình duyệt không vẽ trạng thái ở giữa. Khoảng xám, đầu trang, chân trang được vẽ đè lên tờ giấy (`Sheets` trong `WordScreen.tsx`).
 
 ## Những phần chỉ xem
 
@@ -158,20 +185,23 @@ Bản 0.8.2 thêm `word-images.docx` (`scripts/make_word_images.py`, ảnh do Pi
 
 Mọi tệp ezPDF lưu đều được **đọc lại bằng chương trình khác**: python-docx (`scripts/verify_word.py`) và LibreOffice (mở rồi xuất ra chữ).
 
+Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề kiểm tra có đầu trang, chân trang “Trang {PAGE} / {NUMPAGES}”, các dòng đáp án ở bốn điểm dừng tab trái, một kiểu đoạn có điểm dừng riêng với đoạn thêm một điểm, xóa một điểm, điểm dừng phải có dấu chấm dẫn, điểm dừng giữa; một ảnh công thức kiểu MathType (WMF xin phông Symbol với bảng mã mặc định: ≥, ∈; MT Extra: ℝ và mũi tên của hai véc-tơ trong cùng một chuỗi); một công thức trong phần mã của trường QUOTE; 45 đoạn văn và một bảng 40 hàng vắt qua cuối trang; ngắt trang sau một dòng chữ, “ngắt trang trước đoạn”, một ngắt section trang mới và một ngắt section liên tục. LibreOffice chia tệp này thành 8 trang; ezPDF cũng 8 trang, các trang bắt đầu ở cùng chỗ.
+
 **Thử trên tệp Word thật** (bản 0.8.1). Ngoài các tệp mẫu, bộ đọc được chạy trên 1.666 tệp `.docx` thật mà hai dự án lớn dùng để kiểm thử: 130 tệp của Apache POI và 1.536 tệp của LibreOffice (thư mục kiểm thử nhập/xuất OOXML), do Word, LibreOffice và nhiều chương trình khác tạo, kể cả tệp hỏng cố ý.
 - 1.634 tệp mở được. 32 tệp còn lại bị từ chối kèm lý do rõ ràng: có mật khẩu, chuẩn Strict, tệp mẫu, gói zip hoặc XML hỏng.
 - Vẽ được 685 hình (nhóm, khung vẽ, hộp chữ, VML, biểu đồ, SmartArt) và 146 công thức.
 - Trên 130 tệp của POI, bản 0.8.0 hiện 47 nhãn thay cho hình ở 14 tệp; bản 0.8.1 không còn nhãn nào. Trên cả 1.666 tệp chỉ còn nhãn ở 10 tệp, đều chính đáng: ảnh TIFF, ảnh liên kết ra ngoài, ảnh không có trong tệp, SmartArt không có bản vẽ lưu sẵn.
 - Lưu khi không sửa: `document.xml` của mọi tệp mở được đều khớp bản gốc (chỉ khác khoảng trắng giữa các phần tử và chú thích XML, Word bỏ qua những thứ này).
 - Tệp lớn nhất (15 MB XML, khoảng 16.000 đoạn) mở trong khoảng 8,5 giây trên Chromium; gần hết thời gian là bộ đọc XML của trình duyệt.
+- Bản 0.8.3 chạy lại cả bộ: mọi con số giữ nguyên như 0.8.2, lưu không sửa vẫn khớp bản gốc. Tệp lớn nhất được chia thành 192 trang ngay sau khi mở (khoảng 0,4 giây).
 - Bản 0.8.2 chạy lại cả bộ: vẫn 1.634 tệp mở được, 32 tệp từ chối như cũ, lưu không sửa vẫn khớp bản gốc. Năm ảnh TIFF thật (ảnh chụp, biểu tượng) trong 4 tệp của LibreOffice trước hiện nhãn, giờ hiện ra; số ảnh hiện được tăng từ 281 lên 286. Nhãn còn lại chỉ là ảnh liên kết ra ngoài, ảnh không có trong tệp và SmartArt không có bản vẽ lưu sẵn.
 - Lượt này tìm ra và sửa: hộp chữ không có lề trong mặc định, chữ trong hình tròn, hình thoi, mũi tên phải nằm trong vùng chữ riêng của hình, khung vẽ khóa (locked canvas), lệnh `PatBlt` của WMF, biểu đồ bề mặt, `w:pict` rỗng hiện nhãn thừa. Đoạn có thẻ thông minh (20 đoạn trong bộ POI) giờ sửa được.
 
 | Bộ kiểm | Kết quả |
 |---|---|
-| `npm run test:word` (đọc/ghi trên Node, `tests/word-probe.ts`) | **97/97** (bản 0.8.1: 81). Chi tiết ngay dưới bảng. |
-| `npm run e2e:word` (Chromium, cả luồng trong app) | **44/44** trên dev server và **44/44** trên bản build production (bản 0.8.1: 36). Chi tiết ngay dưới bảng. |
-| `scripts/smoke-desktop.cjs` (bản desktop thật, WebKitGTK, cùng nhân với Safari) | **29/29** (bản 0.8.1: 26). Bước mới của 0.8.2: `word-images.docx` mở như “Mở bằng”, đủ 10 loại TIFF, EPS, PICT, WMZ hiện ra; nút + (110 %), Ctrl + bằng phím thật (125 %), Ctrl 0 (100 %), trang phóng đúng tỷ lệ; chọn Arial bằng chuột thật và gõ cỡ 20 cho một đoạn chữ, thanh công cụ hiện đúng. Bản 0.8.1: Bước Word: tệp `.docx` đưa vào app như “Mở bằng”, gõ bằng phím thật, làm đậm, lưu qua hộp thoại lưu của hệ thống; python-docx đọc đúng; tệp gốc không đổi. Bước mới của 0.8.1: `word-draw.docx` mở cùng cách, 6 hình, chữ trong lưu đồ, 2 công thức MathML có kích thước, ảnh WMF và EMF, chú thích đều được WebKitGTK dàn đúng. Lần chạy đầu dừng ở bước sau đó vì WebDriver không mở được phiên mới kịp; hai lần chạy lại đều đạt 26/26. |
+| `npm run test:word` (đọc/ghi trên Node, `tests/word-probe.ts`) | **106/106** (bản 0.8.2: 97). Chi tiết ngay dưới bảng. |
+| `npm run e2e:word` (Chromium, cả luồng trong app) | **50/50** trên dev server và **50/50** trên bản build production (bản 0.8.2: 44). Chi tiết ngay dưới bảng. |
+| `scripts/smoke-desktop.cjs` (bản desktop thật, WebKitGTK, cùng nhân với Safari) | **30/30** (bản 0.8.2: 29). Bước mới của 0.8.3: `word-pages.docx` trong WebKitGTK (nhân của Safari, tức của web app trên iPhone): 8 tờ, ngắt trang bắt đầu trang mới, tab dòng đáp án dừng đúng điểm dừng, mỗi tờ “Trang k / 8”. Bước của 0.8.2: `word-images.docx` mở như “Mở bằng”, đủ 10 loại TIFF, EPS, PICT, WMZ hiện ra; nút + (110 %), Ctrl + bằng phím thật (125 %), Ctrl 0 (100 %), trang phóng đúng tỷ lệ; chọn Arial bằng chuột thật và gõ cỡ 20 cho một đoạn chữ, thanh công cụ hiện đúng. Bản 0.8.1: Bước Word: tệp `.docx` đưa vào app như “Mở bằng”, gõ bằng phím thật, làm đậm, lưu qua hộp thoại lưu của hệ thống; python-docx đọc đúng; tệp gốc không đổi. Bước mới của 0.8.1: `word-draw.docx` mở cùng cách, 6 hình, chữ trong lưu đồ, 2 công thức MathML có kích thước, ảnh WMF và EMF, chú thích đều được WebKitGTK dàn đúng. Lần chạy đầu dừng ở bước sau đó vì WebDriver không mở được phiên mới kịp; hai lần chạy lại đều đạt 26/26. |
 
 `test:word` kiểm:
 - Đọc đúng cả ba tệp: khối, định dạng, danh sách `• • 1. 2. 3.`, bảng có ô gộp, ảnh đúng cỡ, liên kết, đầu trang, chân trang, 3 khối chỉ xem.
@@ -191,6 +221,7 @@ Mọi tệp ezPDF lưu đều được **đọc lại bằng chương trình kh�
   - tệp cố tình độc hại (chữ chứa thẻ `<script>`, `<img onerror>`, màu và tên hình chứa mã, tên phông trong WMF chứa thẻ): không có thẻ, mã, trình xử lý sự kiện hay địa chỉ ngoài nào lọt ra; chữ hiện đúng là chữ;
   - mọi hình bị cắt ở lề nhỏ quanh khung;
   - 8 bước kiểm cho các ca của lượt rà soát 0.8.1 (dưới).
+- Bản 0.8.3, `word-pages.docx`: điểm dừng tab đọc đúng (của đoạn, của kiểu cộng dồn, điểm “xóa”, dấu chấm dẫn, giữa, phải), điểm dừng mặc định; “ngắt trang trước đoạn”, ngắt section trang mới hay liên tục, dấu ngắt trang; lề đầu trang, chân trang, trường PAGE và NUMPAGES được đánh dấu; công thức trong phần mã trường QUOTE không hiện, vẫn được giữ, và được ghi lại nguyên khi đoạn bị sửa; ảnh MathType ra ≥ ∈ ℝ, không còn ³ Î ¡, hai mũi tên véc-tơ riêng.
 - Bản 0.8.2:
   - `word-images.docx`: đủ 26 ảnh; không có trình duyệt để hỏi thì 23 ảnh hiện, AVIF, HEIC, JPEG XR thành nhãn; có trình duyệt đọc AVIF thì AVIF hiện, chỉ ba định dạng đó được hỏi; TIFF, EPS, PICT thành PNG hay JPEG; WMZ thành SVG;
   - so từng điểm ảnh với ảnh gốc (Pillow): ảnh không mất dữ liệu khớp tuyệt đối (CMYK lệch dưới 0,01/255 do làm tròn khi đổi màu), ảnh có JPEG lệch dưới 3/255;
@@ -207,11 +238,12 @@ Mọi tệp ezPDF lưu đều được **đọc lại bằng chương trình kh�
 - Lưu ra `word-a (ezPDF).docx`: python-docx kiểm 12 điểm, ảnh dán có số hiệu riêng, LibreOffice mở được.
 - Đóng khi chưa lưu thì app hỏi; mở Word chồng lên PDF rồi quay lại; mở PDF từ màn Word; tệp `.doc` cũ được giải thích.
 - Điện thoại 390 px: hai thanh vừa màn hình (hàng hai có phông, cỡ, B, I, U), bảng vừa trang, chạm rồi gõ, làm đậm; hai ngón mở ra gấp ba khoảng cách thì trang phóng lên 300 %.
+- Bản 0.8.3, `word-pages.docx`: mỗi tab dòng đáp án kết thúc đúng ở 14,15 / 141,75 / 269,3 / 396,85 pt (sai số dưới 1,2 pt); kiểu đoạn có điểm xóa còn 141,75 và 396,85; điểm dừng phải có dấu chấm đưa “Lớp: 10A” về đúng 450 pt; điểm dừng giữa căn giữa ở 240,95 pt. Các tờ có khoảng xám ở giữa; ngắt trang, “ngắt trang trước đoạn”, section trang mới bắt đầu trang, section liên tục thì không; không dòng nào, hàng bảng nào vắt qua cuối trang; mỗi tờ có đầu trang và “Trang k / n” đúng. Ảnh MathType có ≥ ∈ ℝ và hai mũi tên; công thức trong mã trường không hiện. Gõ thêm làm đoạn dài ra: các trang chia lại, vẫn không có gì vắt qua cuối trang, màn hình không nhảy. Điện thoại: trang giữ đúng chiều rộng, thu nhỏ vừa màn hình, đúng bằng số trang và vị trí tab như trên máy tính.
 - Bản 0.8.2: chọn Arial cho một đoạn từ danh sách, gõ cỡ 18 cho đoạn khác, chọn cỡ 24 khi chưa chọn chữ rồi gõ tiếp; thanh hiện đúng phông, cỡ ở con trỏ; sao chép, dán giữ phông; python-docx đọc ra Arial cho cả bốn loại chữ, 18 pt, 24 pt. `word-images.docx`: 24/26 ảnh hiện (cả AVIF), màu đúng ở bốn ô màu của từng ảnh, HEIC và JPEG XR thành nhãn có tên; TIFF được giải mã trong Web Worker, ảnh quá hạn giờ làm dừng worker và ảnh sau có worker mới. Phóng to: 100 % lúc đầu, + ra 110 %, menu 150 %, trang lớn đúng tỷ lệ; ở 150 % bấm vào một chữ thì con trỏ đến đúng chữ đó; Ctrl + lăn chuột lùi một nấc (182 %), điểm dưới con trỏ đứng yên; Ctrl 0, Ctrl +, Ctrl −.
 - Bản 0.8.1, `word-draw.docx`: 6 hình SVG có kích thước thật, lưu đồ căn giữa, chữ trong hình được dàn; 2 công thức MathML; ảnh WMF và EMF giải mã được; chú thích hiện sau bài; không đoạn nào bị khóa. Gõ cạnh công thức, sao chép rồi dán một công thức (ra công thức, không ra chữ), lưu: tệp có đủ 3 công thức, nhóm hình, khung vẽ, VML, OLE, biểu đồ, SmartArt, dấu chú thích. Clipboard giả mạo mang mã của tài liệu không đưa được ảnh từ ngoài hay mã hình vào. Điện thoại: mọi hình, ảnh, công thức vừa trang.
 - Không gửi gì ra ngoài.
 
-Cả bản 0.8.2 đều đạt (`e2e:m4` bản production có kiểm Content-Security-Policy: phông toán, hình vẽ, ảnh và worker giải mã ảnh không vi phạm):
+Cả bản 0.8.3 đều đạt (`e2e:m4` bản production có kiểm Content-Security-Policy: phông toán, hình vẽ, ảnh và worker giải mã ảnh không vi phạm):
 
 | Bộ | Dev | Production |
 |---|---|---|
@@ -222,7 +254,7 @@ Cả bản 0.8.2 đều đạt (`e2e:m4` bản production có kiểm Content-Sec
 | `e2e:scan` | 26/26 | 16/16 |
 | `e2e:share` | 36/36 | 36/36 |
 | `e2e:pages` | 28/28 | 28/28 |
-| `e2e:word` | 44/44 | 44/44 |
+| `e2e:word` | 50/50 | 50/50 |
 
 Cùng đạt:
 - `typecheck`, `test:layout`, `test:engine`, `verify`, `test:m3`, `test:storage`, `test:edit`, `test:pages`, `test:word`;
@@ -287,13 +319,34 @@ Những điểm nêu ra và cách sửa (mỗi điểm nặng có bước kiểm
 
 Còn lại một điểm nhỏ, ghi ở phần Giới hạn: trên điện thoại, nếu một ngón đã kéo trang trước khi ngón thứ hai chạm thì trang có thể vừa phóng vừa trượt một chút.
 
+### Rà soát bản 0.8.3
+
+Một lượt rà soát riêng đọc mã chia trang, điểm dừng tab, trường và bộ đọc MathType mới, không xem cách làm, chạy thử bằng chính mã của ezPDF trong Chromium với tệp dựng sẵn. Kết luận về bảo mật: **không có gì từ tệp đi vào CSS hay HTML mà chưa được mã hoá**: lớp dấu dẫn lấy từ một bảng cố định, độ rộng là số, điểm dừng tab và cờ ngắt trang khi dán đều được kiểm; số trang trong đầu, chân trang chỉ do ezPDF điền, tệp không giả được dấu số trang. Không có vòng chia trang chạy mãi; lưu luôn ghi lại đủ chữ và phần ẩn.
+
+Những điểm nêu ra và cách sửa:
+
+1. **Bảng trên trang dọc mất độ rộng của Word.** Một luật CSS cũ (từ khi trang còn co theo màn hình) bắt mọi bảng giãn hết chiều ngang khi vùng chữ hẹp hơn 640 px, mà vùng chữ của A4 hay Letter lề thường đều hẹp hơn thế: cột tính theo chữ, bảng thụt hay căn giữa bị dồn về trái, kể cả trên máy tính. Giờ trang không còn co nên luật này được bỏ.
+2. **Đoạn mở đầu một trang mất khoảng cách trước đoạn của chính nó** sau mỗi lượt chia trang, nên các trang dần ngắt sai chỗ. Giờ khoảng cách đầu trang đi qua một biến CSS (`--ezpg`), khoảng cách riêng của đoạn không bị đụng tới. `e2e:word` kiểm một đoạn có 18 pt trước đoạn vẫn còn 18 pt sau khi gõ và chia trang lại.
+3. **Trường lồng trong phần mã của trường khác hiện kết quả của nó** (`{ IF { MERGEFIELD x } … }` hiện thừa chữ; `{ IF { PAGE } = 1 "" "Tiếp" }` ở chân trang thành số trang). Giờ mọi thứ trong phần mã của bất kỳ trường nào bao quanh đều ẩn, và chỉ trường PAGE, NUMPAGES nằm ở phần kết quả mới thành số trang.
+4. **Thẻ thông minh hay liên kết nằm trong phần mã trường có thể làm ẩn cả phần sau của tài liệu** (dấu ngăn của trường nằm trong thẻ nên không được thấy). Giờ thẻ, liên kết được đọc vào trong, dấu trường bên trong luôn được tính.
+5. **Một dấu bắt đầu trường không có dấu kết thúc làm ẩn mọi thứ sau nó.** Giờ các dấu được ghép cặp trước khi đọc; dấu lẻ bị bỏ qua.
+6. **Con trỏ ngay sau một tab hiện ở đầu khoảng tab**, phím mũi tên nhảy quá một chữ. Giờ con trỏ ở cuối khoảng tab như Word.
+7. **Chia lại tab chậm trên tài liệu dài**: mỗi lần gõ đo lại mọi tab của cả tài liệu, vài lượt liền. Giờ chỉ đo lại các đoạn vừa đổi. Khi đo lại sau khi sửa, tìm thêm một nguyên nhân lớn hơn: mỗi lần đo một tab tạo một vùng chọn DOM (`Range`) mới, mà trình duyệt phải cập nhật mọi vùng còn sống mỗi khi trang đổi, nên vẽ 8.000 tab chậm dần theo bình phương. Giờ chỉ dùng một vùng. Tài liệu 2.000 đoạn × 4 tab (Chromium, dev server): lúc mở, tác vụ dài nhất từ khoảng 4,5 giây còn khoảng 0,6 giây, tài liệu hiện ra sau 3,4 giây thay vì 7,7 giây; mỗi lần gõ khoảng 0,15–0,2 giây (lượt rà soát đo khoảng 0,63 giây).
+8. **Các tờ giấy được dựng lại ở mỗi lần gõ hay di con trỏ**, cùng đầu trang, chân trang của từng tờ. Giờ chỉ dựng lại khi số trang hay đầu, chân trang đổi.
+9. **Khổ giấy không được giới hạn**: tệp khai trang cao 0 làm số trang tăng vọt, các tờ chồng lên nhau; trang rộng bất thường làm mức thu nhỏ về gần 0. Giờ khổ giấy giữ trong giới hạn của Word (0,25 cm tới 55,9 cm), lề không quá gần nửa trang, vùng chữ có chiều cao tối thiểu, thu nhỏ dừng ở 5 %.
+10. Bấm vào khoảng trống của một bảng vắt qua hai trang làm mất các phím gõ sau đó: giờ khoảng trống đó không nhận bấm. Dấu ngắt trang không còn ô nét đứt nên khi bị chọn thì không thấy gì: giờ khi được chọn nó hiện nhãn “ngắt trang”. Chữ Unicode thật trong phông Symbol, MT Extra bị thành “�”: giờ giữ nguyên. Tab trong đầu, chân trang bị gộp thành một khoảng trắng: giờ là tab. Một khối kết thúc trong lề trên của trang sau làm khối tiếp theo bắt đầu trong lề: giờ khối đó xuống đầu vùng chữ.
+
+`test:word` có bước kiểm cho các điểm 3, 4, 5, 9; `e2e:word` cho điểm 2.
+
+Còn lại, ghi ở phần Giới hạn: đoạn dài không được chia qua hai trang theo dòng như Word (cả đoạn sang trang sau), khối cao hơn một trang vắt qua khoảng xám; tab thập phân căn như tab phải; khổ giấy lấy theo section cuối.
+
 ## Giới hạn
 
 - Sửa nhẹ: đổi được phông và cỡ chữ (bản 0.8.2); chưa đổi màu, căn lề, kiểu đoạn; chưa thêm hay bớt hàng, cột bảng; chưa chèn ảnh; chưa thêm chú thích (comment) hay theo dõi thay đổi.
 - Phông chữ: phông máy đang dùng không có thì ezPDF hiện bằng phông thay thế; tệp vẫn ghi đúng tên phông đã chọn. Chưa đổi được phông, cỡ của chữ trong hộp chữ, hình vẽ.
 - Phóng to là phóng cả trang, không chạy lại dòng: trên điện thoại, phóng lớn thì phải kéo ngang để đọc hết dòng. Mức phóng không được nhớ khi mở tệp khác. Trên điện thoại, nếu một ngón đã bắt đầu kéo trang trước khi ngón thứ hai chạm, trang có thể vừa phóng vừa trượt một chút.
-- Không chia trang: tài liệu hiện như một trang dài (ngắt trang hiện nhãn). Đầu trang, chân trang chỉ hiện bản mặc định của section cuối.
-- Hiển thị gần giống Word, không giống từng điểm ảnh: không có điểm dừng tab, định dạng có điều kiện của kiểu bảng (hàng tiêu đề đậm…) chưa áp dụng.
+- Chia trang (bản 0.8.3) gần giống Word, không giống hệt: chữ được dàn bằng phông có trên máy, nên trang có thể ngắt ở chỗ khác Word khi máy thiếu phông của tệp (ví dụ Palatino Linotype không có trên Android). Chưa có: giữ đoạn với đoạn sau (keep with next), giữ các dòng của đoạn cùng trang, dòng mồ côi; chia một đoạn dài qua hai trang (cả đoạn sang trang sau; đoạn dài hơn một trang thì vắt qua); hàng bảng cao hơn một trang; lặp hàng tiêu đề của bảng ở trang sau; nhiều cột. Mọi trang dùng khổ giấy, lề, đầu trang, chân trang mặc định của section cuối (chưa có trang đầu, trang chẵn lẻ khác nhau, section xoay ngang).
+- Hiển thị gần giống Word, không giống từng điểm ảnh: định dạng có điều kiện của kiểu bảng (hàng tiêu đề đậm…) chưa áp dụng; tab thập phân căn như tab phải; tab trong đầu trang, chân trang dừng ở các điểm dừng mặc định (1,27 cm), chưa theo điểm dừng riêng của đoạn đó.
 - Hình vẽ, công thức, biểu đồ (bản 0.8.1):
   - **Chỉ xem, chưa sửa được trong ezPDF**: chữ trong hộp chữ và trong hình, bản thân công thức, biểu đồ. Chữ quanh chúng sửa được; có thể xóa, sao chép, dán cả hình hay công thức như một khối. Khi lưu, chúng được ghi lại y nguyên.
   - Hình nổi được đặt trên dòng riêng (căn như trong tệp), không nằm đè hay để chữ chạy quanh như Word. Hình đặt sau chữ làm nền cũng hiện thành một khối riêng.
@@ -326,3 +379,4 @@ Còn lại một điểm nhỏ, ghi ở phần Giới hạn: trên điện tho�
 6. Bản 0.8.2: mở tệp Word có ảnh TIFF (ảnh quét, ảnh dán từ máy quét) trên Windows, Android và web: ảnh phải hiện.
 7. Phóng to: trên Windows, Ctrl + lăn chuột và nút − / + ; trên điện thoại, chụm và mở hai ngón. Phóng lớn rồi bấm vào một chữ và gõ: chữ phải vào đúng chỗ.
 8. Chọn một câu, đổi phông (ví dụ Arial) và cỡ (ví dụ 16), lưu, mở bằng Word: câu đó phải đúng phông, đúng cỡ.
+9. Bản 0.8.3: mở lại chính đề “ĐỀ GK2” trên điện thoại Android: cả trang hiện thu nhỏ vừa màn hình, công thức có ≥ ∈ ℝ và mũi tên véc-tơ, đáp án A. B. C. D. thẳng cột; trang chia như Word, đầu mỗi đề ở đầu trang mới; chụm hai ngón để đọc gần.

@@ -26,8 +26,16 @@
  *    format no browser shows is named
  *  - zoom (0.8.2): − / + / menu, Ctrl + wheel around the pointer, Ctrl + / 0;
  *    a click while zoomed puts the caret on the word clicked
- *  - phone: the bars fit, a tap and typing edit, the table fits the page,
- *    the drawings scale to the page, two fingers zoom
+ *  - pages and tabs (word-pages.docx, 0.8.3): every tab ends at its stop
+ *    (left, right with dots, centre); page breaks, "page break before" and a
+ *    new-page section start a page, a continuous section does not; no line
+ *    or table row crosses a page's end; each sheet has its header and
+ *    "Trang k / n"; MathType's Symbol and MT Extra text drawn as Unicode with
+ *    two vector arrows; an equation in a field's instruction not shown;
+ *    typing re-paginates without moving the view
+ *  - phone: the page at its own width, zoomed out to fit; the bars fit, a
+ *    tap and typing edit, the table fits the page, the drawings scale to the
+ *    page, two fingers zoom; the same pages as on a computer
  *  - nothing leaves the device; no page errors
  *
  * Usage: node scripts/e2e-word.cjs
@@ -233,7 +241,7 @@ let onCrash = async () => {};
   check('a read-only block is selected as a whole by a click and is not typed into', selectedWhole && lockedAfter === lockedBefore && stillThere === 2, `${stillThere} read-only blocks`);
 
   // copy and paste inside the document: a page break and a picture come along as themselves
-  const before = await page.evaluate(() => ({ img: document.querySelectorAll('.ez-wdoc img.ez-wimg').length, pb: [...document.querySelectorAll('.ez-wmark')].filter((m) => m.textContent === 'ngắt trang').length }));
+  const before = await page.evaluate(() => ({ img: document.querySelectorAll('.ez-wdoc img.ez-wimg').length, pb: document.querySelectorAll('.ez-wdoc .ez-wpb').length }));
   await select('Trước ngắt trang.');
   {
     const r1 = await find('Trước ngắt trang.');
@@ -253,7 +261,7 @@ let onCrash = async () => {};
   await caretAfter('Sau ngắt trang.');
   await page.keyboard.press('Control+v');
   await sleep(200);
-  const after = await page.evaluate(() => ({ img: document.querySelectorAll('.ez-wdoc img.ez-wimg').length, pb: [...document.querySelectorAll('.ez-wmark')].filter((m) => m.textContent === 'ngắt trang').length }));
+  const after = await page.evaluate(() => ({ img: document.querySelectorAll('.ez-wdoc img.ez-wimg').length, pb: document.querySelectorAll('.ez-wdoc .ez-wpb').length }));
   const pastedTexts = await texts();
   check(
     'copy and paste inside the document: the page break and the picture are pasted as themselves, not as words',
@@ -582,7 +590,10 @@ let onCrash = async () => {};
     JSON.stringify({ z0, z1, z2 }),
   );
   // a click on a word while zoomed: the caret lands right before it
+  // (after the zoom the pages are laid out again a moment later: click once they have settled)
+  await sleep(500);
   await page.evaluate(() => document.querySelector('.ez-wdoc p:nth-of-type(8)')?.scrollIntoView({ block: 'center' }));
+  await sleep(150);
   const hit = await page.evaluate(() => {
     const p = [...document.querySelectorAll('.ez-wdoc p')].find((x) => x.textContent.startsWith('TIFF Deflate'));
     p.scrollIntoView({ block: 'center' });
@@ -628,6 +639,142 @@ let onCrash = async () => {};
     'Ctrl + wheel zooms out a step around the pointer (the point under it stays); Ctrl 0 gives 100%, Ctrl + 110%, Ctrl − 100%',
     z3.level === '182%' && Math.abs(u1.px - u0.px) < 2 && Math.abs(u1.py - u0.py) < 2 && z4.level === '100%' && z5.level === '110%' && z6.level === '100%',
     JSON.stringify({ u0, u1, levels: [z3.level, z4.level, z5.level, z6.level] }),
+  );
+  await page.click(tid('word-close'));
+  await page.click(tid('word-leave-discard')).catch(() => {});
+  await page.waitForSelector(tid('word-screen'), { state: 'detached' });
+
+  // ── 4e. pages and tab stops ─────────────────────────────────────────────
+  await openWord(page, 'word-pages.docx');
+  const settled = async (p) => {
+    // the layout runs after the text is drawn: wait until the page count stops changing
+    let last = '';
+    for (let i = 0; i < 40; i++) {
+      await sleep(250);
+      const now = await p.evaluate(() => `${document.querySelector('[data-testid="word-page"]').dataset.pages}:${document.querySelectorAll('.ez-wtab').length}:${document.querySelector('[data-testid="word-page"]').offsetHeight}`);
+      if (now === last && !now.startsWith('1:')) return now;
+      last = now;
+    }
+    return last;
+  };
+  await settled(page);
+  const geo = (p) =>
+    p.evaluate(() => {
+      const pg = document.querySelector('[data-testid="word-page"]');
+      const z = pg.getBoundingClientRect().width / pg.offsetWidth;
+      const top0 = pg.getBoundingClientRect().top;
+      const PT = 4 / 3, PH = 841.9 * PT, T = 56.7 * PT, B = 56.7 * PT, G = 24, H = PH - T - B, stride = PH + G;
+      const y = (el) => {
+        const r = el.getBoundingClientRect();
+        return { top: (r.top - top0) / z, bottom: (r.bottom - top0) / z, left: r.left, right: r.right, width: r.width / z };
+      };
+      const paras = [...document.querySelectorAll('.ez-wdoc .ProseMirror > p')];
+      const byText = (t) => paras.find((e) => e.textContent.includes(t));
+      const atPageTop = (t) => {
+        const e = byText(t);
+        if (!e) return null;
+        const r = y(e);
+        const k = Math.round((r.top - T) / stride);
+        return Math.abs(r.top - (k * stride + T)) < 3 ? k + 1 : false;
+      };
+      const pageOf = (v) => Math.floor(v / stride);
+      // nothing crosses the end of a page's text area (a row or a line taller than a page excepted)
+      // (a paragraph with a page break inside it goes on on the next page by design)
+      const blocks = [...paras.filter((e) => !e.querySelector('.ez-wpb') || e.querySelector('.ez-wpb').offsetHeight === 0), ...document.querySelectorAll('.ez-wdoc tr:not(.ez-wpagerow)')].map(y);
+      const crossing = blocks.filter((r) => r.bottom - r.top < H && (pageOf(r.top) !== pageOf(r.bottom - 1) || r.bottom > pageOf(r.top) * stride + T + H + 1.5)).length;
+      const footers = [...document.querySelectorAll('[data-testid="word-sheet"] .ez-whf')].map((f) => f.textContent.trim()).filter((t) => t.startsWith('Trang'));
+      const headers = [...document.querySelectorAll('[data-testid="word-sheet"] .ez-whf')].filter((f) => /đầu trang/.test(f.textContent)).length;
+      // tabs: where each ends, from its paragraph's left edge (points)
+      const tabEnds = (t) => {
+        const e = byText(t);
+        const left = e.getBoundingClientRect().left;
+        return [...e.querySelectorAll('.ez-wtab')].map((s) => +(((s.getBoundingClientRect().right - left) / z) * 0.75).toFixed(1));
+      };
+      const textEnd = (t, piece) => {
+        const e = byText(t);
+        const left = e.getBoundingClientRect().left;
+        const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+        let n;
+        while ((n = walker.nextNode())) {
+          const i = n.data.indexOf(piece);
+          if (i >= 0) {
+            const r = document.createRange();
+            r.setStart(n, i);
+            r.setEnd(n, i + piece.length);
+            const b = r.getBoundingClientRect();
+            return { start: +(((b.left - left) / z) * 0.75).toFixed(1), end: +(((b.right - left) / z) * 0.75).toFixed(1) };
+          }
+        }
+        return null;
+      };
+      return {
+        pages: Number(pg.dataset.pages),
+        sheets: document.querySelectorAll('[data-testid="word-sheet"]').length,
+        gaps: document.querySelectorAll('[data-testid="word-page-gap"]').length,
+        de02: atPageTop('ĐỀ 02'),
+        before: atPageTop('ngắt trang trước đoạn'),
+        sect2: atPageTop('Section hai bắt đầu'),
+        sect3: atPageTop('Section ba nối tiếp'),
+        sect3Page: pageOf(y(byText('Section ba nối tiếp')).top) === pageOf(y(byText('Cuối section hai')).top),
+        crossing,
+        blocks: blocks.length,
+        footers,
+        headers,
+        answers: tabEnds('A. 19.'),
+        style: tabEnds('Kiểu'),
+        leader: { dots: !!byText('Họ và tên').querySelector('.ez-wtab-dot'), end: textEnd('Họ và tên', 'Lớp: 10A')?.end },
+        centre: (() => {
+          const r = textEnd('Giữa trang', 'Giữa trang');
+          return r ? +((r.start + r.end) / 2).toFixed(1) : null;
+        })(),
+        spaceBefore: +((parseFloat(getComputedStyle(byText('Đoạn văn số 7.')).marginTop) || 0) * 0.75).toFixed(1),
+        quote: (() => {
+          const e = byText('Trước trường');
+          return { text: e.textContent, maths: e.querySelectorAll('.ez-wmath').length };
+        })(),
+      };
+    });
+  const g1 = await geo(page);
+  await page.screenshot({ path: path.join(OUT, 'pages.png') });
+  const near = (a, b, d = 1.2) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) <= d);
+  check(
+    'tab stops: the answers end each tab at 14.15 / 141.75 / 269.3 / 396.85 pt; a style’s stops with one cleared (141.75, 396.85); a right stop with dots ends the text at 450 pt; a centre stop centres at 240.95 pt',
+    near(g1.answers, [14.2, 141.8, 269.3, 396.9]) && near(g1.style, [141.8, 396.9]) && g1.leader.dots && Math.abs(g1.leader.end - 450) <= 1.5 && Math.abs(g1.centre - 240.95) <= 1.5,
+    JSON.stringify({ answers: g1.answers, style: g1.style, leader: g1.leader, centre: g1.centre }),
+  );
+  check(
+    'pages: sheets with gaps between them; the page break, “page break before” and a new-page section each start a page, a continuous section does not; no line or table row crosses a page’s end',
+    g1.pages >= 6 && g1.sheets === g1.pages && g1.gaps === g1.pages - 1 && g1.de02 && g1.before && g1.sect2 && g1.de02 < g1.before && g1.before < g1.sect2 && g1.sect3 === false && g1.sect3Page && g1.crossing === 0,
+    JSON.stringify({ pages: g1.pages, de02: g1.de02, before: g1.before, sect2: g1.sect2, sect3: g1.sect3, crossing: g1.crossing, blocks: g1.blocks }),
+  );
+  check(
+    'each sheet has the header and its own “Trang k / n”',
+    g1.headers === g1.pages && g1.footers.length === g1.pages && g1.footers.every((t, k) => t.replace(/\s+/g, ' ') === `Trang ${k + 1} / ${g1.pages}`),
+    g1.footers.slice(0, 3).join(' | '),
+  );
+  const mt = await page.evaluate(async () => {
+    const img = [...document.querySelectorAll('.ez-wdoc img.ez-wimg')].find((i) => i.src.startsWith('data:image/svg'));
+    const svg = img ? await (await fetch(img.src)).text() : '';
+    return { has: ['≥', '∈', 'ℝ'].filter((c) => svg.includes(c)).length, latin: /[³Î¡]/.test(svg), arrows: ((/stroke-linecap="round"[^>]*\/>/.test(svg) && /d="([^"]*)" fill="none" stroke="[^"]+" stroke-width="[^"]+" stroke-linecap="round"/.exec(svg)?.[1]) || '').split('H').length - 1 };
+  });
+  check(
+    'MathType picture: Symbol (default character set) and MT Extra drawn as ≥ ∈ ℝ, two vector arrows; an equation in a field’s instruction is not shown',
+    mt.has === 3 && !mt.latin && mt.arrows === 2 && g1.quote.text === 'Trước trường sau trường.' && g1.quote.maths === 0,
+    JSON.stringify({ mt, quote: g1.quote }),
+  );
+  // typing near the top of a long document: pages follow, the view stays where it is
+  const scrollBefore = await page.$eval(tid('word-canvas'), (c) => c.scrollTop);
+  await caretAfter('Đoạn văn số 3.');
+  await page.keyboard.type(' Thêm một câu khá dài vào giữa đoạn văn này để nó dài ra thêm một dòng nữa, và hơn thế, thêm hai dòng.');
+  await sleep(200);
+  const scrollTyping = await page.$eval(tid('word-canvas'), (c) => c.scrollTop);
+  await settled(page);
+  const g2 = await geo(page);
+  const scrollAfter = await page.$eval(tid('word-canvas'), (c) => c.scrollTop);
+  check(
+    'typing makes the text longer: the pages follow (still nothing crosses a page’s end, the breaks still start pages), a paragraph keeps its own space before, and the view does not jump',
+    g2.crossing === 0 && g2.de02 && g2.before && g2.sect2 && Math.abs(scrollAfter - scrollTyping) < 2 && g1.spaceBefore === 18 && g2.spaceBefore === 18,
+    JSON.stringify({ scrollBefore, scrollTyping, scrollAfter, pages: g2.pages, crossing: g2.crossing, spaceBefore: [g1.spaceBefore, g2.spaceBefore] }),
   );
   await page.click(tid('word-close'));
   await page.click(tid('word-leave-discard')).catch(() => {});
@@ -686,7 +833,13 @@ let onCrash = async () => {};
     await ph.screenshot({ path: path.join(OUT, 'phone-drawings.png'), fullPage: true });
     check('phone: every drawing, picture and equation fits the page (shapes scale down with their text)', fits.n === 10 && fits.out === 0, JSON.stringify(fits));
     // two fingers spread apart: the page zooms in
-    const pinch0 = await ph.evaluate(() => ({ level: document.querySelector('[data-testid="word-zoom-level"]').textContent, w: document.querySelector('[data-testid="word-page"]').getBoundingClientRect().width }));
+    const pinch0 = await ph.evaluate(() => {
+      const c = document.querySelector('[data-testid="word-canvas"]');
+      const cs = getComputedStyle(c);
+      const pg = document.querySelector('[data-testid="word-page"]');
+      const fit = (c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) / pg.offsetWidth;
+      return { level: document.querySelector('[data-testid="word-zoom-level"]').textContent, w: pg.getBoundingClientRect().width, fit, inner: c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) };
+    });
     const tcdp = await pctx.newCDPSession(ph);
     const cb = await ph.locator(tid('word-canvas')).boundingBox();
     const cx = cb.x + cb.width / 2;
@@ -705,9 +858,21 @@ let onCrash = async () => {};
     const pinch1 = await ph.evaluate(() => ({ level: document.querySelector('[data-testid="word-zoom-level"]').textContent, w: document.querySelector('[data-testid="word-page"]').getBoundingClientRect().width }));
     await ph.screenshot({ path: path.join(OUT, 'phone-pinch.png') });
     check(
-      'phone: 100% at first; two fingers spread to three times their distance zoom the page to 300%',
-      pinch0.level === '100%' && pinch1.level === '300%' && Math.abs(pinch1.w / pinch0.w - 3) < 0.05,
+      'phone: the page keeps its own width, zoomed out to fit the screen; two fingers spread to three times their distance zoom it three times',
+      pinch0.level === `${Math.round(pinch0.fit * 100)}%` && pinch0.fit < 0.6 && Math.abs(pinch0.w - pinch0.inner) < 2 && pinch1.level === `${Math.round(pinch0.fit * 300)}%` && Math.abs(pinch1.w / pinch0.w - 3) < 0.05,
       JSON.stringify({ pinch0, pinch1 }),
+    );
+    await ph.click(tid('word-close'));
+    await ph.click(tid('word-leave-discard')).catch(() => {});
+    await ph.waitForSelector(tid('word-screen'), { state: 'detached' });
+    await openWord(ph, 'word-pages.docx');
+    await settled(ph);
+    const pp = await geo(ph);
+    await ph.screenshot({ path: path.join(OUT, 'phone-pages.png') });
+    check(
+      'phone: the same pages as on a computer (the page keeps its width), tabs at their stops, breaks starting pages',
+      pp.pages === g1.pages && near(pp.answers, [14.2, 141.8, 269.3, 396.9]) && pp.de02 && pp.sect2 && pp.crossing === 0,
+      JSON.stringify({ phone: pp.pages, desktop: g1.pages, answers: pp.answers, crossing: pp.crossing }),
     );
     check(
       'phone: both bars fit (font and size on the second) with “Lưu” on screen; the table fits the page; a tap and typing edit; Bold works',

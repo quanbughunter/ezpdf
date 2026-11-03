@@ -21,6 +21,9 @@
  *  6d. pictures, zoom, font and size (0.8.2): word-images.docx (TIFF of every
  *     kind, EPS, PICT…) shown; zoomed with real clicks and Ctrl + / Ctrl 0;
  *     a font and a size picked with real clicks and keys
+ *  6e. pages and tab stops (0.8.3): word-pages.docx in WebKitGTK (the engine of
+ *     Safari, so of the iPhone web app): sheets with gaps, the page break
+ *     starting a page, tabs ending at their stops, "Trang k / n" per sheet
  *  6b. a Word file (0.8.0): a second launch with a .docx path opens the Word
  *     screen in the running window; typed with real keys in WebKitGTK (the
  *     engine of Safari, so of the iPhone web app too), a word bolded, saved
@@ -526,6 +529,38 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
       await s.js(`document.querySelector('${T('word-close')}').click()`);
       await s.waitFor(`return !!document.querySelector('${T('word-leave')}') || !document.querySelector('${T('word-screen')}')`, 'the Word screen to close', 10000);
       if (await s.js(`return !!document.querySelector('${T('word-leave-discard')}')`)) await s.js(`document.querySelector('${T('word-leave-discard')}').click()`);
+      await s.waitFor(`return !document.querySelector('${T('word-screen')}')`, 'the Word screen to close', 10000);
+
+      // 6e. pages and tab stops (0.8.3) in WebKitGTK
+      const pagesDocx = path.join(OUT, 'Trang và tab.docx');
+      fs.copyFileSync(FIX('word-pages.docx'), pagesDocx);
+      const p6 = spawn(BIN, [pagesDocx], { env, stdio: 'ignore' });
+      procs.push(p6);
+      await s.waitFor(`return Number(document.querySelector('${T('word-page')}')?.dataset.pages) >= 6 && document.querySelectorAll('.ez-wtab').length >= 15`, 'the pages', 30000);
+      await sleep(1500);
+      const pagesInfo = JSON.parse(
+        await s.js(`
+          const pg = document.querySelector('${T('word-page')}');
+          const z = pg.getBoundingClientRect().width / pg.offsetWidth;
+          const top0 = pg.getBoundingClientRect().top;
+          const PT = 4 / 3, stride = 841.9 * PT + 24, T = 56.7 * PT;
+          const paras = [...document.querySelectorAll('.ez-wdoc .ProseMirror > p')];
+          const de02 = paras.find((e) => e.textContent.includes('ĐỀ 02'));
+          const y = (de02.getBoundingClientRect().top - top0) / z;
+          const k = Math.round((y - T) / stride);
+          const ans = paras.find((e) => e.textContent.includes('A. 19.'));
+          const left = ans.getBoundingClientRect().left;
+          const ends = [...ans.querySelectorAll('.ez-wtab')].map((t) => +(((t.getBoundingClientRect().right - left) / z) * 0.75).toFixed(1));
+          const footers = [...document.querySelectorAll('${T('word-sheet')} .ez-whf')].map((f) => f.textContent.trim()).filter((t) => t.startsWith('Trang'));
+          return JSON.stringify({ pages: Number(pg.dataset.pages), gaps: document.querySelectorAll('${T('word-page-gap')}').length, de02Top: Math.abs(y - (k * stride + T)) < 3, ends, footers: [footers[0], footers[footers.length - 1]], nFooters: footers.length });`),
+      );
+      await s.shot('6e-pages.png');
+      check(
+        'Word pages in WebKitGTK: sheets with gaps, the page break starts a page, the answers’ tabs end at their stops, each sheet its “Trang k / n”',
+        pagesInfo.pages >= 6 && pagesInfo.gaps === pagesInfo.pages - 1 && pagesInfo.de02Top && pagesInfo.ends.length === 4 && [14.15, 141.75, 269.3, 396.85].every((v, i) => Math.abs(pagesInfo.ends[i] - v) <= 1.5) && pagesInfo.nFooters === pagesInfo.pages && pagesInfo.footers[1] === `Trang ${pagesInfo.pages} / ${pagesInfo.pages}`,
+        JSON.stringify(pagesInfo),
+      );
+      await s.js(`document.querySelector('${T('word-close')}').click()`);
       await s.waitFor(`return !document.querySelector('${T('word-screen')}')`, 'the Word screen to close', 10000);
     } else {
       check('system dialogs: skipped (xdotool not installed)', true);

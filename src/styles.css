@@ -106,10 +106,14 @@
  * width and margins (narrower screens: the margins shrink with the page and
  * the text reflows); formatting comes inline from the file (src/word).
  */
+/* the page layout takes its spacing away and puts it back in one go to measure the text: scrolling must not follow that */
 .ez-wcanvas {
-  container-type: inline-size;
+  overflow-anchor: none;
 }
 .ez-wpage {
+  /* narrow-page rules below follow the page's own width, not the screen's (the page keeps its width and is zoomed) */
+  container-type: inline-size;
+  position: relative;
   margin: 0 auto;
   background: #fff;
   color: #000;
@@ -121,7 +125,8 @@
 }
 .ez-wdoc .ProseMirror {
   outline: none;
-  tab-size: 4;
+  /* until the page layout has placed each tab: the default stops */
+  tab-size: 36pt;
   min-height: 2em;
   caret-color: #000;
 }
@@ -136,15 +141,19 @@
 .ez-wtable table {
   margin: 2pt 0;
 }
-/* narrow screens: a table fits the page and its text wraps, instead of scrolling sideways */
-@container (max-width: 640px) {
-  .ez-wtable table {
-    width: 100% !important;
-    margin-left: 0 !important;
-  }
-  .ez-wtable td {
-    width: auto !important;
-  }
+/*
+ * The space that starts a page (page-layout.ts) is given as --ezpg on the
+ * block that starts it: a paragraph's own margin-top is var(--ezpg, its
+ * space before) (styles.ts paraCss). Blocks inside a block do not take it.
+ */
+.ez-wdoc .ProseMirror > * * {
+  --ezpg: initial;
+}
+.ez-wdoc .ProseMirror > .ez-wtable {
+  margin-top: var(--ezpg, 0);
+}
+.ez-wdoc .ProseMirror > .ez-wlocked {
+  margin-top: var(--ezpg, 2pt);
 }
 /* pictures sit on the text's baseline, as in Word (a run's raise or lower moves them) */
 .ez-wimg {
@@ -289,20 +298,92 @@
 .ez-wnote-item sup {
   margin-right: 1pt;
 }
-.ez-whf {
-  opacity: 0.55;
+/* pages (app/word/page-layout.ts): the sheet is one white box; the gaps between pages are drawn over it */
+.ez-wpages {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
   user-select: none;
 }
-.ez-whf-top {
-  margin-bottom: 12pt;
-  padding-bottom: 4pt;
-  border-bottom: 1px dashed #d4d9de;
+.ez-wsheet {
+  position: absolute;
+  left: 0;
+  right: 0;
 }
-.ez-whf-bottom {
-  margin-top: 12pt;
-  padding-top: 4pt;
-  border-top: 1px dashed #d4d9de;
+.ez-wband {
+  position: absolute;
+  left: -16px;
+  right: -16px;
+  background: var(--canvas);
+  box-shadow:
+    inset 0 7px 6px -7px rgb(0 0 0 / 0.18),
+    inset 0 -7px 6px -7px rgb(0 0 0 / 0.14);
+}
+.ez-whf {
+  position: absolute;
+  opacity: 0.55;
+  overflow: hidden;
+  /* tabs in a header or footer (often a centre and a right stop): at least the default stops */
+  white-space: pre-wrap;
+  tab-size: 36pt;
+}
+/* a table going on on the next page: the gap between its rows, without lines (and not a place to type) */
+.ez-wtable tr.ez-wpagerow {
+  pointer-events: none;
+}
+.ez-wtable tr.ez-wpagerow > td {
+  padding: 0 !important;
+  border: none !important;
+  background: none !important;
+}
+/* a page break: what follows starts the next page */
+.ez-wpb {
+  display: block;
+  height: 0;
+  overflow: hidden;
+}
+/* selected (Backspace next to it, a click), the page break says what it is */
+.ez-wpb.ProseMirror-selectednode {
+  height: auto;
+  overflow: visible;
+  outline: none;
+}
+.ez-wpb.ProseMirror-selectednode::after {
+  content: 'ngắt trang';
+  display: block;
+  border-top: 1px dashed #7a8794;
+  color: #4b5563;
+  font: 10px/1.6 var(--font-sans);
+  text-align: center;
+  text-indent: 0;
+  background: rgb(11 110 105 / 0.08);
+}
+/* a tab, as wide as the way to its stop (page-layout.ts); a dotted or ruled leader when the stop has one */
+.ez-wtab {
+  display: inline-block;
+  tab-size: 0;
+  text-indent: 0;
+  white-space: pre;
+  /* the caret after a tab is drawn at the end of its gap, where the text goes on */
+  text-align: right;
+}
+.ez-wtab-dot {
+  background-image: radial-gradient(circle, currentColor 0.7px, transparent 0.9px);
+  background-size: 4px 4px;
+  background-repeat: repeat-x;
+  background-position: 0 calc(100% - 0.28em);
+}
+.ez-wtab-dash {
+  background-image: linear-gradient(to right, currentColor 50%, transparent 50%);
+  background-size: 6px 1px;
+  background-repeat: repeat-x;
+  background-position: 0 calc(100% - 0.3em);
+}
+.ez-wtab-line {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 100% 1px;
+  background-repeat: no-repeat;
+  background-position: 0 calc(100% - 0.2em);
 }
 
 @layer base {

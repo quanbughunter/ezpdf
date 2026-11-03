@@ -21,7 +21,7 @@ function nextAttrs(model: WordModel, node: PMNode, atEnd: boolean) {
     return { css: model.defaultCss };
   }
   // the section break (if any) stays with the original paragraph (write.ts)
-  return { ...node.attrs, ref: null, before: null, sect: false };
+  return { ...node.attrs, ref: null, before: null, sect: false, newPage: false };
 }
 
 /**

@@ -7,7 +7,7 @@
  * It covers the PDF workspace while open (an overlay: the viewer's
  * shortcuts stay off) and returns to it when closed.
  */
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Bold,
   Check,
@@ -55,6 +55,7 @@ import {
 import { BarDivider, Tip } from '../controls';
 import { FontPicker, SizePicker, ZoomControl } from './format-controls';
 import { makeRasterizer } from './raster-client';
+import { pageLayout, type PagesInfo } from './page-layout';
 import { SHARE_LABEL, WAYS } from '../output-actions';
 import { runCss } from '@/word/styles';
 
@@ -324,6 +325,10 @@ function WordEditor({
 }) {
   const platform = usePlatform();
   const mount = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const notesRef = useRef<HTMLDivElement>(null);
+  /** the pages the layout made (page-layout.ts): how many, how tall */
+  const [pages, setPages] = useState<PagesInfo | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [, setTick] = useState(0);
   const saved = useRef(model.doc);
@@ -411,6 +416,13 @@ function WordEditor({
         tableGuard(model),
         lockedGuard,
         listMarkers(model),
+        pageLayout({
+          page: model.page,
+          defaultTab: model.defaultTab,
+          pageEl: () => pageRef.current,
+          notesEl: () => notesRef.current,
+          onPages: (info) => setPages((old) => (old && old.count === info.count && old.pageH === info.pageH ? old : info)),
+        }),
       ],
     });
     const view = new EditorView(host, {
@@ -497,14 +509,13 @@ function WordEditor({
   }, [notice]);
 
   /*
-   * Zoom. At 1 the page is the document's width, or the screen's when that is
-   * narrower (the margins shrink and the text reflows), and the text is its
-   * real size: 100 %. Zooming scales that page as a whole, as Word does, so
-   * the lines stay where they are; the percentage is the text's size.
+   * Zoom. At 1 the page is the document's own width and the text is its real
+   * size: 100 %. Zooming scales that page as a whole, as Word does, so the
+   * lines stay where they are; the percentage is the text's size. A screen
+   * narrower than the page starts zoomed out to fit it.
    */
   const canvasRef = useRef<HTMLDivElement>(null);
   const sizerRef = useRef<HTMLDivElement>(null);
-  const pageRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   /** the zoom the page is drawn at now (zoomRef runs ahead of it until React has drawn) */
@@ -512,7 +523,13 @@ function WordEditor({
   const [canvasW, setCanvasW] = useState(0);
   const [pageH, setPageH] = useState(0);
   const pagePx = (model.page.width * 4) / 3;
-  const baseW = canvasW ? Math.min(canvasW, pagePx) : 0;
+  /** the page keeps its own width everywhere (as Word's print layout): a phone shows it zoomed out to fit */
+  const baseW = pagePx;
+  const fitZoom = canvasW ? Math.min(ZOOM_MAX, canvasW / pagePx) : 1;
+  const minZoom = useRef(ZOOM_MIN);
+  minZoom.current = Math.max(0.05, Math.min(ZOOM_MIN, fitZoom));
+  /** zoomed to fit the width (follows the screen when it turns or the window changes); a zoom by hand ends it */
+  const fitMode = useRef<boolean | null>(null);
   const percent = Math.round(zoom * 100);
   const focal = useRef<{ px: number; py: number; cx: number; cy: number } | null>(null);
 
@@ -536,7 +553,8 @@ function WordEditor({
   const zoomTo = useCallback((z: number, clientX?: number, clientY?: number) => {
     const canvas = canvasRef.current;
     const sizer = sizerRef.current;
-    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+    const next = Math.max(minZoom.current, Math.min(ZOOM_MAX, z));
+    fitMode.current = false;
     if (!canvas || !sizer || Math.abs(next - zoomRef.current) < 1e-4) return;
     const r = canvas.getBoundingClientRect();
     const cx = (clientX ?? r.left + canvas.clientWidth / 2) - r.left;
@@ -546,6 +564,17 @@ function WordEditor({
     zoomRef.current = next;
     setZoom(next);
   }, []);
+  // at first: 100 % when the page fits the screen, else zoomed out to its width; later, follow the width while fitted
+  useLayoutEffect(() => {
+    if (!canvasW) return;
+    if (fitMode.current === null) fitMode.current = canvasW < pagePx - 1;
+    if (!fitMode.current) return;
+    const z = Math.max(0.05, canvasW / pagePx);
+    if (Math.abs(z - zoomRef.current) > 1e-4) {
+      zoomRef.current = z;
+      setZoom(z);
+    }
+  }, [canvasW, pagePx]);
   useLayoutEffect(() => {
     shownZoom.current = zoom;
     const f = focal.current;
@@ -656,15 +685,14 @@ function WordEditor({
   const ways = useMemo(() => wordShareWays(platform.kind, platform.shareWays), [platform]);
   const format = view ? currentFormat(view) : { font: '', size: 0 };
   const p = model.page;
-  const pad = (v: number) => `min(${v}pt, ${+((v / p.width) * 100).toFixed(3)}cqw)`;
   const pageStyle = useMemo(
     () => ({
-      width: `min(100%, ${p.width}pt)`,
-      minHeight: phone ? undefined : `${Math.min(p.height, 900)}pt`,
-      padding: `${pad(p.top)} ${pad(p.right)} ${pad(p.bottom)} ${pad(p.left)}`,
+      width: pagePx,
+      // as many whole sheets as the text needs (the gaps between them are drawn over the page)
+      minHeight: pages ? pages.count * (pages.pageH + pages.gap) - pages.gap : `${p.height}pt`,
+      padding: `${p.top}pt ${p.right}pt ${p.bottom}pt ${p.left}pt`,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p, phone],
+    [p, pages, pagePx],
   );
 
   const deleteTool = (
@@ -689,7 +717,6 @@ function WordEditor({
       {!phone && deleteTool}
     </>
   );
-  const fitZoom = baseW ? canvasW / baseW : 1;
   const zoomTools = (
     <ZoomControl
       percent={percent}
@@ -697,7 +724,10 @@ function WordEditor({
       onIn={() => zoomStep(1)}
       onOut={() => zoomStep(-1)}
       onPercent={(p) => zoomTo(p / 100)}
-      onFit={() => zoomTo(fitZoom)}
+      onFit={() => {
+        zoomTo(fitZoom);
+        fitMode.current = true;
+      }}
       refocus={phone ? () => {} : refocus /* on a phone, focusing the text would bring up the keyboard */}
       compact={phone}
     />
@@ -795,19 +825,61 @@ function WordEditor({
         <div
           ref={pageRef}
           className="ez-wpage"
-          style={baseW ? { ...pageStyle, width: baseW, margin: 0, transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: '0 0' } : pageStyle}
+          style={{ ...pageStyle, margin: 0, transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: '0 0' }}
           data-testid="word-page"
+          data-pages={pages?.count ?? 1}
         >
-          {model.headerHtml && <div className="ez-whf ez-whf-top" data-testid="word-header" dangerouslySetInnerHTML={{ __html: model.headerHtml }} />}
+          <Sheets model={model} pages={pages} />
           <div className="ez-wdoc" ref={mount} />
-          {model.notesHtml && <div className="ez-wnotes-wrap" data-testid="word-notes" dangerouslySetInnerHTML={{ __html: model.notesHtml }} />}
-          {model.footerHtml && <div className="ez-whf ez-whf-bottom" data-testid="word-footer" dangerouslySetInnerHTML={{ __html: model.footerHtml }} />}
+          {model.notesHtml && <div ref={notesRef} className="ez-wnotes-wrap" data-testid="word-notes" dangerouslySetInnerHTML={{ __html: model.notesHtml }} />}
         </div>
         </div>
       </div>
     </>
   );
 }
+
+/** a header or footer for page `n` of `count`: its page-number fields show that page */
+function numbered(html: string, n: number, count: number): string {
+  return html.replace(/(<span data-ezpage="">)[^<]*(<\/span>)/g, `$1${n}$2`).replace(/(<span data-ezpages="">)[^<]*(<\/span>)/g, `$1${count}$2`);
+}
+
+/**
+ * The sheets over the page: the gap between two pages, and each page's
+ * header and footer (in its top and bottom margins, faded: they are not
+ * edited here).
+ */
+const Sheets = memo(function Sheets({ model, pages }: { model: WordModel; pages: PagesInfo | null }) {
+  const p = model.page;
+  const count = pages?.count ?? 1;
+  const stride = pages ? pages.pageH + pages.gap : 0;
+  const header = model.headerHtml, footer = model.footerHtml;
+  return (
+    <div className="ez-wpages" aria-hidden>
+      {Array.from({ length: count }, (_, k) => (
+        <div key={k} className="ez-wsheet" style={{ top: k * stride, height: pages ? pages.pageH : `${p.height}pt` }} data-testid="word-sheet">
+          {k > 0 && pages && <div className="ez-wband" style={{ top: -pages.gap, height: pages.gap }} data-testid="word-page-gap" />}
+          {header && (
+            <div
+              className="ez-whf"
+              data-testid={k === 0 ? 'word-header' : undefined}
+              style={{ top: `${p.header}pt`, left: `${p.left}pt`, right: `${p.right}pt`, maxHeight: `${Math.max(12, p.top - p.header)}pt` }}
+              dangerouslySetInnerHTML={{ __html: numbered(header, k + 1, count) }}
+            />
+          )}
+          {footer && (
+            <div
+              className="ez-whf"
+              data-testid={k === 0 ? 'word-footer' : undefined}
+              style={{ bottom: `${p.footer}pt`, left: `${p.left}pt`, right: `${p.right}pt`, maxHeight: `${Math.max(12, p.bottom - p.footer)}pt` }}
+              dangerouslySetInnerHTML={{ __html: numbered(footer, k + 1, count) }}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+});
 
 /**
  * A URL for picture bytes: a blob URL; an SVG as a data URL instead, which

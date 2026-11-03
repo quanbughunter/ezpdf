@@ -51,13 +51,17 @@ function pastedParagraph(dom: HTMLElement) {
   const raw = dom.getAttribute('data-ezp');
   if (!raw || !pasteTag) return {};
   try {
-    const d = JSON.parse(raw) as { t: string; ppr: number | null; list: unknown; heading: number | null };
+    const d = JSON.parse(raw) as { t: string; ppr: number | null; list: unknown; heading: number | null; tabs?: unknown; bb?: unknown };
     if (d.t !== pasteTag) return {};
-    return { ppr: d.ppr, list: d.list ?? null, heading: d.heading ?? null, css: dom.getAttribute('style') ?? '' };
+    const tabs = typeof d.tabs === 'string' && /^[lcrd][\d. \-_·lcrd]*$/.test(d.tabs) ? d.tabs : '';
+    return { ppr: d.ppr, list: d.list ?? null, heading: d.heading ?? null, css: dom.getAttribute('style') ?? '', tabs, breakBefore: d.bb === true };
   } catch {
     return {};
   }
 }
+
+/** the label of a page break (w:br w:type="page") read as an inline mark; shown as the start of a new page (app/word/page-layout.ts) */
+export const PAGE_BREAK = 'ngắt trang';
 
 export const schema = new Schema({
   nodes: {
@@ -75,12 +79,19 @@ export const schema = new Schema({
         heading: { default: null as number | null },
         /** set when Enter on an empty list item took it out of the list */
         nolist: { default: false },
+        /** tab stops in force (styles.ts encodeTabs), for laying out tabs (app/word/page-layout.ts) */
+        tabs: { default: '' },
+        /** w:pageBreakBefore: starts a page */
+        breakBefore: { default: false },
+        /** ends a section after which the next starts on a new page */
+        newPage: { default: false },
       },
       parseDOM: ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'].map((tag) => ({ tag, getAttrs: (dom: HTMLElement) => pastedParagraph(dom) })),
       toDOM(node): DOMOutputSpec {
         const a = node.attrs;
-        const tag = pasteTag ? { 'data-ezp': JSON.stringify({ t: pasteTag, ppr: a.ppr, list: a.list, heading: a.heading }) } : {};
-        return ['p', { class: a.sect ? 'ez-wp ez-wsect' : 'ez-wp', style: a.css, ...tag }, 0];
+        const tag = pasteTag ? { 'data-ezp': JSON.stringify({ t: pasteTag, ppr: a.ppr, list: a.list, heading: a.heading, tabs: a.tabs, bb: a.breakBefore }) } : {};
+        // a section break that starts a new page shows as the page gap itself (page-layout.ts); a continuous one keeps its label
+        return ['p', { class: a.sect && !a.newPage ? 'ez-wp ez-wsect' : 'ez-wp', style: a.css, ...tag }, 0];
       },
     },
     locked: {
@@ -169,7 +180,7 @@ export const schema = new Schema({
             return {
               ref: Number(ref),
               kind,
-              label: img ? img.alt : (dom.textContent ?? ''),
+              label: img ? img.alt : dom.classList.contains('ez-wpb') ? PAGE_BREAK : (dom.textContent ?? ''),
               src,
               w: Number(dom.getAttribute('data-w') ?? 0),
               h: Number(dom.getAttribute('data-h') ?? 0),
@@ -204,6 +215,8 @@ export const schema = new Schema({
           case 'note':
             return ['sup', { class: 'ez-wnote', contenteditable: 'false', ...tag }, a.label];
           case 'mark':
+            // a page break: an empty line-wide box (the page layout gives it the height to the next page)
+            if (a.label === PAGE_BREAK) return ['span', { class: 'ez-wpb', contenteditable: 'false', title: 'Ngắt trang', ...tag }];
             return ['span', { class: 'ez-wmark', contenteditable: 'false', ...tag }, a.label];
           default:
             return ['span', { class: 'ez-whidden', ...tag }];

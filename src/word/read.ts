@@ -21,6 +21,8 @@ import { formatNumber, Numbering } from './numbering';
 import {
   borderCss,
   emuToPt,
+  encodeTabs,
+  mergeTabs,
   paraCss,
   readBorder,
   readParaProps,
@@ -58,6 +60,9 @@ export interface PageBox {
   bottom: number;
   left: number;
   right: number;
+  /** from the page's top edge to the header, from its bottom edge to the footer */
+  header: number;
+  footer: number;
 }
 
 export interface WordModel {
@@ -89,6 +94,8 @@ export interface WordModel {
   visuals: Map<number, Visual>;
   /** the fonts the document uses (its font table and theme), for the font picker; symbol fonts left out */
   fonts: string[];
+  /** points between default tab stops (settings.xml w:defaultTabStop) */
+  defaultTab: number;
 }
 
 export interface ReadOptions {
@@ -163,6 +170,13 @@ interface Ctx {
   depth: number;
   /** drawing a SmartArt: a SmartArt cannot hold another one (a crafted file could make one draw itself) */
   inDiagram?: boolean;
+  /**
+   * The fields being read (fldChar begin … separate … end), innermost last:
+   * 'code' between begin and separate (the field's instruction, which Word
+   * does not show, though it can hold anything: an equation for a QUOTE
+   * field, say), 'result' after separate.
+   */
+  fields: ('code' | 'result')[];
 }
 
 interface Shared {
@@ -185,6 +199,10 @@ interface Shared {
   /** markup drawn so far, and bytes inflated from .wmz/.emz: past a budget the rest shows as chips */
   drawn: number;
   inflated: number;
+  /** paragraphs ending a section after which the next one starts on a new page */
+  newPageAfter: Set<Element>;
+  /** field begins (w:fldChar) of the main text that no end closes */
+  unended: Set<Element>;
 }
 
 /** what one document may draw (markup) and inflate (compressed metafiles) in all */
@@ -230,7 +248,7 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
     doc: null as unknown as PMNode,
     styles,
     numbering,
-    page: { width: 595.3, height: 841.9, top: 72, bottom: 72, left: 72, right: 72 },
+    page: { width: 595.3, height: 841.9, top: 72, bottom: 72, left: 72, right: 72, header: 36, footer: 36 },
     headerHtml: '',
     footerHtml: '',
     locked: { count: 0, reasons: [] },
@@ -239,6 +257,10 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
     notesHtml: '',
     visuals: new Map(),
     fonts: documentFonts(partDoc(partByType('/fontTable')), theme),
+    defaultTab: (() => {
+      const v = num(wVal(wChild(partDoc(partByType('/settings'))?.documentElement ?? null, 'defaultTabStop'), 'val'));
+      return v && v >= 36 && v <= 14400 ? v / 20 : 36;
+    })(),
   };
   // what each picture really is (by its bytes): the decoders a file needs are loaded only for it
   const kinds = new Map<string, ImageKind>();
@@ -285,11 +307,20 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
     diagrams: new Map(),
     drawn: 0,
     inflated: 0,
+    newPageAfter: new Set(),
+    unended: unendedFields(body),
   };
-  const ctx: Ctx = { model, part: pkg.main, opts, inTable: 0, shared, depth: 0 };
+  const ctx: Ctx = { model, part: pkg.main, opts, inTable: 0, shared, depth: 0, fields: [] };
 
   const children = elements(body);
   const sectPr = children.length && isW(children[children.length - 1], 'sectPr') ? children[children.length - 1] : null;
+  // a section break starts a new page unless the next section says it follows on (w:type continuous, or a new column)
+  const breaks = children.filter((c) => isW(c, 'p') && wChild(wChild(c, 'pPr'), 'sectPr'));
+  breaks.forEach((p, i) => {
+    const next = i + 1 < breaks.length ? wChild(wChild(breaks[i + 1], 'pPr'), 'sectPr') : sectPr;
+    const type = wVal(next, 'type') ?? 'nextPage';
+    if (type !== 'continuous' && type !== 'nextColumn') shared.newPageAfter.add(p);
+  });
   const blocks = readBlocks(ctx, sectPr ? children.slice(0, -1) : children, (pending) => (model.tail = pending));
   if (!blocks.length) blocks.push(schema.nodes.paragraph.create({ css: model.defaultCss }));
   model.doc = schema.nodes.doc.create(null, blocks);
@@ -301,13 +332,19 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
       const v = num(wAttr(el, a));
       return v === undefined ? d : Math.abs(v) / 20;
     };
+    // within what Word accepts (0.1 to 22 inches); margins leave the text some room
+    const side = (v: number) => Math.min(1584, Math.max(7.2, v));
+    const width = side(t(pg, 'w', 595.3)), height = side(t(pg, 'h', 841.9));
+    const margin = (v: number, of: number) => Math.min(v, of * 0.45);
     model.page = {
-      width: t(pg, 'w', 595.3),
-      height: t(pg, 'h', 841.9),
-      top: t(mar, 'top', 72),
-      bottom: t(mar, 'bottom', 72),
-      left: t(mar, 'left', 72),
-      right: t(mar, 'right', 72),
+      width,
+      height,
+      top: margin(t(mar, 'top', 72), height),
+      bottom: margin(t(mar, 'bottom', 72), height),
+      left: margin(t(mar, 'left', 72), width),
+      right: margin(t(mar, 'right', 72), width),
+      header: margin(t(mar, 'header', 36), height),
+      footer: margin(t(mar, 'footer', 36), height),
     };
     const hf = (kind: 'header' | 'footer') => {
       const refs = wChildren(sectPr, `${kind}Reference`);
@@ -315,7 +352,7 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
       const target = ref ? rels.get(rId(ref) ?? '')?.target : undefined;
       const doc = partDoc(target);
       if (!doc || !target) return '';
-      const sub: Ctx = { ...ctx, part: target };
+      const sub: Ctx = { ...ctx, part: target, fields: [] };
       return elements(doc.documentElement).map((el) => previewBlock(sub, el)).join('');
     };
     model.headerHtml = hf('header');
@@ -334,7 +371,7 @@ export async function readDocx(bytes: Uint8Array, name: string, opts: ReadOption
       .map((r) => {
         const note = byId.get(r.id);
         if (!note) return '';
-        const sub: Ctx = { ...ctx, part: target, noteLabel: r.label };
+        const sub: Ctx = { ...ctx, part: target, noteLabel: r.label, fields: [] };
         return `<div class="ez-wnote-item">${elements(note).map((el) => previewBlock(sub, el)).join('')}</div>`;
       })
       .join('');
@@ -389,6 +426,9 @@ function readBlocks(ctx: Ctx, els: Element[], leftover: (pending: number[]) => v
 }
 
 function lockedBlock(ctx: Ctx, el: Element, before: number[] | null, reason: string): PMNode {
+  // the fields it begins or ends still count for what follows
+  const chars = el.getElementsByTagNameNS(NS.w, 'fldChar');
+  for (let i = 0; i < chars.length; i++) fieldChar(ctx, chars[i]);
   const ref = store(ctx, el);
   ctx.model.locked.count++;
   if (!ctx.model.locked.reasons.includes(reason)) ctx.model.locked.reasons.push(reason);
@@ -416,6 +456,8 @@ export function paraInfo(model: WordModel, pPr: Element | null, noList = false):
   const lvl = noList ? null : model.numbering.level(numId, ilvl);
   const directClean = Object.fromEntries(Object.entries(direct).filter(([k]) => k !== 'styleId')) as ParaProps;
   const props = merge<ParaProps>(lvl?.p, style.p, directClean);
+  // tab stops add up level by level: style, list level, the paragraph's own
+  props.tabs = mergeTabs(style.p.tabs, lvl?.p.tabs, direct.tabs);
   if (noList) {
     // out of the list: no list indent left over
     props.left = direct.left ?? style.p.left;
@@ -467,6 +509,7 @@ function readParagraph(ctx: Ctx, p: Element, before: number[] | null): PMNode {
   const items: PMNode[] = [];
   // a paragraph found read-only part-way: the note numbers it took are given back (its preview takes them again)
   const notes = { n: ctx.shared.notes.length, f: ctx.shared.footnote, e: ctx.shared.endnote };
+  const fields = ctx.fields.slice();
   try {
     for (const el of elements(p)) {
       if (isW(el, 'pPr')) continue;
@@ -475,6 +518,7 @@ function readParagraph(ctx: Ctx, p: Element, before: number[] | null): PMNode {
   } catch (e) {
     if (e instanceof Locked) {
       model.store.pop();
+      ctx.fields.splice(0, ctx.fields.length, ...fields);
       ctx.shared.notes.length = notes.n;
       ctx.shared.footnote = notes.f;
       ctx.shared.endnote = notes.e;
@@ -492,6 +536,9 @@ function readParagraph(ctx: Ctx, p: Element, before: number[] | null): PMNode {
       before,
       sect: !!wChild(pPr, 'sectPr'),
       heading: model.styles.headingLevel(styleId) ?? null,
+      tabs: encodeTabs(info.props.tabs ?? []),
+      breakBefore: !!info.props.pageBreakBefore,
+      newPage: ctx.shared.newPageAfter.has(p),
     },
     items,
   );
@@ -502,14 +549,9 @@ function readParagraph(ctx: Ctx, p: Element, before: number[] | null): PMNode {
 function readInline(ctx: Ctx, el: Element, info: ParaInfo, items: PMNode[], link: Mark | null) {
   const model = ctx.model;
   const withLink = (marks: readonly Mark[]) => (link ? link.addToSet(marks) : marks);
+  if (el.namespaceURI === NS.w && el.localName === 'r') return readRun(ctx, el, info, items, link);
   if (el.namespaceURI === NS.w) {
     const n = el.localName;
-    if (n === 'r') return readRun(ctx, el, info, items, link);
-    if (n === 'proofErr') return;
-    if (MARKERS.has(n)) {
-      items.push(schema.nodes.inl.create({ ref: store(ctx, el), kind: 'hidden' }, null, withLink([])));
-      return;
-    }
     if (n === 'hyperlink') {
       const rid = rId(el);
       const rel = rid ? model.pkg.rels(ctx.part).get(rid) : undefined;
@@ -522,6 +564,21 @@ function readInline(ctx: Ctx, el: Element, info: ParaInfo, items: PMNode[], link
       // its runs are read as the paragraph's own (Word 2010 and later drop smart tags too);
       // an untouched paragraph is written back with them
       for (const k of elements(el)) if (!isW(k, 'smartTagPr')) readInline(ctx, k, info, items, link);
+      return;
+    }
+  }
+  // inside a field's instruction: kept as it is, not shown (the fields it begins or ends still count)
+  if (inFieldCode(ctx) && !(el.namespaceURI === NS.w && (el.localName === 'proofErr' || MARKERS.has(el.localName)))) {
+    const chars = el.getElementsByTagNameNS(NS.w, 'fldChar');
+    for (let i = 0; i < chars.length; i++) fieldChar(ctx, chars[i]);
+    items.push(schema.nodes.inl.create({ ref: store(ctx, el), kind: 'hidden' }, null, withLink([])));
+    return;
+  }
+  if (el.namespaceURI === NS.w) {
+    const n = el.localName;
+    if (n === 'proofErr') return;
+    if (MARKERS.has(n)) {
+      items.push(schema.nodes.inl.create({ ref: store(ctx, el), kind: 'hidden' }, null, withLink([])));
       return;
     }
     if (n === 'fldSimple') {
@@ -542,6 +599,32 @@ function readInline(ctx: Ctx, el: Element, info: ParaInfo, items: PMNode[], link
     return;
   }
   throw new Locked('có nội dung đặc biệt');
+}
+
+/** The field begins in `root` that no end closes, pairing begins and ends in document order as Word does. */
+function unendedFields(root: Element): Set<Element> {
+  const open: Element[] = [];
+  const chars = root.getElementsByTagNameNS(NS.w, 'fldChar');
+  for (let i = 0; i < chars.length; i++) {
+    const t = wAttr(chars[i], 'fldCharType');
+    if (t === 'begin') open.push(chars[i]);
+    else if (t === 'end') open.pop();
+  }
+  return new Set(open);
+}
+
+/** inside some field's instruction (a field in another field's instruction is part of it) */
+const inFieldCode = (ctx: Ctx) => ctx.fields.includes('code');
+
+/** a fldChar: the field it begins, separates or ends (a begin never ended is left out: it would hide the rest of the document) */
+function fieldChar(ctx: Ctx, c: Element) {
+  const t = wAttr(c, 'fldCharType');
+  if (t === 'begin') {
+    if (!ctx.shared.unended.has(c)) ctx.fields.push('code');
+  }
+  else if (t === 'separate') {
+    if (ctx.fields.length) ctx.fields[ctx.fields.length - 1] = 'result';
+  } else if (t === 'end') ctx.fields.pop();
 }
 
 /**
@@ -599,6 +682,16 @@ function readRun(ctx: Ctx, r: Element, info: ParaInfo, items: PMNode[], link: Ma
     items.push(schema.nodes.inl.create({ ref: synth(child), ...attrs }, null, link ? link.addToSet([]) : []));
   };
   for (const c of elements(r)) {
+    if (isW(c, 'fldChar')) {
+      fieldChar(ctx, c);
+      atom(c, { kind: 'hidden' });
+      continue;
+    }
+    // inside a field's instruction: kept, not shown
+    if (inFieldCode(ctx) && !isW(c, 'rPr')) {
+      atom(c, { kind: 'hidden' });
+      continue;
+    }
     if (c.namespaceURI !== NS.w) {
       if (c.namespaceURI === NS.mc && c.localName === 'AlternateContent') {
         flush();
@@ -1136,7 +1229,10 @@ function previewBlock(ctx: Ctx, el: Element): string {
   return '';
 }
 
-function previewInline(ctx: Ctx, container: Element, info: ParaInfo): string {
+/** fields met while drawing a read-only block or a header: their instruction so far, and whether it is past its separator */
+type PreviewFields = { code: boolean; instr: string }[];
+
+function previewInline(ctx: Ctx, container: Element, info: ParaInfo, pf: PreviewFields = []): string {
   let html = '';
   for (const el of elements(container)) {
     if (el.namespaceURI === NS.m && (el.localName === 'oMath' || el.localName === 'oMathPara')) {
@@ -1159,8 +1255,27 @@ function previewInline(ctx: Ctx, container: Element, info: ParaInfo): string {
         if (eff.i) css += ';font-style:italic';
         if (eff.u && eff.u !== 'none') css += ';text-decoration-line:underline';
         let text = '';
+        const field = () => pf[pf.length - 1];
         for (const c of elements(el)) {
-          if (isW(c, 't') || isW(c, 'delText') || isW(c, 'instrText')) text += isW(c, 'instrText') ? '' : escapeHtml(c.textContent ?? '');
+          if (isW(c, 'fldChar')) {
+            const t = wAttr(c, 'fldCharType');
+            if (t === 'begin') pf.push({ code: true, instr: '' });
+            else if (t === 'separate' && field()) field().code = false;
+            else if (t === 'end') pf.pop();
+            continue;
+          }
+          if (isW(c, 'instrText')) {
+            if (field()) field().instr += c.textContent ?? '';
+            continue;
+          }
+          if (pf.some((f) => f.code)) continue; // a field's instruction (and any field inside it) is not shown
+          // a page number in a header or footer: marked, so each page shows its own (WordScreen.tsx)
+          const kind = field() ? /^\s*(PAGE|NUMPAGES|SECTIONPAGES)\b/i.exec(field().instr)?.[1].toUpperCase() : undefined;
+          if (kind && (isW(c, 't') || isW(c, 'delText'))) {
+            text += `<span data-ez${kind === 'PAGE' ? 'page' : 'pages'}="">${escapeHtml(c.textContent ?? '')}</span>`;
+            continue;
+          }
+          if (isW(c, 't') || isW(c, 'delText')) text += escapeHtml(c.textContent ?? '');
           else if (isW(c, 'tab')) text += '\t';
           else if (isW(c, 'br') || isW(c, 'cr')) text += '<br>';
           else if (isW(c, 'drawing') || isW(c, 'pict') || isW(c, 'object') || (c.namespaceURI === NS.mc && c.localName === 'AlternateContent')) {
@@ -1184,22 +1299,27 @@ function previewInline(ctx: Ctx, container: Element, info: ParaInfo): string {
       }
       case 'ins':
       case 'moveTo':
-        html += `<ins class="ez-wins">${previewInline(ctx, el, info)}</ins>`;
+        html += `<ins class="ez-wins">${previewInline(ctx, el, info, pf)}</ins>`;
         break;
       case 'del':
       case 'moveFrom':
-        html += `<del class="ez-wdel">${previewInline(ctx, el, info)}</del>`;
+        html += `<del class="ez-wdel">${previewInline(ctx, el, info, pf)}</del>`;
         break;
+      case 'fldSimple': {
+        const kind = /^\s*(PAGE|NUMPAGES|SECTIONPAGES)\b/i.exec(wAttr(el, 'instr') ?? '')?.[1].toUpperCase();
+        const inner = previewInline(ctx, el, info, pf);
+        html += kind ? `<span data-ez${kind === 'PAGE' ? 'page' : 'pages'}="">${inner.replace(/<[^>]*>/g, '')}</span>` : inner;
+        break;
+      }
       case 'hyperlink':
       case 'smartTag':
       case 'customXml':
-      case 'fldSimple':
       case 'dir':
       case 'bdo':
-        html += previewInline(ctx, el, info);
+        html += previewInline(ctx, el, info, pf);
         break;
       case 'sdt':
-        html += previewInline(ctx, wChild(el, 'sdtContent') ?? el, info);
+        html += previewInline(ctx, wChild(el, 'sdtContent') ?? el, info, pf);
         break;
     }
   }

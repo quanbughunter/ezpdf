@@ -102,6 +102,8 @@ let onCrash = async () => {};
   const errors = [];
   const requests = [];
   const track = (p) => {
+    // CPU_SLOW=4: run the page four times slower (as on a CI runner or a phone)
+    if (Number(process.env.CPU_SLOW) > 1) p.context().newCDPSession(p).then((c) => c.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.CPU_SLOW) }));
     p.on('request', (r) => requests.push(r.url()));
     p.on('pageerror', (e) => errors.push(`${e.message} @${stepName}`));
     p.on('console', (m) => m.type() === 'error' && !benignRenderRace(m) && errors.push(`${m.text()} ${m.location()?.url ?? ''} @${stepName}`));
@@ -112,7 +114,13 @@ let onCrash = async () => {};
   track(page);
   onCrash = () => page.screenshot({ path: path.join(OUT, 'crash.png') });
   const texts = () => page.evaluate(() => window.__ezword.texts());
-  const find = (s) => page.evaluate((s) => window.__ezword.find(s), s);
+  /** where `needle` is in the document; a clear failure (with the text and the focus) when it is not */
+  const find = async (needle) => {
+    const r = await page.evaluate((s) => window.__ezword.find(s), needle);
+    if (r) return r;
+    const why = await page.evaluate(() => ({ focus: document.activeElement?.getAttribute('data-testid') || document.activeElement?.className, texts: window.__ezword.texts().slice(-8) }));
+    throw new Error(`“${needle}” is not in the document: ${JSON.stringify(why)}`);
+  };
   const select = async (needle) => {
     const r = await find(needle);
     await page.evaluate(([a, b]) => window.__ezword.select(a, b), [r.from, r.to]);
@@ -120,6 +128,11 @@ let onCrash = async () => {};
   const caretAfter = async (needle) => {
     const r = await find(needle);
     await page.evaluate((a) => window.__ezword.select(a), r.to);
+  };
+  /** after a menu: the keys go to the document once the focus is back in it */
+  const typeInDoc = async (text) => {
+    await page.waitForFunction(() => !!document.activeElement?.closest?.('.ProseMirror'), null, { timeout: 5000 }).catch(() => {});
+    await page.keyboard.type(text);
   };
   const marksIn = async (needle) => {
     const r = await find(needle);
@@ -283,7 +296,7 @@ let onCrash = async () => {};
   await caretAfter('dán từ web');
   await page.click(tid('word-size-menu'));
   await page.click(`${tid('word-size-item')}[data-size="24"]`);
-  await page.keyboard.type(' to');
+  await typeInDoc(' to');
   const shownFont = await page.evaluate(() => ({ font: document.querySelector('[data-testid="word-font"]').textContent, size: document.querySelector('[data-testid="word-size"]').value }));
   // copied and pasted inside the document, the text keeps its font and size
   await select('Đoạn mở đầu');
@@ -762,6 +775,42 @@ let onCrash = async () => {};
     mt.has === 3 && !mt.latin && mt.arrows === 2 && g1.quote.text === 'Trước trường sau trường.' && g1.quote.maths === 0,
     JSON.stringify({ mt, quote: g1.quote }),
   );
+  // a machine without Word's fonts (as Android): Times New Roman and Palatino Linotype come from the app, with the same letter widths
+  const fontsUsed = await page.evaluate(async () => {
+    const text = 'Đề kiểm tra phân trang. Họ và tên học sinh: Nguyễn Văn Ấn, lớp 10A — Câu 1. Tìm tập nghiệm của bất phương trình';
+    // (the first rule of each style, the system font alone, fails here: no such font on this machine; the app's fonts load)
+    for (const f of ['"Times New Roman"', 'bold "Times New Roman"', 'italic "Times New Roman"', '"Palatino Linotype"', '"Calibri"', '"Arial"'])
+      await document.fonts.load(`16px ${f}`.replace(/^16px (bold|italic) /, '$1 16px '), text).catch(() => null);
+    await document.fonts.ready;
+    const width = (font) => {
+      const s = document.createElement('span');
+      s.style.cssText = `position:absolute;white-space:nowrap;font:${font}`;
+      s.textContent = text;
+      document.body.append(s);
+      const w = s.getBoundingClientRect().width;
+      s.remove();
+      return +w.toFixed(2);
+    };
+    // the app's files: the faces with a letter range (the system-only face of each style has none)
+    const loaded = [...document.fonts].filter((f) => f.status === 'loaded' && f.unicodeRange !== 'U+0-10FFFF').map((f) => `${f.family.replace(/"/g, '')} ${f.weight} ${f.style}`);
+    return {
+      times: width('16px "Times New Roman"'),
+      liberation: width('16px "Liberation Serif"'),
+      arial: width('16px "Arial"'),
+      liberationSans: width('16px "Liberation Sans"'),
+      calibri: width('16px "Calibri"'),
+      carlito: width('16px "Carlito"'),
+      loaded: [...new Set(loaded)].filter((f) => /Times|Palatino|Calibri|Arial/.test(f)),
+    };
+  });
+  const near1 = (a, b) => Math.abs(a - b) / b < 0.003; // kerning between two letter-range files of one font is not applied: a hair's difference
+  check(
+    'Word’s fonts on a machine without them (as Android): Times New Roman, Arial, Calibri drawn by the app’s Tinos, Arimo, Carlito with the letter widths of their metric twins; Palatino Linotype by the app’s Pagella',
+    near1(fontsUsed.times, fontsUsed.liberation) && near1(fontsUsed.arial, fontsUsed.liberationSans) && near1(fontsUsed.calibri, fontsUsed.carlito) &&
+      ['Times New Roman 400 normal', 'Times New Roman 700 normal', 'Times New Roman 400 italic', 'Palatino Linotype 400 normal', 'Arial 400 normal', 'Calibri 400 normal'].every((f) => fontsUsed.loaded.includes(f)),
+    JSON.stringify(fontsUsed),
+  );
+
   // typing near the top of a long document: pages follow, the view stays where it is
   const scrollBefore = await page.$eval(tid('word-canvas'), (c) => c.scrollTop);
   await caretAfter('Đoạn văn số 3.');
@@ -789,6 +838,58 @@ let onCrash = async () => {};
     await ph.goto(server.base + '/?e2e');
     await ph.waitForSelector(tid('state-empty'), { timeout: 60000 });
     await openWord(ph, 'word-a.docx');
+    // a phone opens the document to read it: no keyboard on a tap, no editing bar; “Sửa” turns editing on
+    const reading = await ph.evaluate(() => {
+      const a = document.querySelector('[data-testid="word-bar"]');
+      const e = document.querySelector('[data-testid="word-edit"]').getBoundingClientRect();
+      return {
+        editable: document.querySelector('[data-testid="word-editor"]').getAttribute('contenteditable'),
+        formatBar: !!document.querySelector('[data-testid="word-format-bar"]'),
+        undo: !!document.querySelector('[data-testid="word-undo"]'),
+        save: !!document.querySelector('[data-testid="word-save"]'),
+        fits: a.scrollWidth - a.clientWidth <= 1 && e.right <= innerWidth + 1,
+        // the marks that only matter when editing are not drawn: the read-only note and badge
+        note: !!document.querySelector('[data-testid="word-locked-note"]'),
+        badge: getComputedStyle(document.querySelector('.ez-wlocked'), '::after').content,
+      };
+    });
+    const textBefore = (await ph.evaluate(() => window.__ezword.texts())).join('|');
+    await ph.tap('.ez-wdoc p:has-text("Đoạn cuối của tài liệu.")');
+    await ph.keyboard.type('xyz');
+    const untouched = (await ph.evaluate(() => window.__ezword.texts())).join('|') === textBefore;
+    // a double tap: in to 100 % around the finger, again: back to the whole width
+    const dcdp = await pctx.newCDPSession(ph);
+    const dtap = async (x, y) => {
+      for (let k = 0; k < 2; k++) {
+        await dcdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+        await dcdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await sleep(80);
+      }
+      await sleep(250);
+    };
+    const zoomNow = () => ph.evaluate(() => document.querySelector('[data-testid="word-zoom-level"]').textContent);
+    const anchor = () =>
+      ph.evaluate(() => {
+        const e = [...document.querySelectorAll('.ez-wdoc p')].find((x) => x.textContent.includes('Đoạn mở đầu'));
+        const r = document.createRange();
+        r.selectNodeContents(e.firstChild);
+        const b = r.getClientRects()[0];
+        return { x: b.left + 4, y: b.top + b.height / 2 };
+      });
+    const zFit = await zoomNow();
+    const a0 = await anchor();
+    await dtap(a0.x, a0.y);
+    const zIn = await zoomNow();
+    const a1 = await anchor();
+    await dtap(a1.x, a1.y);
+    const zOut = await zoomNow();
+    check(
+      'phone: the document opens to read (a tap and typing change nothing, no editing bar or editing marks, the bar fits with “Sửa”); a double tap zooms to 100 % with the word under the finger staying put, another back to the width',
+      reading.editable === 'false' && !reading.formatBar && !reading.undo && !reading.save && reading.fits && !reading.note && reading.badge === 'none' && untouched && zIn === '100%' && zOut === zFit && Math.hypot(a1.x - a0.x, a1.y - a0.y) < 6,
+      JSON.stringify({ reading, untouched, zFit, zIn, zOut, a0, a1 }),
+    );
+    await ph.tap(tid('word-edit'));
+    await ph.waitForSelector(tid('word-format-bar'));
     const bar = await ph.evaluate(() => {
       const a = document.querySelector('[data-testid="word-bar"]');
       const b = document.querySelector('[data-testid="word-format-bar"]');
@@ -821,6 +922,15 @@ let onCrash = async () => {};
     });
     const saveVisible = saveBox.r <= saveBox.w + 1 && saveBox.l >= 0;
     await ph.screenshot({ path: path.join(OUT, 'phone-word.png') });
+    // “Xong”: back to reading, the keyboard away; the unsaved change keeps “Lưu” on the bar
+    await ph.tap(tid('word-done'));
+    const done = await ph.evaluate(() => ({
+      editable: document.querySelector('[data-testid="word-editor"]').getAttribute('contenteditable'),
+      formatBar: !!document.querySelector('[data-testid="word-format-bar"]'),
+      save: !!document.querySelector('[data-testid="word-save"]'),
+      edit: !!document.querySelector('[data-testid="word-edit"]'),
+    }));
+    check('phone: “Xong” goes back to reading; the unsaved change keeps “Lưu” on the bar', done.editable === 'false' && !done.formatBar && done.save && done.edit, JSON.stringify(done));
     await ph.click(tid('word-close'));
     await ph.click(tid('word-leave-discard')).catch(() => {});
     await ph.waitForSelector(tid('word-screen'), { state: 'detached' });
@@ -875,11 +985,55 @@ let onCrash = async () => {};
       JSON.stringify({ phone: pp.pages, desktop: g1.pages, answers: pp.answers, crossing: pp.crossing }),
     );
     check(
-      'phone: both bars fit (font and size on the second) with “Lưu” on screen; the table fits the page; a tap and typing edit; Bold works',
+      'phone, after “Sửa”: both bars fit (font and size on the second) with “Lưu” on screen; the table fits the page; a tap and typing edit; Bold works',
       bar.sw <= bar.cw + 1 && bar.font && saveVisible && tableFits && pt.endsWith('Gõ trên điện thoại.') && pm.includes('b'),
       `bar ${bar.sw}/${bar.cw}, save ${JSON.stringify(saveBox)}, table fits ${tableFits}, ${pt}, marks ${pm}`,
     );
     await pctx.close();
+  }
+
+  // ── 5b. the phones it is used on: Galaxy S24 Ultra (384 or 412 px wide, by the display settings), iPhone 15 Pro Max (430 px); turned sideways too
+  {
+    const devices = [
+      { name: 'S24 Ultra 384', width: 384, height: 832, dpr: 2.8125 },
+      { name: 'S24 Ultra 412', width: 412, height: 891, dpr: 3.5 },
+      { name: 'iPhone 15 Pro Max', width: 430, height: 932, dpr: 3 },
+      { name: 'S24 Ultra sideways', width: 832, height: 384, dpr: 2.8125 },
+    ];
+    const seen = [];
+    for (const d of devices) {
+      const dctx = await browser.newContext({ viewport: { width: d.width, height: d.height }, deviceScaleFactor: d.dpr, isMobile: true, hasTouch: true });
+      const dp = await dctx.newPage();
+      track(dp);
+      await dp.goto(server.base + '/?e2e');
+      await dp.waitForSelector(tid('state-empty'), { timeout: 60000 });
+      await openWord(dp, 'word-pages.docx');
+      await settled(dp);
+      const g = await geo(dp);
+      const look = await dp.evaluate(() => {
+        const c = document.querySelector('[data-testid="word-canvas"]');
+        const cs = getComputedStyle(c);
+        const inner = c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const pg = document.querySelector('[data-testid="word-page"]').getBoundingClientRect();
+        const a = document.querySelector('[data-testid="word-bar"]');
+        const e = document.querySelector('[data-testid="word-edit"]')?.getBoundingClientRect();
+        return {
+          fitsWidth: Math.abs(pg.width - inner) < 2,
+          bar: a.scrollWidth - a.clientWidth,
+          edit: !!e && e.right <= innerWidth + 1,
+          editable: document.querySelector('[data-testid="word-editor"]').getAttribute('contenteditable'),
+          barH: Math.round(a.getBoundingClientRect().height + (document.querySelector('[data-testid="word-format-bar"]')?.getBoundingClientRect().height ?? 0)),
+        };
+      });
+      await dp.screenshot({ path: path.join(OUT, `device-${d.name.replace(/\W+/g, '-')}.png`) });
+      seen.push({ name: d.name, pages: g.pages, answers: g.answers, ...look });
+      await dctx.close();
+    }
+    check(
+      'Galaxy S24 Ultra (384 and 412 px), iPhone 15 Pro Max, and the S24 turned sideways: the page fits the width, the same pages and tab stops as on a computer, the bar fits with “Sửa”, reading first',
+      seen.every((v) => v.fitsWidth && v.bar <= 1 && v.edit && v.editable === 'false' && v.pages === g1.pages && near(v.answers, [14.2, 141.8, 269.3, 396.9])),
+      JSON.stringify(seen),
+    );
   }
 
   const foreign = [...new Set(requests.filter((u) => !u.startsWith(origin) && !u.startsWith('blob:') && !u.startsWith('data:')))];

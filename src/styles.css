@@ -103,8 +103,8 @@
 
 /*
  * The Word screen (app/word/WordScreen.tsx). A page in the document's own
- * width and margins (narrower screens: the margins shrink with the page and
- * the text reflows); formatting comes inline from the file (src/word).
+ * width and margins on every screen (a phone shows it zoomed out to fit);
+ * formatting comes inline from the file (src/word).
  */
 /* the page layout takes its spacing away and puts it back in one go to measure the text: scrolling must not follow that */
 .ez-wcanvas {
@@ -218,6 +218,21 @@
 }
 .ez-wlocked.ProseMirror-selectednode {
   outline: 2px solid var(--primary);
+}
+/* reading (a phone before “Sửa”): the page as Word shows it, without the marks that only matter when editing */
+.ez-wreading .ez-wlocked,
+.ez-wreading .ez-wdoc .ProseMirror > .ez-wlocked {
+  margin: var(--ezpg, 0) 0 0;
+  padding: 0;
+  border-left: 0;
+  background: none;
+}
+.ez-wreading .ez-wlocked::after,
+.ez-wreading .ez-wsect::after {
+  content: none;
+}
+.ez-wreading .ez-wfield {
+  background: none;
 }
 .ez-wins {
   color: var(--primary);

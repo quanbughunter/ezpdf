@@ -431,6 +431,28 @@ const HIGHLIGHT: Record<string, string> = {
 
 const pt = (twips: number) => `${+(twips / 20).toFixed(2)}pt`;
 
+/**
+ * The same letter widths under another name: Apple's name for a Windows font,
+ * and the fonts the Word screen brings for Times New Roman, Arial, Calibri and
+ * Palatino Linotype (app/word/word-fonts.css), so a phone without them breaks
+ * lines where Word does.
+ */
+const SAME_WIDTHS: Record<string, string[]> = {
+  'times new roman': ['Times'],
+  times: ['Times New Roman'],
+  tinos: ['Times New Roman'],
+  'liberation serif': ['Times New Roman'],
+  arial: ['Helvetica'],
+  helvetica: ['Arial'],
+  arimo: ['Arial'],
+  'liberation sans': ['Arial'],
+  carlito: ['Calibri'],
+  'palatino linotype': ['Palatino', 'Book Antiqua'],
+  palatino: ['Palatino Linotype'],
+  'book antiqua': ['Palatino Linotype', 'Palatino'],
+  'courier new': ['Courier'],
+};
+
 /** CSS font-family for a Word font name, with fallbacks that have Vietnamese letters. */
 export function fontStack(font: string | undefined): string | undefined {
   if (!font) return undefined;
@@ -439,7 +461,9 @@ export function fontStack(font: string | undefined): string | undefined {
     : /courier|consolas|mono|menlo/i.test(font)
       ? 'monospace'
       : 'sans-serif';
-  const quoted = `"${safeFont(font) ?? 'sans-serif'}"`;
+  const safe = safeFont(font);
+  const names = [safe ?? 'sans-serif', ...(safe ? (SAME_WIDTHS[safe.toLowerCase()] ?? []) : [])];
+  const quoted = names.map((n) => `"${n}"`).join(', ');
   return generic === 'sans-serif' ? `${quoted}, "ezPDF Sans VN", sans-serif` : `${quoted}, ${generic}`;
 }
 
@@ -473,6 +497,12 @@ function borderCss(b: Border | undefined): string | undefined {
 
 export { borderCss };
 
+/** a single line of the font, in ems, as Word sets it (ascent + descent + line gap; Carlito has Calibri's) */
+const SINGLE_LINE: Record<string, number> = {
+  calibri: 1.2207,
+  carlito: 1.2207,
+};
+
 /** Paragraph CSS; `r` is the paragraph mark's run formatting (an empty line's height). */
 export function paraCss(p: ParaProps, r: RunProps): string {
   const css: string[] = [];
@@ -487,10 +517,12 @@ export function paraCss(p: ParaProps, r: RunProps): string {
   // the page layout can make it larger, when the paragraph starts a page (app/word/page-layout.ts, styles.css)
   css.push(`margin-top:var(--ezpg,${before ? pt(before) : '0'})`);
   css.push(`margin-bottom:${after ? pt(after) : '0'}`);
+  // Word's single line is the font's own height (ascent, descent and gap): 1.15 for Times New Roman and Arial, 1.22 for Calibri
+  const single = SINGLE_LINE[(r.font ?? '').toLowerCase()] ?? 1.15;
   if (p.line) {
     if (p.lineRule === 'exact' || p.lineRule === 'atLeast') css.push(`line-height:${pt(p.line)}`);
-    else css.push(`line-height:${Math.max(0.8, +(p.line / 240 * 1.15).toFixed(3))}`);
-  } else css.push('line-height:1.15');
+    else css.push(`line-height:${Math.max(0.8, +((p.line / 240) * single).toFixed(3))}`);
+  } else css.push(`line-height:${single}`);
   if (p.shd) css.push(`background-color:${p.shd}`);
   for (const side of ['top', 'bottom', 'left', 'right'] as const) {
     const b = borderCss(p.borders?.[side]);

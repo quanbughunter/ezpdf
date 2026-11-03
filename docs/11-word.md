@@ -1,4 +1,4 @@
-# 11 · Đọc và sửa nhẹ tệp Word (.docx) (bản 0.8.3)
+# 11 · Đọc và sửa nhẹ tệp Word (.docx) (bản 0.8.4)
 
 Mở tệp Word ngay trên máy, sửa nhẹ rồi lưu ra một tệp Word mới. Tài liệu không rời thiết bị. Tính năng dùng chung một mã cho Windows, web (cả iPhone) và Android.
 
@@ -36,7 +36,9 @@ Trạng thái bên cạnh tên tệp: chấm cam **Chưa lưu** khi có thay đ�
 
 ## Hiển thị
 
-- Trang theo đúng khổ và lề của tệp, **chia thành từng trang như Word** (bản 0.8.3, xem phần **Trang và điểm dừng tab** dưới). Trên mọi máy trang giữ đúng chiều rộng của nó; điện thoại hiện cả trang thu nhỏ vừa màn hình, chụm hai ngón để phóng to.
+- Trang theo đúng khổ và lề của tệp, **chia thành từng trang như Word** (bản 0.8.3, xem phần **Trang và điểm dừng tab** dưới). Trên mọi máy trang giữ đúng chiều rộng của nó; điện thoại hiện cả trang thu nhỏ vừa màn hình, chụm hai ngón hay chạm hai lần để phóng to.
+- Điện thoại mở tệp để **đọc**; bấm **Sửa** để sửa (bản 0.8.4, xem phần **Điện thoại** dưới).
+- Phông Times New Roman, Arial, Calibri, Palatino Linotype vẫn đúng độ rộng chữ trên máy không có chúng (bản 0.8.4).
 - Kiểu đoạn và kiểu chữ của tệp (Normal, Heading…), phông chữ của theme, cỡ, màu, tô nền, gạch ngang, chỉ số trên/dưới, căn lề, thụt lề, khoảng cách đoạn, viền đoạn.
 - Danh sách: dấu đầu dòng và số được đếm lại sau mỗi lần sửa (1. 2. 3., a. b., i. ii., số nhiều cấp).
 - Bảng: viền theo kiểu bảng (ví dụ “Table Grid”) và viền riêng của ô, ô gộp ngang và dọc, màu nền ô, chiều rộng cột.
@@ -117,6 +119,30 @@ Theo yêu cầu sau khi mở một đề kiểm tra toán (đầy công thức M
 Việc chia trang và tab là phần hiển thị: tệp Word không bị đổi gì. Khi gõ, các trang được chia lại sau khoảng một phần mười giây, màn hình không nhảy.
 
 Cách làm (`src/app/word/page-layout.ts`): một plugin ProseMirror đo văn bản sau khi trình duyệt dàn chữ. Tab: mỗi ký tự tab được bọc trong một hộp có chiều rộng tính được (decoration), lặp vài lượt cho tới khi các tab không đổi. Trang: bỏ khoảng cách trang cũ, đo vị trí từng khối, rồi đặt lại (khoảng trên của khối mở đầu trang, chiều cao của dấu ngắt trang giữa đoạn, một hàng trống không viền trong bảng), tất cả trong cùng một lượt nên trình duyệt không vẽ trạng thái ở giữa. Khoảng xám, đầu trang, chân trang được vẽ đè lên tờ giấy (`Sheets` trong `WordScreen.tsx`).
+
+## Điện thoại: đọc trước, phông đúng độ rộng (bản 0.8.4)
+
+Theo yêu cầu: ưu tiên bản Android (Samsung Galaxy S24 Ultra) và web app (iPhone 15 Pro Max), dùng chủ yếu để mở xem nhanh.
+
+**Đọc trước.** Trên điện thoại (màn cảm ứng, cạnh dài dưới 1000 px, dựng hay xoay ngang; máy tính bảng và máy tính không đổi), tệp Word mở ở chế độ đọc:
+- chạm vào chữ không bật bàn phím, trang không bị đẩy lên; giữ ngón để chọn và chép chữ như mọi trang web;
+- thanh trên chỉ còn: Đóng, mức phóng, Chia sẻ, **Sửa**; thanh định dạng (phông, cỡ, B, I, U) ẩn đi, trang được thêm chỗ;
+- không vẽ những dấu chỉ dùng khi sửa: nền xám và chữ “Chỉ xem” của đoạn chỉ xem, thanh vàng giải thích, nhãn “ngắt section”, nền xám của trường. Trang trông như Word in ra;
+- **chạm hai lần**: phóng lên 100 % (chữ đúng cỡ thật) quanh chỗ ngón tay, chữ dưới ngón đứng yên; chạm hai lần nữa: trở về vừa chiều rộng.
+
+Bấm **Sửa** thì có lại đủ thanh như trước (hoàn tác, xóa đoạn, phông, cỡ, B, I, U, Lưu) và chạm vào chữ để gõ. **Xong** (dấu ✓ cuối thanh định dạng) trở về chế độ đọc và cất bàn phím; nếu đã sửa mà chưa lưu, nút **Lưu** vẫn ở trên thanh.
+
+**Phông chữ.** Android không có phông của Word, nên trước đây chữ được vẽ bằng phông thay thế rộng hẹp khác, dòng và trang ngắt khác Word, cột tab có thể bị đẩy. Giờ app mang theo phông tự do có **cùng độ rộng từng chữ**:
+- Times New Roman → Tinos, Arial → Arimo, Calibri → Carlito (SIL OFL 1.1), Palatino Linotype → TeX Gyre Pagella (GUST Font License, đã cắt còn chữ Latin, tiếng Việt và đổi tên thành ezPDF Pagella);
+- Tinos, Arimo, Carlito có cả chữ Nga và chữ Hy Lạp;
+- máy có phông thật (Windows, iPhone có Times New Roman, Arial) thì dùng phông thật; iPhone dùng Palatino của máy cho Palatino Linotype;
+- mỗi tệp phông chỉ được tải khi tài liệu cần (vài chục KB mỗi kiểu chữ), có sẵn khi không có mạng.
+
+Khoảng cách dòng “đơn” của Word phụ thuộc phông: Times New Roman, Arial 1,15 lần cỡ chữ, Calibri 1,22. Trước đây mọi phông đều tính 1,15, nên tài liệu Calibri (phông mặc định của Word 2007–2023) dòng thấp hơn Word, trang chứa nhiều dòng hơn. Giờ Calibri dùng đúng 1,22. Thử bằng tệp 300 dòng ngắn cỡ 11, dòng đơn, khổ Letter (python-docx): Calibri, LibreOffice và ezPDF cùng 48 dòng mỗi trang, 7 trang (trước đây ezPDF tính như Times New Roman: 51 dòng, 6 trang); Times New Roman và Arial, cả hai cùng 51 dòng, 6 trang.
+
+**Bộ kiểm trên CI lỗi** (bản web, lần push 0.8.3). Một bước của `e2e:word` gõ “ to” ngay sau khi chọn cỡ chữ 24 trong menu; trên máy CI chữ không vào tài liệu. Không tái hiện được ở đây (kể cả khi làm chậm CPU 8 lần, chạy ba bộ song song). Đã sửa hai phía:
+- bộ kiểm chờ con trỏ về lại tài liệu rồi mới gõ; nếu không tìm thấy chữ, báo rõ nội dung tài liệu và ô đang được chọn thay vì “Cannot read properties of null”; thêm `CPU_SLOW=4` để chạy chậm như máy CI hay điện thoại;
+- app: việc chia trang không chạy lúc người dùng đang gõ, nhất là khi bàn phím đang ghép chữ (bàn phím Samsung, Gboard, bộ gõ tiếng Việt), để đoạn đang gõ không bị vẽ lại dưới tay; chạy sau khi ngừng gõ một chút (tối đa chờ 2 giây).
 
 ## Những phần chỉ xem
 
@@ -199,9 +225,9 @@ Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề 
 
 | Bộ kiểm | Kết quả |
 |---|---|
-| `npm run test:word` (đọc/ghi trên Node, `tests/word-probe.ts`) | **106/106** (bản 0.8.2: 97). Chi tiết ngay dưới bảng. |
-| `npm run e2e:word` (Chromium, cả luồng trong app) | **50/50** trên dev server và **50/50** trên bản build production (bản 0.8.2: 44). Chi tiết ngay dưới bảng. |
-| `scripts/smoke-desktop.cjs` (bản desktop thật, WebKitGTK, cùng nhân với Safari) | **30/30** (bản 0.8.2: 29). Bước mới của 0.8.3: `word-pages.docx` trong WebKitGTK (nhân của Safari, tức của web app trên iPhone): 8 tờ, ngắt trang bắt đầu trang mới, tab dòng đáp án dừng đúng điểm dừng, mỗi tờ “Trang k / 8”. Bước của 0.8.2: `word-images.docx` mở như “Mở bằng”, đủ 10 loại TIFF, EPS, PICT, WMZ hiện ra; nút + (110 %), Ctrl + bằng phím thật (125 %), Ctrl 0 (100 %), trang phóng đúng tỷ lệ; chọn Arial bằng chuột thật và gõ cỡ 20 cho một đoạn chữ, thanh công cụ hiện đúng. Bản 0.8.1: Bước Word: tệp `.docx` đưa vào app như “Mở bằng”, gõ bằng phím thật, làm đậm, lưu qua hộp thoại lưu của hệ thống; python-docx đọc đúng; tệp gốc không đổi. Bước mới của 0.8.1: `word-draw.docx` mở cùng cách, 6 hình, chữ trong lưu đồ, 2 công thức MathML có kích thước, ảnh WMF và EMF, chú thích đều được WebKitGTK dàn đúng. Lần chạy đầu dừng ở bước sau đó vì WebDriver không mở được phiên mới kịp; hai lần chạy lại đều đạt 26/26. |
+| `npm run test:word` (đọc/ghi trên Node, `tests/word-probe.ts`) | **107/107** (bản 0.8.3: 106). Chi tiết ngay dưới bảng. |
+| `npm run e2e:word` (Chromium, cả luồng trong app) | **55/55** trên dev server và **55/55** trên bản build production (bản 0.8.3: 50). Chi tiết ngay dưới bảng. |
+| `scripts/smoke-desktop.cjs` (bản desktop thật, WebKitGTK, cùng nhân với Safari) | **30/30** (bản 0.8.4 không thêm bước; hai lần chạy đầu dừng ở bước 7 vì WebDriver không mở được phiên mới kịp, lần sau đạt). Bước mới của 0.8.3: `word-pages.docx` trong WebKitGTK (nhân của Safari, tức của web app trên iPhone): 8 tờ, ngắt trang bắt đầu trang mới, tab dòng đáp án dừng đúng điểm dừng, mỗi tờ “Trang k / 8”. Bước của 0.8.2: `word-images.docx` mở như “Mở bằng”, đủ 10 loại TIFF, EPS, PICT, WMZ hiện ra; nút + (110 %), Ctrl + bằng phím thật (125 %), Ctrl 0 (100 %), trang phóng đúng tỷ lệ; chọn Arial bằng chuột thật và gõ cỡ 20 cho một đoạn chữ, thanh công cụ hiện đúng. Bản 0.8.1: Bước Word: tệp `.docx` đưa vào app như “Mở bằng”, gõ bằng phím thật, làm đậm, lưu qua hộp thoại lưu của hệ thống; python-docx đọc đúng; tệp gốc không đổi. Bước mới của 0.8.1: `word-draw.docx` mở cùng cách, 6 hình, chữ trong lưu đồ, 2 công thức MathML có kích thước, ảnh WMF và EMF, chú thích đều được WebKitGTK dàn đúng. Lần chạy đầu dừng ở bước sau đó vì WebDriver không mở được phiên mới kịp; hai lần chạy lại đều đạt 26/26. |
 
 `test:word` kiểm:
 - Đọc đúng cả ba tệp: khối, định dạng, danh sách `• • 1. 2. 3.`, bảng có ô gộp, ảnh đúng cỡ, liên kết, đầu trang, chân trang, 3 khối chỉ xem.
@@ -221,6 +247,7 @@ Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề 
   - tệp cố tình độc hại (chữ chứa thẻ `<script>`, `<img onerror>`, màu và tên hình chứa mã, tên phông trong WMF chứa thẻ): không có thẻ, mã, trình xử lý sự kiện hay địa chỉ ngoài nào lọt ra; chữ hiện đúng là chữ;
   - mọi hình bị cắt ở lề nhỏ quanh khung;
   - 8 bước kiểm cho các ca của lượt rà soát 0.8.1 (dưới).
+- Bản 0.8.4: chuỗi phông (Palatino Linotype → Palatino, Book Antiqua; Times → Times New Roman; Helvetica → Arial) và dòng đơn của Calibri (1,2207 em; đoạn giãn 1,5 dòng: 1,831).
 - Bản 0.8.3, `word-pages.docx`: điểm dừng tab đọc đúng (của đoạn, của kiểu cộng dồn, điểm “xóa”, dấu chấm dẫn, giữa, phải), điểm dừng mặc định; “ngắt trang trước đoạn”, ngắt section trang mới hay liên tục, dấu ngắt trang; lề đầu trang, chân trang, trường PAGE và NUMPAGES được đánh dấu; công thức trong phần mã trường QUOTE không hiện, vẫn được giữ, và được ghi lại nguyên khi đoạn bị sửa; ảnh MathType ra ≥ ∈ ℝ, không còn ³ Î ¡, hai mũi tên véc-tơ riêng.
 - Bản 0.8.2:
   - `word-images.docx`: đủ 26 ảnh; không có trình duyệt để hỏi thì 23 ảnh hiện, AVIF, HEIC, JPEG XR thành nhãn; có trình duyệt đọc AVIF thì AVIF hiện, chỉ ba định dạng đó được hỏi; TIFF, EPS, PICT thành PNG hay JPEG; WMZ thành SVG;
@@ -237,13 +264,14 @@ Bản 0.8.3 thêm `word-pages.docx` (`scripts/make_word_pages.py`): một đề 
 - Sao chép, dán trong tài liệu (ngắt trang, ảnh); dán từ trang web.
 - Lưu ra `word-a (ezPDF).docx`: python-docx kiểm 12 điểm, ảnh dán có số hiệu riêng, LibreOffice mở được.
 - Đóng khi chưa lưu thì app hỏi; mở Word chồng lên PDF rồi quay lại; mở PDF từ màn Word; tệp `.doc` cũ được giải thích.
-- Điện thoại 390 px: hai thanh vừa màn hình (hàng hai có phông, cỡ, B, I, U), bảng vừa trang, chạm rồi gõ, làm đậm; hai ngón mở ra gấp ba khoảng cách thì trang phóng lên 300 %.
+- Điện thoại 390 px, sau khi bấm **Sửa**: hai thanh vừa màn hình (hàng hai có phông, cỡ, B, I, U), bảng vừa trang, chạm rồi gõ, làm đậm; hai ngón mở ra gấp ba khoảng cách thì trang phóng lên 300 %.
+- Bản 0.8.4: điện thoại mở tệp ở chế độ đọc (không sửa được bằng chạm và gõ, không có thanh định dạng, hoàn tác, Lưu, không có thanh vàng và chữ “Chỉ xem”), thanh vừa màn hình với **Sửa**; chạm hai lần lên 100 %, chữ dưới ngón lệch dưới 6 px, chạm hai lần nữa về vừa màn hình; **Sửa** rồi gõ, làm đậm như trước; **Xong** về chế độ đọc, **Lưu** còn trên thanh vì chưa lưu. Cỡ màn Galaxy S24 Ultra 384 px và 412 px (tùy độ phân giải, cỡ chữ hệ thống), iPhone 15 Pro Max 430 px, S24 xoay ngang 832 px: trang vừa chiều rộng, cùng 8 trang và cùng vị trí tab như trên máy tính, thanh vừa, đọc trước. Phông: máy kiểm không có Times New Roman, Arial, Calibri, Palatino Linotype; chữ được vẽ bằng Tinos, Arimo, Carlito, ezPDF Pagella của app, một câu tiếng Việt dài có cùng chiều rộng với Liberation Serif, Liberation Sans, Carlito của hệ thống (sai dưới 0,3 %: dấu co giãn giữa hai tệp con của một phông không được áp dụng).
 - Bản 0.8.3, `word-pages.docx`: mỗi tab dòng đáp án kết thúc đúng ở 14,15 / 141,75 / 269,3 / 396,85 pt (sai số dưới 1,2 pt); kiểu đoạn có điểm xóa còn 141,75 và 396,85; điểm dừng phải có dấu chấm đưa “Lớp: 10A” về đúng 450 pt; điểm dừng giữa căn giữa ở 240,95 pt. Các tờ có khoảng xám ở giữa; ngắt trang, “ngắt trang trước đoạn”, section trang mới bắt đầu trang, section liên tục thì không; không dòng nào, hàng bảng nào vắt qua cuối trang; mỗi tờ có đầu trang và “Trang k / n” đúng. Ảnh MathType có ≥ ∈ ℝ và hai mũi tên; công thức trong mã trường không hiện. Gõ thêm làm đoạn dài ra: các trang chia lại, vẫn không có gì vắt qua cuối trang, màn hình không nhảy. Điện thoại: trang giữ đúng chiều rộng, thu nhỏ vừa màn hình, đúng bằng số trang và vị trí tab như trên máy tính.
 - Bản 0.8.2: chọn Arial cho một đoạn từ danh sách, gõ cỡ 18 cho đoạn khác, chọn cỡ 24 khi chưa chọn chữ rồi gõ tiếp; thanh hiện đúng phông, cỡ ở con trỏ; sao chép, dán giữ phông; python-docx đọc ra Arial cho cả bốn loại chữ, 18 pt, 24 pt. `word-images.docx`: 24/26 ảnh hiện (cả AVIF), màu đúng ở bốn ô màu của từng ảnh, HEIC và JPEG XR thành nhãn có tên; TIFF được giải mã trong Web Worker, ảnh quá hạn giờ làm dừng worker và ảnh sau có worker mới. Phóng to: 100 % lúc đầu, + ra 110 %, menu 150 %, trang lớn đúng tỷ lệ; ở 150 % bấm vào một chữ thì con trỏ đến đúng chữ đó; Ctrl + lăn chuột lùi một nấc (182 %), điểm dưới con trỏ đứng yên; Ctrl 0, Ctrl +, Ctrl −.
 - Bản 0.8.1, `word-draw.docx`: 6 hình SVG có kích thước thật, lưu đồ căn giữa, chữ trong hình được dàn; 2 công thức MathML; ảnh WMF và EMF giải mã được; chú thích hiện sau bài; không đoạn nào bị khóa. Gõ cạnh công thức, sao chép rồi dán một công thức (ra công thức, không ra chữ), lưu: tệp có đủ 3 công thức, nhóm hình, khung vẽ, VML, OLE, biểu đồ, SmartArt, dấu chú thích. Clipboard giả mạo mang mã của tài liệu không đưa được ảnh từ ngoài hay mã hình vào. Điện thoại: mọi hình, ảnh, công thức vừa trang.
 - Không gửi gì ra ngoài.
 
-Cả bản 0.8.3 đều đạt (`e2e:m4` bản production có kiểm Content-Security-Policy: phông toán, hình vẽ, ảnh và worker giải mã ảnh không vi phạm):
+Cả bản 0.8.4 đều đạt (`e2e:m4` bản production có kiểm Content-Security-Policy: phông toán, phông cùng độ rộng, hình vẽ, ảnh và worker giải mã ảnh không vi phạm):
 
 | Bộ | Dev | Production |
 |---|---|---|
@@ -254,7 +282,7 @@ Cả bản 0.8.3 đều đạt (`e2e:m4` bản production có kiểm Content-Sec
 | `e2e:scan` | 26/26 | 16/16 |
 | `e2e:share` | 36/36 | 36/36 |
 | `e2e:pages` | 28/28 | 28/28 |
-| `e2e:word` | 50/50 | 50/50 |
+| `e2e:word` | 55/55 | 55/55 |
 
 Cùng đạt:
 - `typecheck`, `test:layout`, `test:engine`, `verify`, `test:m3`, `test:storage`, `test:edit`, `test:pages`, `test:word`;
@@ -345,7 +373,7 @@ Còn lại, ghi ở phần Giới hạn: đoạn dài không được chia qua h
 - Sửa nhẹ: đổi được phông và cỡ chữ (bản 0.8.2); chưa đổi màu, căn lề, kiểu đoạn; chưa thêm hay bớt hàng, cột bảng; chưa chèn ảnh; chưa thêm chú thích (comment) hay theo dõi thay đổi.
 - Phông chữ: phông máy đang dùng không có thì ezPDF hiện bằng phông thay thế; tệp vẫn ghi đúng tên phông đã chọn. Chưa đổi được phông, cỡ của chữ trong hộp chữ, hình vẽ.
 - Phóng to là phóng cả trang, không chạy lại dòng: trên điện thoại, phóng lớn thì phải kéo ngang để đọc hết dòng. Mức phóng không được nhớ khi mở tệp khác. Trên điện thoại, nếu một ngón đã bắt đầu kéo trang trước khi ngón thứ hai chạm, trang có thể vừa phóng vừa trượt một chút.
-- Chia trang (bản 0.8.3) gần giống Word, không giống hệt: chữ được dàn bằng phông có trên máy, nên trang có thể ngắt ở chỗ khác Word khi máy thiếu phông của tệp (ví dụ Palatino Linotype không có trên Android). Chưa có: giữ đoạn với đoạn sau (keep with next), giữ các dòng của đoạn cùng trang, dòng mồ côi; chia một đoạn dài qua hai trang (cả đoạn sang trang sau; đoạn dài hơn một trang thì vắt qua); hàng bảng cao hơn một trang; lặp hàng tiêu đề của bảng ở trang sau; nhiều cột. Mọi trang dùng khổ giấy, lề, đầu trang, chân trang mặc định của section cuối (chưa có trang đầu, trang chẵn lẻ khác nhau, section xoay ngang).
+- Chia trang (bản 0.8.3) gần giống Word, không giống hệt: chữ được dàn bằng phông có trên máy. Từ bản 0.8.4, Times New Roman, Arial, Calibri, Palatino Linotype có phông cùng độ rộng đi kèm app; phông khác (Cambria, Tahoma, Verdana, Segoe UI, Aptos…) máy không có thì vẫn thay bằng phông khác độ rộng, trang có thể ngắt ở chỗ khác Word. Khoảng cách dòng “đơn” chỉ tính riêng cho Calibri (1,22); các phông khác dùng 1,15. Word có bật co giãn khoảng chữ (kerning) theo tệp; trình duyệt luôn bật. Chưa có: giữ đoạn với đoạn sau (keep with next), giữ các dòng của đoạn cùng trang, dòng mồ côi; chia một đoạn dài qua hai trang (cả đoạn sang trang sau; đoạn dài hơn một trang thì vắt qua); hàng bảng cao hơn một trang; lặp hàng tiêu đề của bảng ở trang sau; nhiều cột. Mọi trang dùng khổ giấy, lề, đầu trang, chân trang mặc định của section cuối (chưa có trang đầu, trang chẵn lẻ khác nhau, section xoay ngang).
 - Hiển thị gần giống Word, không giống từng điểm ảnh: định dạng có điều kiện của kiểu bảng (hàng tiêu đề đậm…) chưa áp dụng; tab thập phân căn như tab phải; tab trong đầu trang, chân trang dừng ở các điểm dừng mặc định (1,27 cm), chưa theo điểm dừng riêng của đoạn đó.
 - Hình vẽ, công thức, biểu đồ (bản 0.8.1):
   - **Chỉ xem, chưa sửa được trong ezPDF**: chữ trong hộp chữ và trong hình, bản thân công thức, biểu đồ. Chữ quanh chúng sửa được; có thể xóa, sao chép, dán cả hình hay công thức như một khối. Khi lưu, chúng được ghi lại y nguyên.
@@ -380,3 +408,4 @@ Còn lại, ghi ở phần Giới hạn: đoạn dài không được chia qua h
 7. Phóng to: trên Windows, Ctrl + lăn chuột và nút − / + ; trên điện thoại, chụm và mở hai ngón. Phóng lớn rồi bấm vào một chữ và gõ: chữ phải vào đúng chỗ.
 8. Chọn một câu, đổi phông (ví dụ Arial) và cỡ (ví dụ 16), lưu, mở bằng Word: câu đó phải đúng phông, đúng cỡ.
 9. Bản 0.8.3: mở lại chính đề “ĐỀ GK2” trên điện thoại Android: cả trang hiện thu nhỏ vừa màn hình, công thức có ≥ ∈ ℝ và mũi tên véc-tơ, đáp án A. B. C. D. thẳng cột; trang chia như Word, đầu mỗi đề ở đầu trang mới; chụm hai ngón để đọc gần.
+10. Bản 0.8.4, trên S24 Ultra (app Android) và iPhone 15 Pro Max (web app): mở một tệp Word, chạm vào chữ: bàn phím không hiện. Chạm hai lần vào một câu: trang phóng lên 100 % đúng chỗ đó; chạm hai lần nữa: về vừa màn hình. Bấm **Sửa**, chạm vào chữ, gõ, bấm **Xong**: bàn phím cất đi, nút **Lưu** còn đó. So số trang của đề GK2 với Word.

@@ -15,6 +15,7 @@ import {
   Italic,
   Loader2,
   Lock,
+  Pencil,
   Redo2,
   Save,
   Share2,
@@ -31,6 +32,7 @@ import { history, undo, redo, undoDepth, redoDepth } from 'prosemirror-history';
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap } from 'prosemirror-commands';
 import 'prosemirror-view/style/prosemirror.css';
+import './word-fonts.css';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -309,6 +311,12 @@ function listMarkers(model: WordModel) {
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 4;
 const STEPS = [25, 50, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400];
+/**
+ * A phone (either way round, not a tablet) opens a document to read it: a tap
+ * does not bring up the keyboard and the editing bars are out of the way.
+ * “Sửa” turns editing on, “Xong” off again.
+ */
+const READ_FIRST = '(pointer: coarse) and (max-width: 999px) and (max-height: 999px)';
 
 function WordEditor({
   model,
@@ -338,6 +346,10 @@ function WordEditor({
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const [lockedNote, setLockedNote] = useState(model.locked.count > 0);
   const outName = savedName(model.name);
+  const [readFirst] = useState(() => typeof matchMedia === 'function' && matchMedia(READ_FIRST).matches);
+  const [editing, setEditing] = useState(!readFirst);
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
 
   const save = useCallback(async () => {
     const view = viewRef.current;
@@ -427,6 +439,7 @@ function WordEditor({
     });
     const view = new EditorView(host, {
       state,
+      editable: () => editingRef.current,
       attributes: { 'data-testid': 'word-editor', spellcheck: 'false', 'aria-label': 'Nội dung tệp Word' },
       dispatchTransaction(tr: Transaction) {
         const next = view.state.apply(tr);
@@ -530,6 +543,8 @@ function WordEditor({
   minZoom.current = Math.max(0.05, Math.min(ZOOM_MIN, fitZoom));
   /** zoomed to fit the width (follows the screen when it turns or the window changes); a zoom by hand ends it */
   const fitMode = useRef<boolean | null>(null);
+  const fitRef = useRef(fitZoom);
+  fitRef.current = fitZoom;
   const percent = Math.round(zoom * 100);
   const focal = useRef<{ px: number; py: number; cx: number; cy: number } | null>(null);
 
@@ -615,12 +630,31 @@ function WordEditor({
     let pinch: { d0: number; z0: number } | null = null;
     let raf = 0;
     const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    // a double tap while reading: in to the text's real size (100 %) around the finger, or back to the whole width
+    let tap: { t: number; x: number; y: number; moved: boolean } | null = null;
+    let lastTap: { t: number; x: number; y: number } | null = null;
+    const doubleTap = (x: number, y: number) => {
+      const fit = fitRef.current;
+      const near = fit < 0.9 ? 1 : Math.min(ZOOM_MAX, fit * 2);
+      if (zoomRef.current < near * 0.9) zoomTo(near, x, y);
+      else {
+        zoomTo(fit);
+        fitMode.current = true;
+      }
+    };
     const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        tap = { t: e.timeStamp, x: e.touches[0].clientX, y: e.touches[0].clientY, moved: false };
+        return;
+      }
+      tap = null;
+      lastTap = null;
       if (e.touches.length !== 2) return;
       pinch = { d0: Math.max(1, dist(e.touches)), z0: zoomRef.current };
       e.preventDefault();
     };
     const onMove = (e: TouchEvent) => {
+      if (tap && e.touches.length === 1 && Math.hypot(e.touches[0].clientX - tap.x, e.touches[0].clientY - tap.y) > 10) tap.moved = true;
       if (!pinch || e.touches.length !== 2) return;
       e.preventDefault();
       const z = (pinch.z0 * dist(e.touches)) / pinch.d0;
@@ -631,6 +665,17 @@ function WordEditor({
     };
     const onEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) pinch = null;
+      if (e.type !== 'touchend' || !tap || tap.moved || e.touches.length || e.timeStamp - tap.t > 300) {
+        tap = null;
+        return;
+      }
+      const t = { t: e.timeStamp, x: tap.x, y: tap.y };
+      tap = null;
+      if (!editingRef.current && lastTap && t.t - lastTap.t < 350 && Math.hypot(t.x - lastTap.x, t.y - lastTap.y) < 30) {
+        e.preventDefault();
+        lastTap = null;
+        doubleTap(t.x, t.y);
+      } else lastTap = t;
     };
     // Safari's pinch gesture: on a Mac touchpad it is the only signal (no Ctrl + wheel); on an iPhone the touches above already zoom
     let gesture0 = 0;
@@ -643,7 +688,7 @@ function WordEditor({
     window.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('touchstart', onStart, { passive: false });
     canvas.addEventListener('touchmove', onMove, { passive: false });
-    canvas.addEventListener('touchend', onEnd);
+    canvas.addEventListener('touchend', onEnd, { passive: false });
     canvas.addEventListener('touchcancel', onEnd);
     canvas.addEventListener('gesturestart', onGesture);
     canvas.addEventListener('gesturechange', onGesture);
@@ -658,6 +703,14 @@ function WordEditor({
       canvas.removeEventListener('gesturechange', onGesture);
     };
   }, [zoomTo]);
+
+  // reading or editing: the text takes the keyboard only while editing (leaving editing puts the keyboard away)
+  useEffect(() => {
+    const v = viewRef.current;
+    if (!v) return;
+    v.setProps({ editable: () => editingRef.current });
+    if (!editing) (v.dom as HTMLElement).blur();
+  }, [editing]);
 
   // Ctrl + / Ctrl − / Ctrl 0
   useEffect(() => {
@@ -733,6 +786,19 @@ function WordEditor({
     />
   );
 
+  // reading (a phone, before “Sửa”): only what reading needs; editing: the whole bar
+  const reading = !editing;
+  const editToggle = !readFirst ? null : editing ? (
+    <WBtn label="Xong, chỉ xem" testId="word-done" onClick={() => setEditing(false)}>
+      <Check />
+    </WBtn>
+  ) : (
+    <Button size="sm" variant="outline" data-testid="word-edit" onClick={() => setEditing(true)} className="ml-1 shrink-0" title="Sửa tài liệu">
+      <Pencil />
+      Sửa
+    </Button>
+  );
+
   return (
     <>
       <header
@@ -747,20 +813,24 @@ function WordEditor({
             <FolderOpen />
           </WBtn>
         )}
-        {!phone && <BarDivider />}
-        <WBtn label="Hoàn tác" shortcut="Ctrl Z" testId="word-undo" onClick={() => run(undo)} disabled={!st || undoDepth(st) === 0}>
-          <Undo2 />
-        </WBtn>
-        <WBtn label="Làm lại" shortcut="Ctrl Y" testId="word-redo" onClick={() => run(redo)} disabled={!st || redoDepth(st) === 0}>
-          <Redo2 />
-        </WBtn>
-        {!phone && <BarDivider />}
-        {!phone && formatTools}
-        {!phone && <BarDivider />}
-        {phone ? deleteTool : null}
-        {!phone && zoomTools}
+        {editing && (
+          <>
+            {!phone && <BarDivider />}
+            <WBtn label="Hoàn tác" shortcut="Ctrl Z" testId="word-undo" onClick={() => run(undo)} disabled={!st || undoDepth(st) === 0}>
+              <Undo2 />
+            </WBtn>
+            <WBtn label="Làm lại" shortcut="Ctrl Y" testId="word-redo" onClick={() => run(redo)} disabled={!st || redoDepth(st) === 0}>
+              <Redo2 />
+            </WBtn>
+            {!phone && <BarDivider />}
+            {!phone && formatTools}
+            {!phone && <BarDivider />}
+            {phone ? deleteTool : null}
+            {!phone && zoomTools}
+          </>
+        )}
         <div className="min-w-2 flex-1" />
-        {phone && zoomTools}
+        {(phone || reading) && zoomTools}
         <div className="mr-1 hidden max-w-64 min-w-0 flex-col items-end leading-tight md:flex">
           <span className="w-full truncate text-right text-[13px]" title={model.name} data-testid="word-name">
             {model.name}
@@ -771,21 +841,26 @@ function WordEditor({
           <WordState dirty={dirty} saved={everSaved} compact />
         </span>
         {ways.length > 0 && <WordShare ways={ways} busy={busy === 'share'} disabled={!!busy} onShare={(w) => void share(w)} />}
-        <Button size="sm" data-testid="word-save" onClick={() => void save()} disabled={!!busy} className="ml-1 shrink-0" title="Lưu thành tệp Word mới (Ctrl S)">
-          {busy === 'save' ? <Loader2 className="animate-spin" /> : <Save />}
-          {phone ? (
-            'Lưu'
-          ) : (
-            <>
-              <span className="lg:hidden">Lưu</span>
-              <span className="hidden lg:inline">Lưu tệp Word</span>
-            </>
-          )}
-        </Button>
+        {editing && !phone && editToggle}
+        {(editing || dirty) && (
+          <Button size="sm" data-testid="word-save" onClick={() => void save()} disabled={!!busy} className="ml-1 shrink-0" title="Lưu thành tệp Word mới (Ctrl S)">
+            {busy === 'save' ? <Loader2 className="animate-spin" /> : <Save />}
+            {phone ? (
+              'Lưu'
+            ) : (
+              <>
+                <span className="lg:hidden">Lưu</span>
+                <span className="hidden lg:inline">Lưu tệp Word</span>
+              </>
+            )}
+          </Button>
+        )}
+        {reading && editToggle}
       </header>
-      {phone && (
+      {phone && editing && (
         <div data-testid="word-format-bar" className="flex h-11 shrink-0 items-center gap-0.5 border-b bg-background px-1">
           {formatTools}
+          {editToggle}
         </div>
       )}
       {notice && (
@@ -803,7 +878,7 @@ function WordEditor({
           </Button>
         </div>
       )}
-      {lockedNote && (
+      {lockedNote && editing && (
         <div role="status" data-testid="word-locked-note" className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[13px] text-amber-900">
           <Lock className="size-3.5 shrink-0" />
           <span className="flex-1">
@@ -824,7 +899,7 @@ function WordEditor({
         >
         <div
           ref={pageRef}
-          className="ez-wpage"
+          className={cn('ez-wpage', reading && 'ez-wreading')}
           style={{ ...pageStyle, margin: 0, transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: '0 0' }}
           data-testid="word-page"
           data-pages={pages?.count ?? 1}

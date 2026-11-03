@@ -82,9 +82,28 @@ export function pageLayout(opts: LayoutOptions): Plugin<LayoutState> {
       let alive = true;
       /** where the text changed since the last pass (tabs elsewhere keep their widths); 'all' after a resize, a font or a picture */
       let dirty: Dirty = 'all';
+      /**
+       * Not while the user is typing: a keyboard that composes words (the
+       * Samsung keyboard, Gboard, Vietnamese input methods) must not see
+       * its paragraph redrawn under it. The pass waits for a short pause, or
+       * for the word to be finished (at most two seconds).
+       */
+      let lastInput = 0;
+      let waitingSince = 0;
+      const onInput = () => (lastInput = performance.now());
+      const inputEvents = ['beforeinput', 'keydown', 'compositionstart', 'compositionupdate', 'compositionend'] as const;
+      for (const e of inputEvents) view.dom.addEventListener(e, onInput, true);
       const run = () => {
         timer = 0;
         if (!alive || !view.dom.isConnected) return;
+        const now = performance.now();
+        const quiet = now - lastInput;
+        if (!waitingSince) waitingSince = now;
+        if ((quiet < 200 || view.composing) && now - waitingSince < 2000) {
+          timer = window.setTimeout(run, view.composing ? 300 : Math.max(40, 200 - quiet));
+          return;
+        }
+        waitingSince = 0;
         const range = dirty;
         dirty = null;
         try {
@@ -124,6 +143,7 @@ export function pageLayout(opts: LayoutOptions): Plugin<LayoutState> {
           alive = false;
           if (timer) clearTimeout(timer);
           ro.disconnect();
+          for (const e of inputEvents) view.dom.removeEventListener(e, onInput, true);
           view.dom.removeEventListener('load', onLoad, true);
           document.fonts?.removeEventListener?.('loadingdone', onLoad);
         },

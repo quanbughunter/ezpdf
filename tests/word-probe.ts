@@ -46,6 +46,7 @@ import { decodeTiff } from '../src/word/tiff';
 import { encodePng } from '../src/word/images';
 import { markers } from '../src/word/numbering';
 import { PAGE_BREAK, schema } from '../src/word/schema';
+import { fontStack, paraCss } from '../src/word/styles';
 
 const dom = { DOMParser: DOMParser as never, XMLSerializer: XMLSerializer as never };
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1157,6 +1158,15 @@ async function pageCases() {
   const files = unzipSync(raw);
   files['word/document.xml'] = strToU8(strFromU8(files['word/document.xml']).replace(/<w:pgSz [^>]*\/>(<w:pgMar [^>]*\/>)(?=(?:(?!<w:sectPr>)[^])*<\/w:body>)/, '<w:pgSz w:w="99999999" w:h="1"/><w:pgMar w:top="90000" w:right="0" w:bottom="90000" w:left="0" w:header="0" w:footer="0" w:gutter="0"/>'));
   const tiny = await readDocx(zipSync(files), 'tiny.docx', { dom, imageUrl: () => null });
+  // fonts a phone lacks: the same widths under another name; Calibri's own single line
+  const stacks = { pal: fontStack('Palatino Linotype'), times: fontStack('Times'), helv: fontStack('Helvetica'), cal: fontStack('Calibri') };
+  const lh = (font: string, line?: number) => /line-height:([\d.]+)/.exec(paraCss({ line, lineRule: line ? 'auto' : undefined }, { font }))?.[1];
+  check(
+    'font stacks: Palatino Linotype falls back to Palatino (iPhone) and Book Antiqua, Times to Times New Roman, Helvetica to Arial; Calibri’s single line is 1.2207 em as in Word, Times New Roman’s 1.15, a 1.5 line Calibri paragraph 1.831',
+    stacks.pal === '"Palatino Linotype", "Palatino", "Book Antiqua", serif' && stacks.times === '"Times", "Times New Roman", serif' && !!stacks.helv?.startsWith('"Helvetica", "Arial", "ezPDF Sans VN"') &&
+      stacks.cal === '"Calibri", "ezPDF Sans VN", sans-serif' && lh('Calibri') === '1.2207' && lh('Times New Roman') === '1.15' && lh('Calibri', 360) === '1.831',
+    JSON.stringify({ stacks, cal: lh('Calibri'), tnr: lh('Times New Roman'), cal15: lh('Calibri', 360) }),
+  );
   check(
     'a crafted page size (one twip high, ten metres wide, margins larger than the page) is held within Word’s limits',
     tiny.page.height >= 7.2 && tiny.page.width <= 1584 && tiny.page.top + tiny.page.bottom < tiny.page.height,

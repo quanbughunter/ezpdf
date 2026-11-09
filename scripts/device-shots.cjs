@@ -89,6 +89,12 @@ async function android(apk) {
   let page = null;
   let launch, shoot, done;
   let listOnPhone = null;
+  /** the page to drive, found again if the WebView replaced it (Chromium: always the same) */
+  let refresh = async () => {};
+  // what happened to the WebView, written into the next picture's notes
+  const t0 = Date.now();
+  const events = [];
+  const log = (m) => events.push(`${Math.round((Date.now() - t0) / 1000)} s: ${m}`);
   if (process.env.SHOTS_BROWSER === 'chromium') {
     // the same steps in Playwright's Chromium at the S24 Ultra's size (a check of this script without an emulator)
     const { chromium } = require('playwright');
@@ -120,17 +126,36 @@ async function android(apk) {
     await sh('pm disable-user --user 0 com.google.android.apps.nexuslauncher');
     await sh('am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS');
     await device.installApk(fs.readFileSync(apk));
+    const adopt = async (p) => {
+      page = p;
+      p.on('close', () => log('trang của WebView đã đóng'));
+      p.on('crash', () => log('WebView bị crash'));
+      // the emulator's screen takes the computer's mouse, so the page sees a mouse (pointer: fine) and
+      // opens Word files to edit; a phone has a touch screen (pointer: coarse) and opens them to read.
+      // Touch emulation changes the pointer media query at once: no reload (on the emulator a reload
+      // left Playwright holding a closed page, and every picture after the first failed)
+      const cdp = await p.context().newCDPSession(p);
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    };
+    refresh = async () => {
+      if (page && !page.isClosed()) return;
+      // a WebView made again in the same app shows up in the same connection; otherwise connect again
+      let next = page?.context().pages().find((x) => !x.isClosed()) ?? null;
+      if (!next) {
+        const webview = await device.webView({ pkg: 'app.ezpdf' }, { timeout: 60000 });
+        next = await webview.page();
+        if (next.isClosed()) next = next.context().pages().find((x) => !x.isClosed()) ?? (await next.context().waitForEvent('page', { timeout: 30000 }));
+      }
+      log('dùng trang mới của WebView');
+      await adopt(next);
+      await wait(next, '[data-testid="state-empty"], [data-testid="page-0"], [data-testid="word-page"]', 60000);
+    };
     launch = async () => {
       await sh('am force-stop app.ezpdf');
       await sh('am start -W -n app.ezpdf/.MainActivity');
       const webview = await device.webView({ pkg: 'app.ezpdf' }, { timeout: 120000 });
-      page = await webview.page();
-      // the emulator's screen takes the computer's mouse, so the page sees a mouse (pointer: fine) and
-      // opens Word files to edit; a phone has a touch screen (pointer: coarse) and opens them to read
-      const cdp = await page.context().newCDPSession(page);
-      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-      await page.reload();
-      await wait(page, '[data-testid="state-empty"]', 120000);
+      await adopt(await webview.page());
+      if (!(await wait(page, '[data-testid="state-empty"]', 120000))) log('màn hình đầu chưa hiện sau 2 phút');
     };
     shoot = async (file) => {
       await sh('am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS');
@@ -145,61 +170,86 @@ async function android(apk) {
     done = () => device.close();
   }
   await launch();
+  try {
+    log(`pointer: coarse = ${await page.evaluate(() => matchMedia('(pointer: coarse)').matches)} (điện thoại thật: true)`);
+  } catch (e) {
+    log(`không đọc được pointer: ${e.message.split('\n')[0]}`);
+  }
   let shown = null;
+  /** one picture's steps; returns what to add to its notes */
+  const steps = async (s) => {
+    let detail = '';
+    await refresh();
+    if (s.file !== 'none' && !(s.keep && shown === s.file && (await page.$('[data-testid="page-0"]')))) {
+      // what the last picture left open is closed first: the information panel, the Word screen
+      if (await page.$('[data-testid="word-info-panel"]')) await page.click('[data-testid="word-info-close"]');
+      if (await page.$('[data-testid="word-screen"]')) {
+        await page.click('[data-testid="word-close"]');
+        await page.waitForSelector('[data-testid="word-screen"]', { state: 'detached', timeout: 30000 });
+      }
+      await page.setInputFiles('[data-testid="file-input"]', {
+        name: s.file,
+        mimeType: s.file.endsWith('.docx') ? DOCX : 'application/pdf',
+        buffer: fs.readFileSync(FIX(s.file)),
+      });
+      if (s.file.endsWith('.docx')) {
+        if (!(await wait(page, '[data-testid="word-page"]', 120000))) throw new Error('the Word file did not open');
+        await page.evaluate(async () => {
+          let last = '', since = Date.now();
+          for (const end = Date.now() + 30000; Date.now() < end; ) {
+            const p = document.querySelector('[data-testid="word-page"]');
+            const now = p ? `${p.dataset.pages}:${p.offsetHeight}` : '';
+            if (now !== last) [last, since] = [now, Date.now()];
+            else if (now && Date.now() - since > 1500) return;
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        });
+        if (s.zoom) {
+          await page.click('[data-testid="word-zoom-level"]');
+          await page.click(`[data-testid="word-zoom-${s.zoom}"]`);
+          await sleep(800);
+          await page.evaluate(SHOW_PICTURES);
+        }
+        if (s.info) await page.click('[data-testid="word-info"]');
+      } else {
+        if (!(await wait(page, '[data-testid="page-0"]', 120000))) throw new Error('the PDF did not open');
+        await sleep(1500);
+        if (s.info && !(await page.$('[data-testid="right-panel"]'))) await page.click('[data-testid="btn-toggle-right"]');
+      }
+    }
+    shown = s.file;
+    if (s.pictures) {
+      const said = await picturesStep(page, s.pictures);
+      if (said) detail = `Ứng dụng báo: ${said}`;
+      // on the emulator: what Android itself now holds there (the files under their real names,
+      // so none left half-written), and what the phone's media library lists
+      if (said && listOnPhone) detail += `\n\n${await listOnPhone(s.pictures === 'tiff' ? 'Download/ezPDF' : 'Pictures/ezPDF')}`;
+    }
+    await sleep(1500);
+    return detail;
+  };
   for (const s of SHOTS) {
     let note = 'ok';
     let detail = '';
-    try {
-      if (s.file !== 'none' && !(s.keep && shown === s.file && (await page.$('[data-testid="page-0"]')))) {
-        // what the last picture left open is closed first: the information panel, the Word screen
-        if (await page.$('[data-testid="word-info-panel"]')) await page.click('[data-testid="word-info-close"]');
-        if (await page.$('[data-testid="word-screen"]')) {
-          await page.click('[data-testid="word-close"]');
-          await page.waitForSelector('[data-testid="word-screen"]', { state: 'detached', timeout: 30000 });
-        }
-        await page.setInputFiles('[data-testid="file-input"]', {
-          name: s.file,
-          mimeType: s.file.endsWith('.docx') ? DOCX : 'application/pdf',
-          buffer: fs.readFileSync(FIX(s.file)),
-        });
-        if (s.file.endsWith('.docx')) {
-          if (!(await wait(page, '[data-testid="word-page"]', 120000))) throw new Error('the Word file did not open');
-          await page.evaluate(async () => {
-            let last = '', since = Date.now();
-            for (const end = Date.now() + 30000; Date.now() < end; ) {
-              const p = document.querySelector('[data-testid="word-page"]');
-              const now = p ? `${p.dataset.pages}:${p.offsetHeight}` : '';
-              if (now !== last) [last, since] = [now, Date.now()];
-              else if (now && Date.now() - since > 1500) return;
-              await new Promise((r) => setTimeout(r, 200));
-            }
-          });
-          if (s.zoom) {
-            await page.click('[data-testid="word-zoom-level"]');
-            await page.click(`[data-testid="word-zoom-${s.zoom}"]`);
-            await sleep(800);
-            await page.evaluate(SHOW_PICTURES);
-          }
-          if (s.info) await page.click('[data-testid="word-info"]');
-        } else {
-          if (!(await wait(page, '[data-testid="page-0"]', 120000))) throw new Error('the PDF did not open');
-          await sleep(1500);
-          if (s.info && !(await page.$('[data-testid="right-panel"]'))) await page.click('[data-testid="btn-toggle-right"]');
-        }
+    for (let attempt = 1; ; attempt++) {
+      try {
+        detail = await steps(s);
+        note = 'ok';
+        break;
+      } catch (e) {
+        note = e.message.split('\n')[0];
+        // the WebView's page went away: find the new one and do this picture again, once
+        if (attempt > 1 || !/closed|Target/i.test(note)) break;
+        log(`ảnh ${s.id}: ${note}; làm lại`);
+        shown = null;
       }
-      shown = s.file;
-      if (s.pictures) {
-        const said = await picturesStep(page, s.pictures);
-        if (said) detail = `Ứng dụng báo: ${said}`;
-        // on the emulator: what Android itself now holds there (the files under their real names,
-        // so none left half-written), and what the phone's media library lists
-        if (said && listOnPhone) detail += `\n\n${await listOnPhone(s.pictures === 'tiff' ? 'Download/ezPDF' : 'Pictures/ezPDF')}`;
-      }
-      await sleep(1500);
-    } catch (e) {
-      note = e.message.split('\n')[0];
     }
-    await shoot(path.join(dir, `${s.id}.png`));
+    try {
+      await shoot(path.join(dir, `${s.id}.png`));
+    } catch (e) {
+      note = `${note === 'ok' ? '' : note + '; '}không chụp được: ${e.message.split('\n')[0]}`;
+    }
+    if (events.length) detail = [detail, `Nhật ký: ${events.splice(0).join(' · ')}`].filter(Boolean).join('\n\n');
     notes.push({ id: s.id, title: s.title, note, ...(detail && { detail }) });
   }
   writeNotes(dir, notes);
@@ -208,7 +258,28 @@ async function android(apk) {
 
 // ── iPhone: Safari on the simulator ──────────────────────────────────────
 
-const simctl = (...args) => execFileSync('xcrun', ['simctl', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+/** xcrun simctl; a failure says what simctl itself said (it goes into notes.json, readable without the run's log) */
+const simctl = (...args) => {
+  try {
+    return execFileSync('xcrun', ['simctl', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    const said = `${e.stderr || ''}`.trim().split('\n').slice(-3).join(' ') || e.message.split('\n')[0];
+    throw new Error(`simctl ${args[0]}: ${said}`);
+  }
+};
+
+/** `fn` again after a pause when it fails (a simulator just booted can refuse the first requests) */
+async function retry(fn, times = 3, pause = 5000) {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= times) throw e;
+      console.log(`  retry ${i}: ${e.message.split('\n')[0]}`);
+      await sleep(pause);
+    }
+  }
+}
 
 /** the newest iOS runtime installed, and an iPhone 15 Pro Max on it (made for this run) */
 function bootIphone() {
@@ -294,7 +365,16 @@ async function ios(build) {
     const page = await ctx.newPage();
     phone = { name: 'Chromium (iPhone 15 Pro Max size)', open: (url) => void page.goto(url), shot: (file) => page.screenshot({ path: file }), close: () => browser.close() };
   } else {
-    const { udid, name } = bootIphone();
+    let booted;
+    try {
+      booted = bootIphone();
+    } catch (e) {
+      // said in notes.json too, so the run's summary page shows why there are no pictures
+      writeNotes(dir, [{ id: '0-boot', title: 'Khởi động máy ảo iPhone', note: e.message.split('\n')[0] }]);
+      web.server.close();
+      throw e;
+    }
+    const { udid, name } = booted;
     phone = {
       name,
       open: (url) => simctl('openurl', udid, url),
@@ -307,23 +387,43 @@ async function ios(build) {
     };
   }
   const notes = [];
+  const first = (e) => e.message.split('\n')[0];
   try {
     // Safari's first page of a new phone gets its tips ("View Bookmarks, Share Menu…"): on a page not kept
-    phone.open('http://127.0.0.1:4180/?shot=none&id=warm-up');
-    await web.until('warm-up', 150000);
-    await sleep(3000);
+    let warm = '';
+    try {
+      await retry(() => phone.open('http://127.0.0.1:4180/?shot=none&id=warm-up'));
+      const w = await web.until('warm-up', 150000);
+      if (w !== 'ok') warm = `trang khởi động: ${w}`;
+      await sleep(3000);
+    } catch (e) {
+      warm = `trang khởi động: ${first(e)}`;
+    }
+    // a step that fails costs its own picture only: what went wrong is written beside it
     for (const s of SHOTS) {
       const q = new URLSearchParams({ shot: s.file, id: s.id });
       if (s.info) q.set('info', '1');
       if (s.zoom) q.set('zoom', String(s.zoom));
       if (s.pictures) q.set('pictures', s.pictures);
-      phone.open(`http://127.0.0.1:4180/?${q}`);
-      const said = await web.until(s.id, 150000);
-      // the page may add what it did after a tab: "ok\tĐã lưu …"
-      const [note, detail] = said.split('\t');
-      await sleep(1000);
-      await phone.shot(path.join(dir, `${s.id}.png`));
-      notes.push({ id: s.id, title: s.title, note, device: phone.name, ...(detail && { detail: `Ứng dụng báo: ${detail}` }) });
+      let note = 'ok';
+      let detail = '';
+      try {
+        await retry(() => phone.open(`http://127.0.0.1:4180/?${q}`));
+        const said = await web.until(s.id, 150000);
+        // the page may add what it did after a tab: "ok\tĐã lưu …"
+        [note, detail = ''] = said.split('\t');
+        await sleep(1000);
+      } catch (e) {
+        note = first(e);
+      }
+      try {
+        await retry(() => phone.shot(path.join(dir, `${s.id}.png`)));
+      } catch (e) {
+        note = `${note === 'ok' ? '' : note + '; '}không chụp được: ${first(e)}`;
+      }
+      const extra = [detail && `Ứng dụng báo: ${detail}`, warm && `Nhật ký: ${warm}`].filter(Boolean).join('\n\n');
+      warm = '';
+      notes.push({ id: s.id, title: s.title, note, device: phone.name, ...(extra && { detail: extra }) });
     }
   } finally {
     writeNotes(dir, notes);

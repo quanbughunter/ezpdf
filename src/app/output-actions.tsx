@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ClipboardCopy, FolderSearch, Loader2, MoreVertical, Printer, Share2, X } from 'lucide-react';
+import { ClipboardCopy, FolderSearch, ImageDown, Loader2, MoreVertical, Printer, Share2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -36,6 +36,9 @@ interface OutputApi {
   cancelPrint(): void;
   notice: Notice | null;
   dismissNotice(): void;
+  /** the "Xuất thành ảnh" dialog (to-images/ImagesDialog) */
+  imagesOpen: boolean;
+  setImagesOpen(open: boolean): void;
 }
 
 const OutputContext = createContext<OutputApi | null>(null);
@@ -49,6 +52,7 @@ export function OutputProvider({ session, children }: { session: DocumentSession
   const [busy, setBusy] = useState<OutputApi['busy']>(null);
   const [printProgress, setPrintProgress] = useState<PrintProgress | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [imagesOpen, setImagesOpen] = useState(false);
   const abort = useRef<AbortController | null>(null);
   /** synchronous guard: two clicks before React re-renders start one job */
   const running = useRef(false);
@@ -181,8 +185,10 @@ export function OutputProvider({ session, children }: { session: DocumentSession
       cancelPrint: () => abort.current?.abort(),
       notice,
       dismissNotice: () => setNotice(null),
+      imagesOpen,
+      setImagesOpen,
     }),
-    [busy, platform.shareWays, share, print, printProgress, notice],
+    [busy, platform.shareWays, share, print, printProgress, notice, imagesOpen],
   );
   return <OutputContext.Provider value={api}>{children}</OutputContext.Provider>;
 }
@@ -263,7 +269,19 @@ export function PrintButton() {
   );
 }
 
-/** Phone top bar: printing and closing share one menu, so the bar keeps its width. */
+export const IMAGES_LABEL = 'Xuất thành ảnh (PNG, JPEG, TIFF)';
+
+export function ImagesButton() {
+  const out = useOutput();
+  if (!out) return null;
+  return (
+    <IconAction label={IMAGES_LABEL} onClick={() => out.setImagesOpen(true)} disabled={!!out.busy} testId="btn-images">
+      <ImageDown />
+    </IconAction>
+  );
+}
+
+/** Phone top bar: printing, pictures and closing share one menu, so the bar keeps its width. */
 export function MoreMenu({ onClose }: { onClose: () => void }) {
   const out = useOutput();
   return (
@@ -276,6 +294,9 @@ export function MoreMenu({ onClose }: { onClose: () => void }) {
       <DropdownMenuContent align="end" className="min-w-48">
         <DropdownMenuItem data-testid="btn-print" disabled={!!out?.busy} onSelect={() => void out?.print()}>
           <Printer /> In tài liệu
+        </DropdownMenuItem>
+        <DropdownMenuItem data-testid="btn-images" disabled={!!out?.busy} onSelect={() => out?.setImagesOpen(true)}>
+          <ImageDown /> Xuất thành ảnh
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem data-testid="btn-close-doc" onSelect={onClose}>

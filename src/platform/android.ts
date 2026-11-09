@@ -1,6 +1,7 @@
 /**
  * Android app (Capacitor 8) with ezPDF's own native plugin "EzFiles"
  * (android/app/src/main/java/app/ezpdf/EzFilesPlugin.java):
+ *  - page pictures: the media library (Pictures/ezPDF; TIFF in Download/ezPDF)
  *  - open: Storage Access Framework, ACTION_OPEN_DOCUMENT for PDFs; the same
  *          picker opened in an opened file's folder for its information panel
  *  - save: ACTION_CREATE_DOCUMENT, then the bytes are streamed to the
@@ -36,6 +37,7 @@ interface EzFilesPlugin {
   closeWrite(o: { handle: string; abort: boolean }): Promise<void>;
   takeIncoming(): Promise<{ files: DocRef[] }>;
   openCacheWrite(o: { name: string }): Promise<{ handle: string; path: string }>;
+  openMediaWrite(o: { name: string; mime: string }): Promise<{ handle: string; name: string }>;
   shareFile(o: { path: string }): Promise<void>;
   printFile(o: { path: string; name: string; pages: number }): Promise<void>;
   addListener(event: 'incoming', cb: () => void): Promise<PluginListenerHandle>;
@@ -129,6 +131,20 @@ export async function createAndroidPlatform(): Promise<Platform> {
     },
     async printPdf(bytes, name, pages) {
       await EzFiles.printFile({ path: await cacheCopy(bytes, name), name, pages });
+    },
+    async openImageSink({ tiff }) {
+      const names: string[] = [];
+      return {
+        async write(f) {
+          const { handle, name } = await EzFiles.openMediaWrite({ name: f.name, mime: f.type });
+          await writeAll(handle, f.bytes);
+          names.push(name);
+        },
+        async finish() {
+          return { how: 'gallery', place: tiff ? 'Tải xuống › ezPDF (mở bằng Tệp của tôi)' : 'Ảnh › ezPDF (mở bằng Thư viện)', names };
+        },
+        async abort() {},
+      };
     },
     onIncomingFiles: incoming.subscribe,
     async showFolder(source) {

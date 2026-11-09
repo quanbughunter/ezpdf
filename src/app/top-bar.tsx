@@ -47,7 +47,7 @@ import { usePlacement } from './images/placement';
 import { usePageRotation } from './page-rotation';
 import { isTouchFirst, useTextEdit } from './text-edit';
 import { usePointerTool, useSetPointerTool } from './viewer/hand';
-import { MoreMenu, PrintButton, ShareButton } from './output-actions';
+import { ImagesButton, MoreMenu, PrintButton, ShareButton } from './output-actions';
 import { useDraftText } from './use-draft-text';
 import { ToolboxIcon } from './pages/toolbox-icon';
 
@@ -143,6 +143,7 @@ export function TopBar(p: Props) {
             <>
               <BarDivider />
               <PrintButton />
+              <ImagesButton />
               <ShareButton />
               <ToolsButton onClick={p.onPages} />
             </>
@@ -167,8 +168,9 @@ export function TopBar(p: Props) {
 const TOOLS_LABEL = 'Bộ công cụ: thêm, xóa, đổi chỗ, xoay trang; trích, tách tệp';
 
 /**
- * "Bộ công cụ" beside Share: with its name where the bar has room (wide
- * screens), the icon alone elsewhere.
+ * "Bộ công cụ" beside Share: with its name where the bar has room (1440 px
+ * and wider; below that the name would push "Xuất PDF" off a 1280 px
+ * window), the icon alone elsewhere.
  */
 function ToolsButton({ onClick, compact }: { onClick: () => void; compact?: boolean }) {
   return (
@@ -179,10 +181,10 @@ function ToolsButton({ onClick, compact }: { onClick: () => void; compact?: bool
         aria-label="Bộ công cụ"
         data-testid="btn-pages"
         onClick={onClick}
-        className={compact ? 'shrink-0 text-foreground/80 hover:text-foreground' : 'ml-1 shrink-0 gap-1.5 px-2 xl:px-2.5'}
+        className={compact ? 'shrink-0 text-foreground/80 hover:text-foreground' : 'ml-1 shrink-0 gap-1.5 px-2 min-[1440px]:px-2.5'}
       >
         <ToolboxIcon />
-        {!compact && <span className="hidden xl:inline">Bộ công cụ</span>}
+        {!compact && <span className="hidden min-[1440px]:inline">Bộ công cụ</span>}
       </Button>
     </Tip>
   );

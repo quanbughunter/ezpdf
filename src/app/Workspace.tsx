@@ -27,6 +27,7 @@ import { TextEditBar, TextEditProvider, useTextEdit } from './text-edit';
 import { ScanDialog } from './scan/ScanDialog';
 import { useRestingModes, useSetPointerTool, useSpaceToPan } from './viewer/hand';
 import { OutputProvider, PrintProgressOverlay, useOutput } from './output-actions';
+import { ImagesHost } from './to-images/ImagesDialog';
 import { PageOrganizer } from './pages/PageOrganizer';
 import type { WordScreenHandle } from './word/WordScreen';
 import { DOCX_MIME } from '@/platform/types';
@@ -239,6 +240,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
       </div>
       {phone && documentId && !session.switching && !session.openError && <BottomBar documentId={documentId} />}
       {documentId && <PrintProgressOverlay />}
+      {documentId && !session.switching && <ImagesHost documentId={documentId} session={session} />}
       {scanning && (
         <ScanDialog
           onClose={() => setScanning(false)}

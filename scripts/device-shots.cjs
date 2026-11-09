@@ -13,6 +13,9 @@
  * The same test files are opened on both (tests/fixtures: public test files,
  * nothing of anyone's own). The pictures go to out/screens/<android|iphone>/,
  * with notes.json saying what each one is and anything that went wrong.
+ * The last ones export the PDF's pages as pictures (Xuất thành ảnh): on the
+ * emulator, notes.json also lists what Android then holds in Pictures/ezPDF
+ * and Download/ezPDF (the folder, and the media library).
  */
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -40,7 +43,36 @@ const SHOTS = [
   { id: '3-word-info', file: 'word-math.docx', info: true, title: 'Thông tin tệp Word' },
   { id: '4-word-pages', file: 'word-pages.docx', title: 'Đề có điểm dừng tab, bảng, công thức' },
   { id: '5-pdf-info', file: 'sample.pdf', info: true, title: 'Tệp PDF và bảng thông tin' },
+  // Xuất thành ảnh (0.8.7), on the PDF still open from the last picture (on the iPhone: opened again)
+  { id: '6-pictures', file: 'sample.pdf', keep: true, pictures: 'options', title: 'Xuất thành ảnh (trong ⋮): định dạng, trang, độ phân giải' },
+  { id: '7-pictures-png', file: 'sample.pdf', keep: true, pictures: 'png', title: 'Ảnh PNG của mọi trang: Android lưu vào Ảnh › ezPDF, iPhone đưa qua “Lưu hoặc chia sẻ”' },
+  { id: '8-pictures-tiff', file: 'sample.pdf', keep: true, pictures: 'tiff', title: 'Một tệp TIFF nhiều trang: Android lưu vào Tải xuống › ezPDF' },
 ];
+
+/**
+ * In the page (Playwright on Android; src/shots.ts does the same in Safari):
+ * Xuất thành ảnh from ⋮, and for 'png' / 'tiff' the pictures made and saved.
+ * Returns what the dialog says it did.
+ */
+async function picturesStep(page, kind) {
+  const t = (id) => `[data-testid="${id}"]`;
+  if (await page.$(t('images-finish'))) await page.click(t('images-finish'));
+  if (await page.$(t('right-panel'))) await page.click(t('btn-toggle-right'));
+  if (!(await page.$(t('images-dialog')))) {
+    await page.click(t('btn-more'));
+    await page.click(`[role="menu"] ${t('btn-images')}`);
+    await page.waitForSelector(t('images-dialog'), { timeout: 30000 });
+  }
+  if (kind === 'options') return '';
+  await page.click(t(`images-format-${kind}`));
+  await page.click(t('images-pages-all'));
+  if (kind === 'tiff' && !(await page.isChecked(t('images-one-tiff')))) await page.click(t('images-one-tiff'));
+  await page.click(t('images-go'));
+  await page.waitForSelector(`${t('images-done')}, ${t('images-error')}`, { timeout: 120000 });
+  const err = await page.$(t('images-error'));
+  if (err) throw new Error(`Xuất ảnh lỗi: ${await err.textContent()}`);
+  return page.textContent(t('images-done-text'));
+}
 
 function writeNotes(dir, notes) {
   fs.writeFileSync(path.join(dir, 'notes.json'), JSON.stringify(notes, null, 2));
@@ -56,6 +88,7 @@ async function android(apk) {
   const wait = async (page, sel, ms) => page.waitForSelector(sel, { timeout: ms }).then(() => true, () => false);
   let page = null;
   let launch, shoot, done;
+  let listOnPhone = null;
   if (process.env.SHOTS_BROWSER === 'chromium') {
     // the same steps in Playwright's Chromium at the S24 Ultra's size (a check of this script without an emulator)
     const { chromium } = require('playwright');
@@ -103,13 +136,21 @@ async function android(apk) {
       await sh('am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS');
       await device.screenshot({ path: file });
     };
+    listOnPhone = async (folder) => {
+      const files = await sh(`ls -l '/sdcard/${folder}/' 2>&1`);
+      const uri = folder.startsWith('Download') ? 'content://media/external/downloads' : 'content://media/external/images/media';
+      const media = await sh(`content query --uri ${uri} --projection _display_name:relative_path:mime_type:is_pending --where "relative_path LIKE '${folder}%'" 2>&1`);
+      return `Trong /sdcard/${folder}:\n\n\`\`\`\n${files}\n\`\`\`\n\nThư viện ảnh/tệp của Android (MediaStore):\n\n\`\`\`\n${media}\n\`\`\``;
+    };
     done = () => device.close();
   }
   await launch();
+  let shown = null;
   for (const s of SHOTS) {
     let note = 'ok';
+    let detail = '';
     try {
-      if (s.file !== 'none') {
+      if (s.file !== 'none' && !(s.keep && shown === s.file && (await page.$('[data-testid="page-0"]')))) {
         // what the last picture left open is closed first: the information panel, the Word screen
         if (await page.$('[data-testid="word-info-panel"]')) await page.click('[data-testid="word-info-close"]');
         if (await page.$('[data-testid="word-screen"]')) {
@@ -146,12 +187,20 @@ async function android(apk) {
           if (s.info && !(await page.$('[data-testid="right-panel"]'))) await page.click('[data-testid="btn-toggle-right"]');
         }
       }
+      shown = s.file;
+      if (s.pictures) {
+        const said = await picturesStep(page, s.pictures);
+        if (said) detail = `Ứng dụng báo: ${said}`;
+        // on the emulator: what Android itself now holds there (the files under their real names,
+        // so none left half-written), and what the phone's media library lists
+        if (said && listOnPhone) detail += `\n\n${await listOnPhone(s.pictures === 'tiff' ? 'Download/ezPDF' : 'Pictures/ezPDF')}`;
+      }
       await sleep(1500);
     } catch (e) {
       note = e.message.split('\n')[0];
     }
     await shoot(path.join(dir, `${s.id}.png`));
-    notes.push({ id: s.id, title: s.title, note });
+    notes.push({ id: s.id, title: s.title, note, ...(detail && { detail }) });
   }
   writeNotes(dir, notes);
   await done();
@@ -267,11 +316,14 @@ async function ios(build) {
       const q = new URLSearchParams({ shot: s.file, id: s.id });
       if (s.info) q.set('info', '1');
       if (s.zoom) q.set('zoom', String(s.zoom));
+      if (s.pictures) q.set('pictures', s.pictures);
       phone.open(`http://127.0.0.1:4180/?${q}`);
-      const note = await web.until(s.id, 150000);
+      const said = await web.until(s.id, 150000);
+      // the page may add what it did after a tab: "ok\tĐã lưu …"
+      const [note, detail] = said.split('\t');
       await sleep(1000);
       await phone.shot(path.join(dir, `${s.id}.png`));
-      notes.push({ id: s.id, title: s.title, note, device: phone.name });
+      notes.push({ id: s.id, title: s.title, note, device: phone.name, ...(detail && { detail: `Ứng dụng báo: ${detail}` }) });
     }
   } finally {
     writeNotes(dir, notes);

@@ -21,6 +21,9 @@
  *  6d. pictures, zoom, font and size (0.8.2): word-images.docx (TIFF of every
  *     kind, EPS, PICT…) shown; zoomed with real clicks and Ctrl + / Ctrl 0;
  *     a font and a size picked with real clicks and keys
+ *  6f. pages as pictures (0.8.7): PNG of every page written into a folder
+ *     picked in the system's folder dialog, nothing overwritten on a second
+ *     run, "Mở thư mục" opening the folder
  *  6e. pages and tab stops (0.8.3): word-pages.docx in WebKitGTK (the engine of
  *     Safari, so of the iPhone web app): sheets with gaps, the page break
  *     starting a page, tabs ending at their stops, "Trang k / n" per sheet
@@ -335,7 +338,7 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
     // 6. the system dialogs (GTK here, the Windows dialogs there), driven with xdotool
     if (hasXdotool) {
       const xdo = (...a) => execFileSync('xdotool', a, { env, encoding: 'utf8' }).trim();
-      const dialog = async (title, typed, shotName) => {
+      const dialog = async (title, typed, shotName, folder = false) => {
         // find the dialog by its exact title among the app's windows (no window manager here)
         let win = null;
         for (let i = 0; i < 60 && !win; i++) {
@@ -346,6 +349,11 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
         if (!win) throw new Error(`no "${title}" dialog`);
         await sleep(700);
         xdo('windowfocus', '--sync', win);
+        // a folder chooser opens on "Recent", where it can't pick a folder: go Home (Alt+Home) first
+        if (folder) {
+          xdo('key', 'alt+Home');
+          await sleep(400);
+        }
         xdo('key', 'ctrl+l');
         await sleep(200);
         xdo('key', 'ctrl+a');
@@ -392,6 +400,65 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
       check('...and the app says where it went', where.includes(OUT) && where.includes('xuat-qua-hop-thoai.pdf'), where.split('\n')[0]);
       check('the PDF picked in the dialog is untouched', sha(fs.readFileSync(third)) === sha(fs.readFileSync(FIX('foreign-stamp.pdf'))));
       await s.shot('6-exported.png');
+
+      // 6f. pages as pictures (0.8.7): every page as PNG into a folder picked in the system's
+      // folder dialog (the dialog lets the app write there, nowhere else); a second run never
+      // overwrites; "Mở thư mục" shows the first picture in its folder (xdg-open recorder)
+      const picDir = path.join(OUT, 'anh trang');
+      fs.rmSync(picDir, { recursive: true, force: true });
+      fs.mkdirSync(picDir);
+      const setDpi = `const el = document.querySelector('${T('images-dpi')}'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, '72'); el.dispatchEvent(new Event('change', { bubbles: true }));`;
+      let asking = '';
+      const pictures = async (tag) => {
+        await s.js(`document.querySelector('${T('btn-images')}').click()`);
+        await s.waitFor(`return !!document.querySelector('${T('images-go')}')`, 'the pictures dialog', 10000);
+        await s.js(`document.querySelector('${T('images-format-png')}').click(); document.querySelector('${T('images-pages-all')}').click(); ${setDpi}`);
+        await sleep(200);
+        await s.js(`document.querySelector('${T('images-go')}').click()`);
+        await sleep(300);
+        if (tag === 1) asking = await s.js(`return document.querySelector('${T('images-working')}')?.textContent ?? ''`);
+        await dialog('Chọn thư mục để lưu ảnh', picDir, tag === 1 ? '6f-folder-dialog.png' : null, true);
+        try {
+          await s.waitFor(`return !!document.querySelector('${T('images-done')}') || !!document.querySelector('${T('images-error')}')`, 'the pictures to be written', 60000);
+        } catch (e) {
+          spawnSync('import', ['-window', 'root', '-display', display, path.join(OUT, 'debug-6f.png')]);
+          console.log('DEBUG dialog text:', await s.js(`return document.querySelector('${T('images-dialog')}')?.textContent ?? '(no dialog)'`));
+          throw e;
+        }
+        return s.js(`return (document.querySelector('${T('images-done-text')}') ?? document.querySelector('${T('images-error')}')).textContent`);
+      };
+      const said1 = await pictures(1);
+      const listPics = () => fs.readdirSync(picDir).sort();
+      const first = listPics();
+      const pngSize = (f) => {
+        const b = fs.readFileSync(path.join(picDir, f));
+        return b.subarray(1, 4).toString() === 'PNG' ? [b.readUInt32BE(16), b.readUInt32BE(20)] : null;
+      };
+      const p1 = first[0] ? pngSize(first[0]) : null;
+      check(
+        'pictures: every page as PNG into the folder picked in the system dialog (page 1, turned, is landscape), and the app says where',
+        first.join('|') === ['1', '2', '3', '4'].map((n) => `chon-qua-hop-thoai - trang ${n}.png`).join('|') && p1 && p1[0] > p1[1] && said1.includes(picDir),
+        `${first.join(', ')} · page 1 ${p1} · ${said1}`,
+      );
+      check('pictures: while the folder dialog is open the app says so (nothing drawn yet)', asking.includes('Chọn thư mục để lưu ảnh'), asking);
+      await s.shot('6f-pictures.png');
+      const before = fs.existsSync(xdgLog) ? fs.readFileSync(xdgLog, 'utf8') : '';
+      await s.js(`document.querySelector('${T('images-reveal')}').click()`);
+      await sleep(800);
+      const revealed = (fs.existsSync(xdgLog) ? fs.readFileSync(xdgLog, 'utf8') : '').slice(before.length).trim();
+      check('pictures: “Mở thư mục” shows the folder (Explorer on Windows, xdg-open here)', revealed === picDir, revealed);
+      await s.js(`document.querySelector('${T('images-finish')}').click()`);
+      await sleep(300);
+      const shaFirst = sha(fs.readFileSync(path.join(picDir, first[0])));
+      await pictures(2);
+      const second = listPics();
+      check(
+        'pictures: the same pictures again never overwrite: “… (2).png” beside the first ones, which are unchanged',
+        second.length === 8 && second.includes('chon-qua-hop-thoai - trang 1 (2).png') && sha(fs.readFileSync(path.join(picDir, first[0]))) === shaFirst,
+        second.join(', '),
+      );
+      await s.js(`document.querySelector('${T('images-finish')}').click()`);
+      await sleep(300);
 
       // 6b. a Word file, handed to the running app like "Open with ezPDF"
       const docx = path.join(OUT, 'Hợp đồng Word.docx');

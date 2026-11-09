@@ -36,7 +36,7 @@ jobs:
           sudo apt-get install -y poppler-utils qpdf
           pip install pymupdf pikepdf pillow numpy scipy python-docx
       - run: npm run build
-      - run: npm run test:layout && npm run test:engine && npm run verify && npm run test:m3 && npm run test:storage && npm run test:edit && npm run test:pages && npm run test:word
+      - run: npm run test:layout && npm run test:engine && npm run verify && npm run test:m3 && npm run test:storage && npm run test:edit && npm run test:pages && npm run test:word && npm run test:images
       - run: npm run e2e && npm run e2e:m3 && npm run e2e:m4 && npm run e2e:edit && npm run e2e:scan && npm run e2e:share && npm run e2e:pages && npm run e2e:word
       - name: production build in the browser
         run: |
@@ -187,7 +187,7 @@ jobs:
               [ -f "$d/notes.json" ] || { echo; echo "## $d: không có ảnh (máy ảo không chạy được)"; continue; }
               title=$([ "$d" = android ] && echo "Android (APK, màn hình như Galaxy S24 Ultra)" || echo "iPhone 15 Pro Max (Safari, bản web)")
               echo; echo "## $title"; echo
-              node -e 'for (const n of require(process.argv[1])) console.log(`**${n.title}**${n.note === "ok" ? "" : " (lỗi: " + n.note + ")"}\n\n<img src="'"$d"'/${n.id}.png" width="300">\n`)' "$PWD/$d/notes.json"
+              node -e 'for (const n of require(process.argv[1])) console.log(`**${n.title}**${n.note === "ok" ? "" : " (lỗi: " + n.note + ")"}${n.detail ? "\n\n" + n.detail : ""}\n\n<img src="'"$d"'/${n.id}.png" width="300">\n`)' "$PWD/$d/notes.json"
             done
           } > README.md
           git init -q -b screens

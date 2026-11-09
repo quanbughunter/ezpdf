@@ -24,6 +24,36 @@ export type ShareWay =
 
 export type ShareOutcome = 'done' | 'cancelled' | 'copied' | 'downloaded';
 
+/** A page picture made by "Xuất thành ảnh" (or a TIFF holding several pages). */
+export interface ImageFile {
+  name: string;
+  /** image/png, image/jpeg, image/webp, image/tiff */
+  type: string;
+  bytes: Uint8Array;
+}
+
+/** Where the pictures ended up, for the message at the end. */
+export type ImagesSaved =
+  /** written into the folder the user chose (desktop); paths in order */
+  | { how: 'folder'; folder: string; paths: string[] }
+  /** saved where the phone keeps pictures (Android); `place` as the user finds it */
+  | { how: 'gallery'; place: string; names: string[] }
+  /** kept by the page, to share or download with the user's next tap (browser) */
+  | { how: 'held'; files: File[] };
+
+/**
+ * Where page pictures go: opened before the first is made (the desktop asks
+ * for the folder first), written one at a time, so a long document never
+ * holds all of them, except in the browser, which can only hand them over
+ * at the end.
+ */
+export interface ImageSink {
+  write(file: ImageFile): Promise<void>;
+  finish(): Promise<ImagesSaved>;
+  /** stopped or failed: pictures already written stay where they are */
+  abort(): Promise<void>;
+}
+
 /**
  * What differs between the browser, the desktop app and the Android app.
  * Everything else (engine, UI, tools) is the same code on all three.
@@ -81,6 +111,15 @@ export interface Platform {
   readonly printPdf: ((bytes: Uint8Array, name: string, pages: number) => Promise<void>) | null;
   /** said when printing starts, when printPdf needs a word of guidance (iPhone: "choose Print") */
   readonly printHint?: string;
+  /**
+   * Where "Xuất thành ảnh" puts the pictures: the desktop asks for a folder
+   * (null when the dialog is cancelled), Android saves into the phone's
+   * pictures (TIFF into Download), the browser keeps them for the share sheet
+   * or a download.
+   */
+  openImageSink(o: { tiff: boolean }): Promise<ImageSink | null>;
+  /** desktop: a written picture shown in its folder (Explorer) */
+  readonly revealFile?: (path: string) => Promise<void>;
   /**
    * The system's file picker opened in the folder of a file opened before
    * (its FileSource.uri; Android): the user sees where the file is and may

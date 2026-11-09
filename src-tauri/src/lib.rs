@@ -99,6 +99,22 @@ fn share_file(window: tauri::WebviewWindow, request: tauri::ipc::Request<'_>) ->
     }
 }
 
+/// Shows a page picture ezPDF has just written (Xuất thành ảnh) in its folder:
+/// Explorer with the file selected. Only existing picture files, by full path.
+#[tauri::command]
+fn reveal_file(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    let picture = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| matches!(e.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp" | "tif" | "tiff"))
+        .unwrap_or(false);
+    if !p.is_absolute() || !picture || !p.is_file() {
+        return Err("Không tìm thấy ảnh để mở thư mục.".into());
+    }
+    share::reveal(&p).map_err(|e| format!("Không mở được thư mục: {e}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -119,7 +135,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(LaunchFiles::default())
-        .invoke_handler(tauri::generate_handler![take_launch_files, share_ways, share_file])
+        .invoke_handler(tauri::generate_handler![take_launch_files, share_ways, share_file, reveal_file])
         .setup(|app| {
             // copies shared more than a day ago are not needed any more
             share::remove_older_than(&share::share_root(), std::time::Duration::from_secs(24 * 3600));

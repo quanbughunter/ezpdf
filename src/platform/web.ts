@@ -15,6 +15,16 @@
 import { createIdbBackend } from './storage/idb';
 import { DOCX_MIME, incomingQueue, mimeOf, type Platform, type ShareWay } from './types';
 
+/**
+ * Pictures a browser tab keeps for the share sheet or the download at the end
+ * (Xuất thành ảnh); the .zip briefly needs as much again. A phone's tab is
+ * closed by the system well before a computer's.
+ */
+function heldBytes() {
+  const phone = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  return phone ? 4e8 : 1.5e9;
+}
+
 interface LaunchParams {
   files?: { kind: string; getFile(): Promise<File> }[];
 }
@@ -109,6 +119,25 @@ export function createWebPlatform(): Platform {
         }
       : null,
     printHint: printBySheet ? 'Trong bảng chia sẻ, chọn “In” để chọn máy in (AirPrint).' : undefined,
+    async openImageSink() {
+      // a page can hand files over only after a tap: they wait here for it (see to-images/ImagesDialog)
+      let files: File[] = [];
+      let size = 0;
+      const limit = heldBytes();
+      return {
+        async write(f) {
+          size += f.bytes.byteLength;
+          if (size > limit) throw new Error('Ảnh quá nhiều để trình duyệt giữ một lúc: hãy chọn ít trang hơn hoặc độ phân giải thấp hơn.');
+          files.push(new File([f.bytes as BlobPart], f.name, { type: f.type }));
+        },
+        async finish() {
+          return { how: 'held', files };
+        },
+        async abort() {
+          files = [];
+        },
+      };
+    },
     onIncomingFiles: incoming.subscribe,
   };
 }

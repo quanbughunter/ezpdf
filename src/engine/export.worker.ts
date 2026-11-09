@@ -19,6 +19,8 @@ import { finalizeExport, type FinalizeReport } from './vn-freetext-export';
 import { TextEditor, TextEditError, type EditReport, type TextLine } from './text-edit';
 import { assembleInPlace, assembleNew, pageInfos, PageOpsError, type PageInfo, type PlanPage } from './page-ops';
 import { Wasm } from './wasm';
+import { jpegWithDpi, pngWithDpi } from './image-meta';
+import { lumaOf, tiffPage, type TiffPage } from './tiff-write';
 
 export interface ExportRequest {
   id: number;
@@ -39,7 +41,7 @@ export type EditRequest =
 export type RenderRequest =
   | { id: number; kind: 'render-open'; bytes: ArrayBuffer; wasmUrl: string }
   /** unrotated: drawn without the page's /Rotate (the caller turns it as it likes) */
-  | { id: number; kind: 'render-page'; session: number; pageIndex: number; dpi: number; unrotated?: boolean }
+  | { id: number; kind: 'render-page'; session: number; pageIndex: number; dpi: number; unrotated?: boolean; encode?: PageEncoding }
   | { id: number; kind: 'render-close'; session: number };
 
 /** Put a document together from pages (page-ops.ts). */
@@ -55,6 +57,19 @@ export interface PagesRequest {
 }
 
 export type WorkerRequest = ExportRequest | EditRequest | RenderRequest | PagesRequest;
+
+/**
+ * How a rendered page is handed back. Printing takes the default (JPEG 0.92);
+ * Xuất thành ảnh picks the format, a quality for JPEG and WebP, grey, and
+ * the resolution written into the file. TIFF comes back as compressed
+ * strips (tiff-write.ts), put together into a file by the page.
+ */
+export interface PageEncoding {
+  format: 'png' | 'jpeg' | 'webp' | 'tiff';
+  /** 0–1, JPEG and WebP */
+  quality?: number;
+  gray?: boolean;
+}
 
 export type PagesResponse = { id: number; ok: true; bytes: ArrayBuffer; ms: number } | { id: number; ok: false; error: string; userError?: boolean };
 
@@ -72,6 +87,7 @@ export type EditResponse =
 export type RenderResponse =
   | { id: number; ok: true; session: number; pages: { w: number; h: number }[]; infos: PageInfo[] }
   | { id: number; ok: true; image: Blob; width: number; height: number }
+  | { id: number; ok: true; tiff: TiffPage; width: number; height: number }
   | { id: number; ok: true }
   | { id: number; ok: false; error: string; userError?: boolean };
 
@@ -195,7 +211,7 @@ const FPDF_REVERSE_BYTE_ORDER = 0x10;
  * appearance, the page's /Rotate applied (FPDF_GetPageWidthF and the render
  * both follow it), white paper.
  */
-async function renderPage(m: WrappedPdfiumModule, doc: number, pageIndex: number, dpi: number, unrotated = false) {
+async function renderPage(m: WrappedPdfiumModule, doc: number, pageIndex: number, dpi: number, unrotated = false, encode?: PageEncoding) {
   const page = m.FPDF_LoadPage(doc, pageIndex);
   if (!page) throw new Error(`Không đọc được trang ${pageIndex + 1}.`);
   let img: ImageData;
@@ -225,10 +241,31 @@ async function renderPage(m: WrappedPdfiumModule, doc: number, pageIndex: number
   }
   // Encoding waits; the page and the bitmap are gone by then, so a
   // render-close handled meanwhile cannot free anything still in use.
+  if (!encode) {
+    const canvas = new OffscreenCanvas(img.width, img.height);
+    canvas.getContext('2d')!.putImageData(img, 0, 0);
+    const image = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
+    return { image, width: img.width, height: img.height };
+  }
+  if (encode.format === 'tiff') {
+    const tiff = tiffPage(img.data, img.width, img.height, { gray: encode.gray, dpi });
+    return { tiff, width: img.width, height: img.height };
+  }
+  if (encode.gray) {
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lumaOf(d[i], d[i + 1], d[i + 2]) | 0;
+  }
   const canvas = new OffscreenCanvas(img.width, img.height);
   canvas.getContext('2d')!.putImageData(img, 0, 0);
-  const image = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
-  return { image, width: img.width, height: img.height };
+  const type = `image/${encode.format}`;
+  const quality = encode.format === 'png' ? undefined : Math.min(1, Math.max(0.3, encode.quality ?? 0.9));
+  const blob = await canvas.convertToBlob({ type, quality });
+  // a browser that cannot write the format gives PNG instead: say so rather than mislabel the file
+  if (blob.type !== type) throw new Error(`Máy này không tạo được ảnh ${encode.format.toUpperCase()}.`);
+  let bytes: Uint8Array = new Uint8Array(await blob.arrayBuffer());
+  if (encode.format === 'png') bytes = pngWithDpi(bytes, dpi);
+  else if (encode.format === 'jpeg') bytes = jpegWithDpi(bytes, dpi);
+  return { image: new Blob([bytes as BlobPart], { type }), width: img.width, height: img.height };
 }
 
 function closeRender(id: number) {
@@ -267,8 +304,9 @@ async function handleRender(req: RenderRequest) {
   }
   const r = renderDocs.get(req.session);
   if (!r) throw new Error('Bản in đã bị hủy.');
-  const out = await renderPage(r.m, r.doc, req.pageIndex, req.dpi, req.unrotated);
-  post({ id: req.id, ok: true, ...out });
+  const out = await renderPage(r.m, r.doc, req.pageIndex, req.dpi, req.unrotated, req.encode);
+  const transfer = 'tiff' in out && out.tiff ? out.tiff.strips.map((x) => x.buffer as ArrayBuffer) : [];
+  post({ id: req.id, ok: true, ...out }, transfer);
 }
 
 async function handlePages(req: PagesRequest) {

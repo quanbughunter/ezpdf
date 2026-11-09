@@ -11,12 +11,15 @@
  *    temporary copy and puts it on the clipboard, in Windows' share window,
  *    or shows it in Explorer (src-tauri/src/share.rs)
  *  - print: the page's own (rendered pages, window.print in WebView2)
+ *  - page pictures: written into a folder picked in the system's dialog, never
+ *    over an existing file; then shown in Explorer (reveal_file)
  */
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { readFile, writeFile } from '@tauri-apps/plugin-fs';
+import { exists, readFile, writeFile } from '@tauri-apps/plugin-fs';
+import { join } from '@tauri-apps/api/path';
 import { createTauriBackend } from './storage/tauri-fs';
 import { asDocFile, baseName, dirName, incomingQueue, rememberSource, type Platform, type ShareWay } from './types';
 
@@ -26,6 +29,18 @@ const ANY = [{ name: 'PDF hoặc Word', extensions: ['pdf', 'docx'] }, ...PDF, .
 
 async function fileAt(path: string) {
   return rememberSource(asDocFile(await readFile(path), baseName(path)), { path });
+}
+
+/** `name` in `folder`, or "name (2).ext"… when a file of that name is already there: nothing is overwritten */
+async function freePath(folder: string, name: string) {
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  for (let n = 1; n < 1000; n++) {
+    const path = await join(folder, n === 1 ? name : `${stem} (${n})${ext}`);
+    if (!(await exists(path))) return path;
+  }
+  throw new Error(`Thư mục đã có quá nhiều tệp tên “${name}”.`);
 }
 
 export async function createTauriPlatform(): Promise<Platform> {
@@ -92,6 +107,26 @@ export async function createTauriPlatform(): Promise<Platform> {
       return way === 'copy' ? 'copied' : 'done';
     },
     printPdf: null,
+    async openImageSink() {
+      // the folder dialog adds the folder to the fs scope for this run, nothing above or beside it
+      const folder = await open({ directory: true, multiple: false, title: 'Chọn thư mục để lưu ảnh' });
+      if (typeof folder !== 'string') return null;
+      const paths: string[] = [];
+      return {
+        async write(f) {
+          const path = await freePath(folder, f.name);
+          await writeFile(path, f.bytes);
+          paths.push(path);
+        },
+        async finish() {
+          return { how: 'folder', folder, paths };
+        },
+        async abort() {},
+      };
+    },
+    async revealFile(path) {
+      await invoke('reveal_file', { path });
+    },
     onIncomingFiles: incoming.subscribe,
     onCloseRequested(cb) {
       closing.add(cb);

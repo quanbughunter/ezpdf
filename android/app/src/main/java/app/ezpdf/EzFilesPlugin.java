@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ComponentName;
 import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -23,6 +24,7 @@ import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentInfo;
 import android.print.PrintManager;
 import android.provider.DocumentsContract;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Base64;
 import androidx.activity.result.ActivityResult;
@@ -86,6 +88,8 @@ public class EzFilesPlugin extends Plugin {
     private final List<JSObject> incoming = new ArrayList<>();
     private final Map<String, OutputStream> writers = new HashMap<>();
     private final Map<String, Uri> writerUris = new HashMap<>();
+    /** writers of pictures put in the media library: shown to other apps only once complete */
+    private final java.util.Set<String> pendingMedia = new java.util.HashSet<>();
 
     // ---- documents handed to the app -------------------------------------
 
@@ -221,6 +225,65 @@ public class EzFilesPlugin extends Plugin {
         }
     }
 
+    /**
+     * A picture made by "Xuất thành ảnh", written into the phone's media
+     * library (Android 10+, no permission needed): PNG, JPEG and WebP under
+     * Pictures/ezPDF, where the Gallery shows them; TIFF under Download/ezPDF
+     * (galleries do not show TIFF). The entry stays hidden (IS_PENDING) until
+     * closeWrite completes it, and is removed if the writing is aborted. The
+     * system renames a file whose name is taken ("… (1).png").
+     */
+    @PluginMethod
+    public void openMediaWrite(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 29) {
+            call.reject("Lưu ảnh vào máy cần Android 10 trở lên.");
+            return;
+        }
+        String mime = call.getString("mime", "image/png");
+        if (!mime.matches("image/(png|jpeg|webp|tiff)")) {
+            call.reject("Kiểu ảnh không hợp lệ.");
+            return;
+        }
+        String name = call.getString("name", "trang.png");
+        name = name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").trim();
+        while (name.startsWith(".")) name = name.substring(1);
+        if (name.isEmpty()) name = "trang";
+        if (name.length() > 120) name = name.substring(0, 120);
+        boolean tiff = mime.equals("image/tiff");
+        ContentResolver resolver = getContext().getContentResolver();
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+        values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+        // MediaColumns.RELATIVE_PATH and IS_PENDING (API 29), spelled out to compile against older SDKs
+        values.put("relative_path", (tiff ? "Download" : "Pictures") + "/ezPDF");
+        values.put("is_pending", 1);
+        Uri collection = tiff ? Uri.parse("content://media/external/downloads") : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+        Uri item = null;
+        try {
+            item = resolver.insert(collection, values);
+            if (item == null) throw new IOException("insert returned null");
+            OutputStream out = resolver.openOutputStream(item, "w");
+            if (out == null) throw new IOException("openOutputStream returned null");
+            String handle = UUID.randomUUID().toString();
+            synchronized (writers) {
+                writers.put(handle, out);
+                writerUris.put(handle, item);
+                pendingMedia.add(handle);
+            }
+            JSObject ret = new JSObject();
+            ret.put("handle", handle);
+            ret.put("name", describe(item).optString("name", name));
+            call.resolve(ret);
+        } catch (Exception e) {
+            if (item != null) {
+                try {
+                    resolver.delete(item, null, null);
+                } catch (Exception ignored) {}
+            }
+            call.reject("Không lưu được ảnh vào máy: " + e.getMessage(), e);
+        }
+    }
+
     @PluginMethod
     public void write(PluginCall call) {
         OutputStream out;
@@ -245,9 +308,11 @@ public class EzFilesPlugin extends Plugin {
         boolean abort = Boolean.TRUE.equals(call.getBoolean("abort", false));
         OutputStream out;
         Uri uri;
+        boolean media;
         synchronized (writers) {
             out = writers.remove(handle);
             uri = writerUris.remove(handle);
+            media = pendingMedia.remove(handle);
         }
         if (out == null) {
             call.resolve();
@@ -257,10 +322,37 @@ public class EzFilesPlugin extends Plugin {
             out.flush();
             out.close();
         } catch (IOException e) {
+            if (media && uri != null) {
+                // an incomplete picture is not left in the Gallery
+                try {
+                    getContext().getContentResolver().delete(uri, null, null);
+                } catch (Exception ignored) {}
+                call.reject("Không hoàn tất được ảnh: " + e.getMessage(), e);
+                return;
+            }
             if (!abort) {
                 call.reject("Không hoàn tất được tệp: " + e.getMessage(), e);
                 return;
             }
+        }
+        if (media && uri != null) {
+            // a picture: shown to the Gallery once complete, removed if not
+            try {
+                if (abort) {
+                    getContext().getContentResolver().delete(uri, null, null);
+                } else {
+                    ContentValues done = new ContentValues();
+                    done.put("is_pending", 0);
+                    getContext().getContentResolver().update(uri, done, null, null);
+                }
+            } catch (Exception e) {
+                if (!abort) {
+                    call.reject("Không hoàn tất được ảnh: " + e.getMessage(), e);
+                    return;
+                }
+            }
+            call.resolve();
+            return;
         }
         if (abort && uri != null) {
             // Do not leave a half-written PDF behind.
@@ -282,6 +374,7 @@ public class EzFilesPlugin extends Plugin {
             }
             writers.clear();
             writerUris.clear();
+            pendingMedia.clear();
         }
         super.handleOnDestroy();
     }

@@ -22,8 +22,15 @@
  *    MuPDF); the print block goes away after printing; Ctrl P prints the
  *    document; the browser's own print gives a note, not the app's screen
  *  - a long print can be cancelled while its pages are drawn
- *  Phone: no hand (a finger scrolls), share in the top bar, print and close
- *  in the ⋮ menu, top bar not wider than the screen
+ *  Pictures (Xuất thành ảnh, 0.8.7): PNG, JPEG (grey), TIFF (one file of
+ *  every page, and a single grey page), WebP, each checked against the
+ *  exported PDF by scripts/verify_page_images.py (Pillow, libtiff, tifffile,
+ *  MuPDF): size at the dpi, dpi in the file, grey, look; a .zip for several
+ *  pictures, the share sheet with all of them; a wrong page range; a long
+ *  conversion stopped; a browser without Web Share downloads
+ *  Phone: no hand (a finger scrolls), share in the top bar, print, pictures
+ *  and close in the ⋮ menu, top bar not wider than the screen; the pictures
+ *  dialog fits and shares
  *  iPhone (Safari's user agent): In hands the PDF to the share sheet, whose
  *  Print is AirPrint, and says so; nothing goes through window.print
  *  Drafts: the web app asks the browser to keep its storage (persist)
@@ -109,6 +116,7 @@ const mocks = (share) => `
           window.__shareMode = 'ok';
           throw new DOMException('Must be handling a user gesture', 'NotAllowedError');
         }
+        (window.__sharedSets ||= []).push(d.files.map((x) => ({ name: x.name, type: x.type, size: x.size })));
         const f = d.files[0];
         const buf = new Uint8Array(await f.arrayBuffer());
         let bin = '';
@@ -123,7 +131,8 @@ let onCrash = async () => {};
 
 (async () => {
   const server = await startServer();
-  const browser = await chromium.launch();
+  // a UTF-8 locale, as on any desktop and on CI: without one Chromium drops download names with Vietnamese marks
+  const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
   const errors = [];
   const track = (p) => {
     p.on('pageerror', (e) => errors.push(`${e.message} @${stepName}`));
@@ -396,6 +405,126 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
   const uiText = spawnSync('pdftotext', [uiPrint, '-'], { encoding: 'utf8' }).stdout.replace(/\s+/g, ' ').trim();
   check('the browser’s own Print gives a note pointing to the In button, not the app’s screen', uiText.includes('Hãy dùng nút In trong ezPDF') && uiText.length < 80, uiText);
 
+  // ── pages as pictures (Xuất thành ảnh, 0.8.7) ─────────────────────────────
+  // its button joins the top bar: the bar must still fit the desktop app's 1280 px window
+  const bar = await page.evaluate(() => {
+    const h = document.querySelector('[data-testid="top-bar"]');
+    const x = document.querySelector('[data-testid="btn-export"]').getBoundingClientRect();
+    const i = document.querySelector('[data-testid="top-bar"] [data-testid="btn-images"]');
+    return { fits: h.scrollWidth <= h.clientWidth, exportRight: Math.round(x.right), width: innerWidth, images: i?.previousElementSibling?.dataset.testid };
+  });
+  check(
+    'pictures: “Xuất thành ảnh” beside In in the top bar, and the bar still fits a 1280 px window (Xuất PDF fully on screen)',
+    bar.fits && bar.exportRight <= bar.width && bar.images === 'btn-print',
+    JSON.stringify(bar),
+  );
+  // the same state as the export above: the two text boxes on page 1
+  const { unzipSync } = require('fflate');
+  const setSelect = (sel, v) =>
+    page.$eval(sel, (el, value) => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, value);
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }, v);
+  const verifyPictures = (fmt, dpi, pages, gray, files, tag) => {
+    const r = spawnSync('python3', [path.join(ROOT, 'scripts/verify_page_images.py'), exportedPath, fmt, String(dpi), pages.join(','), gray ? '1' : '0', ...files, '--report', path.join(OUT, `verify-images-${tag}.json`)], { encoding: 'utf8' });
+    process.stdout.write(r.stdout.trimEnd().replace(/^/gm, '    ') + '\n');
+    return r;
+  };
+  /** the dialog, set up; returns the download its "Tải về" gives */
+  async function pictures({ format, pagesText, current, dpi, quality, gray, oneTiff }) {
+    await page.click(tid('btn-images'));
+    await page.waitForSelector(tid('images-dialog'));
+    await page.click(tid(`images-format-${format}`));
+    if (current) await page.click(tid('images-pages-current'));
+    else if (pagesText) await page.fill(tid('images-pages-text'), pagesText);
+    else await page.click(tid('images-pages-all'));
+    await setSelect(tid('images-dpi'), String(dpi));
+    if (quality) await page.$eval(tid('images-quality'), (el, v) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }, String(quality));
+    if ((await page.isChecked(tid('images-gray'))) !== !!gray) await page.click(tid('images-gray'));
+    if (oneTiff !== undefined && (await page.$(tid('images-one-tiff'))) && (await page.isChecked(tid('images-one-tiff'))) !== oneTiff) await page.click(tid('images-one-tiff'));
+    const label = await page.textContent(tid('images-go'));
+    await page.click(tid('images-go'));
+    await page.waitForSelector(tid('images-done'), { timeout: 90000 });
+    const done = await page.textContent(tid('images-done-text'));
+    const dl = page.waitForEvent('download');
+    await page.click(tid('images-download'));
+    const d = await dl;
+    const saved = path.join(OUT, d.suggestedFilename());
+    await d.saveAs(saved);
+    return { label, done, saved, name: d.suggestedFilename() };
+  }
+  const unzip = (zipPath, dir) => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    const entries = unzipSync(fs.readFileSync(zipPath));
+    return Object.keys(entries).sort().map((n) => (fs.writeFileSync(path.join(dir, n), entries[n]), path.join(dir, n)));
+  };
+
+  {
+    const r = await pictures({ format: 'png', pagesText: '1-2', dpi: 96 });
+    const files = unzip(r.saved, path.join(OUT, 'png'));
+    const names = files.map((f) => path.basename(f));
+    const v = verifyPictures('png', 96, [1, 2], false, files, 'png');
+    check(
+      'pictures: PNG of pages 1–2 at 96 dpi, one .zip of “sample - trang 1.png”, “… 2.png”, each the size of its page, 96 dpi in the file, looking like the exported page (text boxes included)',
+      r.label.includes('Xuất 2 ảnh PNG') && r.name === 'sample (ảnh PNG).zip' && names.join('|') === 'sample - trang 1.png|sample - trang 2.png' && v.status === 0,
+      `${r.label} · ${r.name} · ${names.join(', ')}${v.status ? ' · ' + v.stdout.split('\n').filter((l) => l.startsWith('FAIL')).join(' | ') : ''}`,
+    );
+    // with Web Share (phones, Chrome on Windows): the same pictures to the share sheet, all of them in one go
+    await page.click(tid('images-share'));
+    await page.waitForFunction(() => (window.__sharedSets || []).some((s) => s.length === 2 && s[0].type === 'image/png'), null, { timeout: 10000 }).catch(() => {});
+    const set = await page.evaluate(() => (window.__sharedSets || []).at(-1));
+    check('pictures: “Lưu hoặc chia sẻ” hands both pictures to the share sheet at once (on iPhone: Lưu hình ảnh)', set && set.length === 2 && set.map((f) => f.name).join('|') === 'sample - trang 1.png|sample - trang 2.png', JSON.stringify(set));
+    await page.click(tid('images-finish'));
+  }
+  {
+    const r = await pictures({ format: 'jpeg', current: true, dpi: 150, quality: 70, gray: true });
+    const v = verifyPictures('jpeg', 150, [1], true, [r.saved], 'jpeg');
+    check(
+      'pictures: JPEG of the page in view, grey, quality 70, 150 dpi: one .jpg, 150 dpi in its JFIF header, grey, like the page',
+      r.name === 'sample - trang 1.jpg' && v.status === 0,
+      `${r.name}${v.status ? ' · ' + v.stdout.split('\n').filter((l) => l.startsWith('FAIL')).join(' | ') : ''}`,
+    );
+    await page.click(tid('images-finish'));
+  }
+  {
+    const r = await pictures({ format: 'tiff', dpi: 72, gray: false, oneTiff: true });
+    const v = verifyPictures('tiff', 72, [1, 2, 3, 4], false, [r.saved], 'tiff');
+    check(
+      'pictures: TIFF of every page in one file “sample.tif”: 4 pages, LZW with predictor (ezPDF’s own writer, read by libtiff and tifffile), each page the size of its page (page 2 turned), like the page',
+      r.label.includes('Xuất 1 ảnh TIFF') && r.name === 'sample.tif' && v.status === 0,
+      `${r.label} · ${r.name}${v.status ? ' · ' + v.stdout.split('\n').filter((l) => l.startsWith('FAIL')).join(' | ') : ''}`,
+    );
+    await page.click(tid('images-finish'));
+  }
+  {
+    const r = await pictures({ format: 'tiff', pagesText: '3', dpi: 96, gray: true });
+    const v = verifyPictures('tiff', 96, [3], true, [r.saved], 'tiff-gray');
+    check('pictures: TIFF of page 3 alone, grey (one sample per pixel): “sample - trang 3.tif”', r.name === 'sample - trang 3.tif' && v.status === 0, `${r.name}${v.status ? ' · ' + v.stdout.split('\n').filter((l) => l.startsWith('FAIL')).join(' | ') : ''}`);
+    await page.click(tid('images-finish'));
+  }
+  {
+    const r = await pictures({ format: 'webp', pagesText: '4', dpi: 72, gray: false });
+    const v = verifyPictures('webp', 72, [4], false, [r.saved], 'webp');
+    check('pictures: WebP where the browser writes it (Chromium): page 4, like the page', r.name === 'sample - trang 4.webp' && v.status === 0, `${r.name}${v.status ? ' · ' + v.stdout.split('\n').filter((l) => l.startsWith('FAIL')).join(' | ') : ''}`);
+    await page.click(tid('images-finish'));
+  }
+  {
+    // a page list that is not one: said at once, nothing to start
+    await page.click(tid('btn-images'));
+    await page.waitForSelector(tid('images-dialog'));
+    await page.fill(tid('images-pages-text'), '2-9');
+    const err = await page.textContent(tid('images-pages-error')).catch(() => '');
+    const disabled = await page.isDisabled(tid('images-go'));
+    check('pictures: a page range outside the document is explained and nothing can start', err.includes('nằm ngoài tài liệu') && disabled, err);
+    await page.click(tid('images-cancel'));
+    await page.waitForSelector(tid('images-dialog'), { state: 'detached' });
+  }
+
   // cancel a long print while its pages are being drawn
   await openFile('long-300.pdf', 300);
   await page.click(tid('btn-print'));
@@ -411,6 +540,22 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
     cancelState.calls === 2 && !cancelState.block && !(await page.isVisible(tid('banner-output'))),
     `${progressText} → ${JSON.stringify(cancelState)}`,
   );
+  {
+    // a long conversion shows its progress and stops at once: nothing to download
+    await page.click(tid('btn-images'));
+    await page.waitForSelector(tid('images-dialog'));
+    await page.click(tid('images-format-png'));
+    await page.click(tid('images-pages-all'));
+    await setSelect(tid('images-dpi'), '72');
+    await page.click(tid('images-go'));
+    await page.waitForFunction(() => /Trang [1-9]\d*\/300/.test(document.querySelector('[data-testid="images-progress"]')?.textContent ?? ''), null, { timeout: 60000 });
+    const progress = await page.textContent(tid('images-progress'));
+    await page.click(tid('images-stop'));
+    await sleep(1500);
+    const back = (await page.isVisible(tid('images-go'))) && !(await page.$(tid('images-done')));
+    check('pictures: 300 pages show their progress and stop when asked, back to the options, no download', back, `${progress} → options ${back}`);
+    await page.click(tid('images-cancel'));
+  }
   check('no page errors (desktop)', errors.length === 0, errors.slice(0, 5).join(' | '));
 
   // ── a browser without Web Share ─────────────────────────────────────────────
@@ -433,6 +578,17 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
       label === 'Tải tệp về để gửi đi' && got.suggestedFilename() === 'sample.pdf' && t2.includes('kéo tệp vào Zalo'),
       `${label} · ${got.suggestedFilename()} · ${t2}`,
     );
+    // pictures there: no share button, the download is the way
+    await p2.click(tid('btn-images'));
+    await p2.waitForSelector(tid('images-dialog'));
+    await p2.click(tid('images-pages-current'));
+    await p2.click(tid('images-go'));
+    await p2.waitForSelector(tid('images-done'), { timeout: 60000 });
+    const noShare = !(await p2.$(tid('images-share')));
+    const d3 = p2.waitForEvent('download');
+    await p2.click(tid('images-download'));
+    const pic = await d3;
+    check('without Web Share the pictures are downloaded (no share button)', noShare && pic.suggestedFilename() === 'sample - trang 1.png', `${noShare} · ${pic.suggestedFilename()}`);
     await c2.close();
   }
 
@@ -455,8 +611,8 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
     const menu = await ph.$$eval('[role="menu"] [data-testid]', (els) => els.map((e) => e.dataset.testid));
     await ph.screenshot({ path: path.join(OUT, 'phone-more-menu.png') });
     check(
-      'phone: no hand (a finger scrolls), select is on; share and Bộ công cụ in the top bar; print and close in ⋮; the bar fits the screen',
-      !hasHand && selectOn === 'true' && (await ph.isVisible(tid('btn-share'))) && (await ph.isVisible(tid('btn-pages'))) && menu.join() === 'btn-print,btn-close-doc' && header.sw <= header.cw + 1,
+      'phone: no hand (a finger scrolls), select is on; share and Bộ công cụ in the top bar; print, pictures and close in ⋮; the bar fits the screen',
+      !hasHand && selectOn === 'true' && (await ph.isVisible(tid('btn-share'))) && (await ph.isVisible(tid('btn-pages'))) && menu.join() === 'btn-print,btn-images,btn-close-doc' && header.sw <= header.cw + 1,
       `hand ${hasHand}, select ${selectOn}, menu ${menu.join(' ')}, header ${header.sw}/${header.cw}`,
     );
     await ph.tap(`[role="menu"] ${tid('btn-print')}`);
@@ -466,6 +622,24 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
     await ph.tap(tid('btn-share'));
     await ph.waitForFunction(() => window.__shared.length === 1, null, { timeout: 30000 }).catch(() => {});
     check('phone browser: Share hands the PDF to the share sheet', (await ph.evaluate(() => window.__shared.length)) === 1);
+    // pictures from ⋮: the dialog fits the phone; the page in view goes to the share sheet
+    await ph.tap(tid('btn-more'));
+    await ph.waitForSelector(`[role="menu"] ${tid('btn-images')}`);
+    await ph.tap(`[role="menu"] ${tid('btn-images')}`);
+    await ph.waitForSelector(tid('images-dialog'));
+    const fit = await ph.$eval(tid('images-dialog'), (d) => { const r = d.getBoundingClientRect(); return { l: r.left, r: r.right, sw: d.scrollWidth, cw: d.clientWidth, vw: innerWidth }; });
+    await ph.screenshot({ path: path.join(OUT, 'phone-images.png') });
+    await ph.tap(tid('images-pages-current'));
+    await ph.tap(tid('images-go'));
+    await ph.waitForSelector(tid('images-done'), { timeout: 60000 });
+    await ph.tap(tid('images-share'));
+    await ph.waitForFunction(() => (window.__sharedSets || []).some((s) => s.length === 1 && s[0].type === 'image/png'), null, { timeout: 10000 }).catch(() => {});
+    const phSet = await ph.evaluate(() => (window.__sharedSets || []).at(-1));
+    check(
+      'phone browser: Xuất thành ảnh from ⋮, the dialog within the screen; the page in view goes to the share sheet as a PNG',
+      fit.l >= 0 && fit.r <= fit.vw && fit.sw <= fit.cw + 1 && phSet && phSet.length === 1 && /^sample - trang [1-4]\.png$/.test(phSet[0].name),
+      `${JSON.stringify(fit)} · ${JSON.stringify(phSet)}`,
+    );
     await pctx.close();
   }
 

@@ -91,7 +91,7 @@ npm run fixtures     # tạo lại tệp mẫu (sample.pdf, long-300.pdf, ảnh,
 python3 scripts/make_fonts.py    # dựng lại phông ezPDF Sans VN từ Noto Sans (Latin, Việt, Kirin, Hy Lạp)
 ```
 
-Script kiểm thử cần: Node 22+, Python 3 với `pymupdf`, `pikepdf`, `Pillow`, `numpy` và `scipy`, `qpdf`, `poppler-utils`, Playwright với Chromium. Tạo lại `edit-text.pdf` cần thêm LibreOffice, ReportLab và pdfLaTeX.
+Script kiểm thử cần: Node 22+, Python 3 với `pymupdf`, `pikepdf`, `Pillow`, `numpy`, `scipy`, `python-docx`, `tifffile` và `imagecodecs`, `qpdf`, `poppler-utils`, Playwright với Chromium. Tạo lại `edit-text.pdf` cần thêm LibreOffice, ReportLab và pdfLaTeX.
 
 ## Cấu trúc
 

@@ -2,7 +2,7 @@
  * Screenshots of ezPDF on the phones it is used on, taken on GitHub's
  * machines after every push (.github/workflows/build.yml):
  *
- *   node scripts/device-shots.cjs android <app-debug.apk>
+ *   node scripts/device-shots.cjs android <the APK, or a folder holding it>
  *       the APK just built, installed on an Android emulator whose screen is
  *       set like a Galaxy S24 Ultra's (1080 × 2340, 450 dpi: 384 px wide in
  *       CSS); driven through the app's WebView (debug builds allow it)
@@ -91,6 +91,8 @@ async function android(apk) {
   let listOnPhone = null;
   /** the page to drive, found again if the WebView replaced it (Chromium: always the same) */
   let refresh = async () => {};
+  /** after the page went away: the lines of the phone's log that say why (emulator only) */
+  let why = async () => '';
   // what happened to the WebView, written into the next picture's notes
   const t0 = Date.now();
   const events = [];
@@ -125,7 +127,9 @@ async function android(apk) {
     await sh('settings put global hide_error_dialogs 1');
     await sh('pm disable-user --user 0 com.google.android.apps.nexuslauncher');
     await sh('am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS');
-    await device.installApk(fs.readFileSync(apk));
+    // CI hands over the folder of the "ezPDF-X.Y.Z-android" artifact
+    const apkFile = fs.statSync(apk).isDirectory() ? path.join(apk, fs.readdirSync(apk).find((f) => f.endsWith('.apk')) ?? 'no.apk') : apk;
+    await device.installApk(fs.readFileSync(apkFile));
     const adopt = async (p) => {
       page = p;
       p.on('close', () => log('trang của WebView đã đóng'));
@@ -160,6 +164,11 @@ async function android(apk) {
     shoot = async (file) => {
       await sh('am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS');
       await device.screenshot({ path: file });
+    };
+    why = async () => {
+      const lines = (await sh('logcat -d -t 600 2>&1')).split('\n');
+      const telling = lines.filter((l) => /render process|renderer|lowmemorykiller|lmkd|Killing|crash|Capacitor|onRenderProcessGone|OOM|ANR/i.test(l));
+      return telling.slice(-8).map((l) => l.replace(/\s+/g, ' ').slice(0, 220)).join(' / ') || '(logcat không có dòng nào về WebView)';
     };
     listOnPhone = async (folder) => {
       const files = await sh(`ls -l '/sdcard/${folder}/' 2>&1`);
@@ -226,6 +235,9 @@ async function android(apk) {
       if (said && listOnPhone) detail += `\n\n${await listOnPhone(s.pictures === 'tiff' ? 'Download/ezPDF' : 'Pictures/ezPDF')}`;
     }
     await sleep(1500);
+    // the WebView can go away after the steps (on the emulator it once did, just after a Word file
+    // opened): then the picture would show the app starting again, so it is done again
+    if (page.isClosed()) throw new Error('Target page closed after the steps');
     return detail;
   };
   for (const s of SHOTS) {
@@ -241,6 +253,9 @@ async function android(apk) {
         // the WebView's page went away: find the new one and do this picture again, once
         if (attempt > 1 || !/closed|Target/i.test(note)) break;
         log(`ảnh ${s.id}: ${note}; làm lại`);
+        try {
+          log(`logcat: ${await why()}`);
+        } catch {}
         shown = null;
       }
     }

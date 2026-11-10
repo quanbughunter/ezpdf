@@ -3,7 +3,11 @@
 #   pages    publishes that tested web app at https://quanbughunter.github.io/ezpdf/
 #            (pushes to main only; needs Settings → Pages → Source: GitHub Actions)
 #   windows  Tauri installers (.msi and setup .exe), cargo test
-#   android  debug APK (Capacitor 8, Gradle)
+#   android  APK (Capacitor 8, Gradle; signed with the project's fixed test key)
+#   release  a GitHub release for each new version: when a push to main carries a
+#            version (package.json) with no release yet and web, windows and android
+#            all passed, release vX.Y.Z with ezPDF-X.Y.Z-android.apk,
+#            ezPDF-X.Y.Z-windows-setup.exe and ezPDF-X.Y.Z-windows.msi
 #   android-screens  that APK on an Android emulator set like a Galaxy S24 Ultra
 #   iphone-screens   the web app in Safari on an iPhone 15 Pro Max simulator
 #   screens  their screenshots on the run's summary page and on the "screens"
@@ -83,12 +87,18 @@ jobs:
       - run: cargo test --lib
         working-directory: src-tauri
       - run: npx tauri build
+      # the installers under names that carry the version, as in the release
+      - name: Name the installers after the version
+        id: v
+        shell: bash
+        run: |
+          v=$(node -p "require('./package.json').version")
+          mkdir -p out/release
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe "out/release/ezPDF-$v-windows-setup.exe"
+          cp src-tauri/target/release/bundle/msi/*.msi "out/release/ezPDF-$v-windows.msi"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        with:
-          name: ezpdf-windows
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
+        with: { name: 'ezPDF-${{ steps.v.outputs.version }}-windows', path: out/release }
 
   android:
     runs-on: ubuntu-24.04
@@ -106,8 +116,58 @@ jobs:
       # the executable bit is lost when the project comes from Windows
       - run: chmod +x gradlew && ./gradlew assembleDebug
         working-directory: android
+      - name: Name the APK after the version
+        id: v
+        run: |
+          v=$(node -p "require('./package.json').version")
+          mkdir -p out/release
+          cp android/app/build/outputs/apk/debug/app-debug.apk "out/release/ezPDF-$v-android.apk"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        with: { name: ezpdf-android-debug, path: android/app/build/outputs/apk/debug/app-debug.apk }
+        with: { name: 'ezPDF-${{ steps.v.outputs.version }}-android', path: out/release }
+
+  # ── a GitHub release for each new version ──────────────────────────────
+  # Runs after a push to main (or "Run workflow" on main) once the web app,
+  # Windows and Android builds have passed. A version that already has a
+  # release is left as it is: to make it again, delete that release and its
+  # tag on GitHub, then "Re-run jobs" (or raise the version).
+  release:
+    needs: [web, windows, android]
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: A new version?
+        id: v
+        run: |
+          v=$(node -p "require('./package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" > /dev/null 2>&1; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            echo "Bản $v đã có release (https://github.com/$GH_REPO/releases/tag/v$v): giữ nguyên." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.v.outputs.new == 'true'
+        with: { pattern: 'ezPDF-${{ steps.v.outputs.version }}-*', path: release, merge-multiple: true }
+      - name: Publish the release
+        if: steps.v.outputs.new == 'true'
+        run: |
+          set -e
+          v='${{ steps.v.outputs.version }}'
+          ls -l release
+          for f in "ezPDF-$v-android.apk" "ezPDF-$v-windows-setup.exe" "ezPDF-$v-windows.msi"; do
+            [ -f "release/$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
+          node scripts/release-notes.cjs "$v" > notes.md
+          gh release create "v$v" release/* --target "$GITHUB_SHA" --title "$(node scripts/release-notes.cjs "$v" --title)" --notes-file notes.md --generate-notes
+          echo "Đã tạo release: https://github.com/$GH_REPO/releases/tag/v$v" >> "$GITHUB_STEP_SUMMARY"
 
   # ── screenshots on the phones ezPDF is used on ─────────────────────────
   # scripts/device-shots.cjs opens the same test files on both. A machine
@@ -124,7 +184,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - uses: actions/download-artifact@v4
-        with: { name: ezpdf-android-debug, path: out/apk }
+        with: { pattern: 'ezPDF-*-android', path: out/apk, merge-multiple: true }
       # the emulator needs hardware virtualisation (KVM), which GitHub's Linux machines allow
       - name: KVM for the emulator
         run: |
@@ -139,7 +199,7 @@ jobs:
           profile: pixel_7
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: node scripts/device-shots.cjs android out/apk/app-debug.apk
+          script: node scripts/device-shots.cjs android out/apk
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: screens-android, path: out/screens/android, if-no-files-found: ignore }

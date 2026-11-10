@@ -172,6 +172,35 @@ let onCrash = async () => {};
 
   await page.goto(server.base + '/?e2e');
   await page.waitForSelector(tid('state-empty'), { timeout: 60000 });
+  // the start screen (0.8.8): both buttons green with white text; the running version (the one in
+  // package.json) at the foot of the screen, and nowhere in the top bar
+  const VERSION = require('../package.json').version;
+  const startScreen = (p = page) =>
+    p.evaluate(() => {
+      const v = document.querySelector('[data-testid="state-empty"] [data-testid="app-version"]');
+      const card = document.querySelector('[data-testid="btn-open-empty"]').closest('div.rounded-lg');
+      const look = (id) => {
+        const st = getComputedStyle(document.querySelector(`[data-testid="${id}"]`));
+        return `${st.backgroundColor} ${st.color}`;
+      };
+      const r = v?.getBoundingClientRect();
+      return {
+        text: v?.innerText.trim() ?? null,
+        fromBottom: r ? Math.round(innerHeight - r.bottom) : null,
+        belowCard: r ? r.top >= card.getBoundingClientRect().bottom : false,
+        centred: r ? Math.abs(r.left + r.width / 2 - innerWidth / 2) < 4 : false,
+        open: look('btn-open-empty'),
+        scan: look('btn-scan-empty'),
+        inTopBar: !!document.querySelector('[data-testid="top-bar"] [data-testid="app-version"]'),
+      };
+    });
+  const startOk = (st) => st.text === `ezPDF phiên bản ${VERSION}` && st.fromBottom >= 0 && st.fromBottom <= 48 && st.belowCard && st.centred && st.open === st.scan && /255, 255, 255\)$/.test(st.open) && !st.inTopBar;
+  const startDesk = await startScreen();
+  check(
+    `start screen: Chọn tệp and Quét tài liệu both green with white text; “ezPDF phiên bản ${VERSION}” at the foot of the screen, not in the top bar`,
+    startOk(startDesk),
+    JSON.stringify(startDesk),
+  );
   await openFile('sample.pdf', 4);
   await page.click(tid('zoom-menu'));
   await page.click(tid('zoom-150'));
@@ -600,6 +629,8 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
     track(ph);
     await ph.goto(server.base + '/?e2e');
     await ph.waitForSelector(tid('state-empty'), { timeout: 60000 });
+    const startPhone = await startScreen(ph);
+    check(`phone: the start screen too, with “ezPDF phiên bản ${VERSION}” at its foot`, startOk(startPhone), JSON.stringify(startPhone));
     await ph.setInputFiles(tid('file-input'), FIX('sample.pdf'));
     await ph.waitForSelector(tid('page-0'), { timeout: 60000 });
     await ph.waitForTimeout(1200);
@@ -645,8 +676,9 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
 
   // ── iPhone ────────────────────────────────────────────────────────────────
   {
+    // the iPhone 15 Pro Max's screen
     const ictx = await browser.newContext({
-      viewport: { width: 390, height: 844 },
+      viewport: { width: 430, height: 932 },
       deviceScaleFactor: 3,
       isMobile: true,
       hasTouch: true,
@@ -657,6 +689,8 @@ print(json.dumps({'pages': len(p.pages), 'annots': out, 'rot': [int(pg.get('/Rot
     track(ip);
     await ip.goto(server.base + '/?e2e');
     await ip.waitForSelector(tid('state-empty'), { timeout: 60000 });
+    const startIphone = await startScreen(ip);
+    check(`iPhone 15 Pro Max: the start screen with “ezPDF phiên bản ${VERSION}” at its foot`, startOk(startIphone), JSON.stringify(startIphone));
     await ip.setInputFiles(tid('file-input'), FIX('sample.pdf'));
     await ip.waitForSelector(tid('page-0'), { timeout: 60000 });
     await ip.waitForTimeout(1200);

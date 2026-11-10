@@ -115,6 +115,11 @@ fn reveal_file(path: String) -> Result<(), String> {
     share::reveal(&p).map_err(|e| format!("Không mở được thư mục: {e}"))
 }
 
+/** "ezPDF 0.8.8": the main window's title */
+fn window_title(version: &str) -> String {
+    format!("ezPDF {version}")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -141,6 +146,10 @@ pub fn run() {
             share::remove_older_than(&share::share_root(), std::time::Duration::from_secs(24 * 3600));
             let cwd = std::env::current_dir().unwrap_or_default();
             accept(app.handle(), pdf_args(std::env::args().skip(1), &cwd));
+            // the version in the window's title bar too ("ezPDF 0.8.8"), as at the top of the page
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_title(&window_title(&app.package_info().version.to_string()));
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -150,6 +159,11 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_title_carries_the_version() {
+        assert_eq!(window_title("0.8.8"), "ezPDF 0.8.8");
+    }
 
     #[test]
     fn keeps_only_existing_pdfs() {

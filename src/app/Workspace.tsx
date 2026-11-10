@@ -32,6 +32,7 @@ import { PageOrganizer } from './pages/PageOrganizer';
 import type { WordScreenHandle } from './word/WordScreen';
 import { DOCX_MIME } from '@/platform/types';
 import { buildPages } from '@/engine/export-client';
+import { APP_VERSION } from './app-version';
 
 function useMedia(query: string) {
   const [match, setMatch] = useState(() => window.matchMedia(query).matches);
@@ -586,13 +587,17 @@ function EmptyState({ onOpen, onScan, session }: { onOpen: () => void; onScan: (
             <Button onClick={onOpen} data-testid="btn-open-empty" disabled={session.busy}>
               <FolderOpen /> Chọn tệp
             </Button>
-            <Button variant="outline" onClick={onScan} data-testid="btn-scan-empty" disabled={session.busy}>
+            <Button onClick={onScan} data-testid="btn-scan-empty" disabled={session.busy}>
               <ScanLine /> Quét tài liệu
             </Button>
           </div>
         </div>
         <DraftList onOpen={(r) => void session.resumeDraft(r)} />
       </div>
+      {/* the running version, at the foot of the first screen: after an update it shows the new number */}
+      <p className="shrink-0 pt-4 text-[12px] text-muted-foreground tabular-nums select-text" data-testid="app-version">
+        ezPDF phiên bản {APP_VERSION}
+      </p>
     </div>
   );
 }

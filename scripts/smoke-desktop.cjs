@@ -166,6 +166,15 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
     check('started with a PDF path, the PDF opens (name with Vietnamese marks and a space)', name);
     const kind = await s.js(`return '__TAURI_INTERNALS__' in window`);
     check('runs inside the desktop shell, not a browser', kind);
+    // the running version (0.8.8): in the window's title bar, and in the top bar of the start screen
+    {
+      const VERSION = require('../package.json').version;
+      const titles = hasXdotool
+        ? spawnSync('xdotool', ['search', '--class', 'ezpdf'], { env, encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean)
+            .map((w) => spawnSync('xdotool', ['getwindowname', w], { env, encoding: 'utf8' }).stdout.trim())
+        : [];
+      check(`the window's title is “ezPDF ${VERSION}”`, !hasXdotool || titles.includes(`ezPDF ${VERSION}`), titles.filter(Boolean).join(' | ') || '(no xdotool)');
+    }
     await s.shot('1-opened.png');
 
     // 2. an edit, autosaved into the app's folder
@@ -646,13 +655,15 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
       await s.js(`document.querySelector('${T('btn-rotate-page')}').click()`);
       await sleep(150); // well inside the autosave delay (1.2 s)
       const pending = await s.js(`return document.querySelector('${T('state-dirty')}')?.dataset.draft ?? null`);
-      const win = execFileSync('xdotool', ['search', '--onlyvisible', '--name', '^ezPDF$'], { env, encoding: 'utf8' }).trim().split('\n')[0];
+      // the main window, by its title "ezPDF 0.8.8" (the dialogs have their own titles)
+      const mainTitle = `^ezPDF ${require('../package.json').version.replace(/\./g, '\\.')}$`;
+      const win = execFileSync('xdotool', ['search', '--onlyvisible', '--name', mainTitle], { env, encoding: 'utf8' }).trim().split('\n')[0];
       const t0 = Date.now();
       execFileSync('python3', [path.join(ROOT, 'scripts/x11_close_window.py'), display, win]);
       let gone = false;
       for (let i = 0; i < 100 && !gone; i++) {
         await sleep(200);
-        gone = spawnSync('xdotool', ['search', '--onlyvisible', '--name', '^ezPDF$'], { env }).status !== 0;
+        gone = spawnSync('xdotool', ['search', '--onlyvisible', '--name', mainTitle], { env }).status !== 0;
       }
       const drafts = fs.existsSync(path.join(STORE, 'drafts')) ? fs.readdirSync(path.join(STORE, 'drafts')) : [];
       const meta = drafts[0] ? fs.readdirSync(path.join(STORE, 'drafts', drafts[0])).find((f) => f.startsWith('meta-')) : null;

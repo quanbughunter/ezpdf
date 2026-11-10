@@ -1,7 +1,7 @@
 {
   "name": "ezpdf",
   "private": true,
-  "version": "0.8.8",
+  "version": "0.8.9",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -39,7 +39,8 @@
     "test:word": "tsx tests/word-probe.ts",
     "test:images": "tsx tests/images-probe.ts",
     "e2e:word": "node scripts/e2e-word.cjs",
-    "e2e:word:preview": "BASE=http://localhost:4173 node scripts/e2e-word.cjs"
+    "e2e:word:preview": "BASE=http://localhost:4173 node scripts/e2e-word.cjs",
+    "e2e:update": "node scripts/e2e-update.cjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",

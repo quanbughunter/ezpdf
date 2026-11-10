@@ -48,6 +48,8 @@ jobs:
           npx vite preview --port 4173 --strictPort &
           sleep 3
           npm run e2e:preview && npm run e2e:m3:preview && npm run e2e:m4:preview && npm run e2e:edit:preview && npm run e2e:scan:preview && npm run e2e:share:preview && npm run e2e:pages:preview && npm run e2e:word:preview
+          # the web app's update (it serves dist itself, handing out a newer worker partway)
+          npm run e2e:update
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: web-app, path: dist }

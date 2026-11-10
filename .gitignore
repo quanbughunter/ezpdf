@@ -13,10 +13,14 @@ android/app/src/main/assets/public/
 src-tauri/target-win/
 _to_delete/
 
-# builds downloaded from GitHub Actions (not source)
+# builds downloaded from GitHub Actions or the Releases page (not source)
 ezpdf-android-debug*
 ezpdf-windows*
 web-app*
+ezPDF-*-android.apk
+ezPDF-*-windows*
+apk all versions/
+windows all versions/
 
 # the user's own sample files (tested on this machine only, never published)
 mau de test/

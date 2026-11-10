@@ -1,7 +1,8 @@
 /**
  * Build-time part of the installable web app:
- *  - writes dist/sw.js with the exact list of files of this build, and a
- *    version that changes whenever any of them changes
+ *  - writes dist/sw.js with the exact list of files of this build, a
+ *    version that changes whenever any of them changes, and the version
+ *    people see (package.json), which the worker tells the page
  *  - in the web build only, adds a Content-Security-Policy that lets the page
  *    talk to its own origin and nothing else (the desktop app sets its own
  *    policy in src-tauri/tauri.conf.json)
@@ -52,7 +53,11 @@ export function ezpdfPwa(): Plugin {
       const hash = createHash('sha256');
       for (const f of files) hash.update(f).update(readFileSync(join(out, f)));
       const template = readFileSync(new URL('./sw-template.js', import.meta.url), 'utf8');
-      const sw = template.replace('__EZPDF_VERSION__', hash.digest('hex').slice(0, 16)).replace('__EZPDF_FILES__', JSON.stringify(files, null, 2));
+      const app: string = JSON.parse(readFileSync(join(config.root, 'package.json'), 'utf8')).version;
+      const sw = template
+        .replace('__EZPDF_VERSION__', hash.digest('hex').slice(0, 16))
+        .replace('__EZPDF_APP__', app)
+        .replace('__EZPDF_FILES__', JSON.stringify(files, null, 2));
       writeFileSync(join(out, 'sw.js'), sw);
     },
   };

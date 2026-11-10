@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { App } from './app/App';
 import { detectPlatform } from './platform';
+import { watchForUpdates } from './app/web-update';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -15,9 +16,13 @@ createRoot(document.getElementById('root')!).render(
 // desktop and Android apps, which ship their files.
 if (import.meta.env.PROD && import.meta.env.MODE !== 'shots' && detectPlatform() === 'web' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL }).catch((e) => {
-      console.warn('ezPDF: offline mode unavailable', e);
-    });
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
+      // a newer version: "Có bản mới · Cập nhật" at the foot of the start screen
+      .then(watchForUpdates)
+      .catch((e) => {
+        console.warn('ezPDF: offline mode unavailable', e);
+      });
   });
 }
 

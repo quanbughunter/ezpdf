@@ -25,7 +25,7 @@ Khi repo công khai, mọi người xem được mã nguồn, các tệp mẫu v
 2. Bấm nút Chia sẻ (ô vuông có mũi tên) → **Thêm vào MH chính** → Thêm.
 3. Từ giờ mở ezPDF bằng biểu tượng trên màn hình chính. App chạy toàn màn hình và không cần mạng.
 
-**Cập nhật.** Bản mới được tải về ngầm. Nó chỉ thay bản cũ sau khi đóng hẳn app: vuốt app ra khỏi danh sách đa nhiệm rồi mở lại.
+**Cập nhật** (từ bản 0.8.9). Bản mới được tải về ngầm mỗi khi mở app, và cứ 10 phút lại kiểm một lần khi app đang mở trên màn hình. Tải xong, cuối màn hình đầu hiện “Có bản mới 0.8.9” cạnh nút **Cập nhật**: bấm là trang tải lại thành bản mới, không cần đóng app. Tải lại trang cũng ra bản mới. Trang đang mở vẫn chạy trọn bản cũ đến khi tải lại, vì các tệp của bản vừa bị thay vẫn được giữ cho nó. Trước bản 0.8.9, bản mới chỉ thay bản cũ sau khi đóng hẳn app, nên lần lên 0.8.9 vẫn phải vuốt app ra khỏi đa nhiệm (hoặc đóng tab) một lần.
 
 Cần iOS 16.4 trở lên.
 

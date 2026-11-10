@@ -9,6 +9,8 @@ cd "$(dirname "$0")/.."
 MODE="${1:-dev}"
 SUITES="e2e e2e-m3 e2e-m4 e2e-edit e2e-scan e2e-share-print e2e-pages e2e-word"
 if [ "$MODE" = preview ]; then
+  # the web app's update: serves dist itself
+  SUITES="$SUITES e2e-update"
   # vite itself, not npx: killing npx would leave the server running
   node_modules/.bin/vite preview --port 4173 --strictPort > out/preview-server.log 2>&1 &
   SERVER=$!

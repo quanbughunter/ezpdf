@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FileText, FolderOpen, Loader2, ScanLine } from 'lucide-react';
+import { FileText, FolderOpen, Loader2, RefreshCw, ScanLine } from 'lucide-react';
 import { PdfAnnotationSubtype } from '@embedpdf/models';
 import { DocumentContent } from '@embedpdf/plugin-document-manager/react';
 import { useAnnotation, useAnnotationCapability } from '@embedpdf/plugin-annotation/react';
@@ -33,6 +33,7 @@ import type { WordScreenHandle } from './word/WordScreen';
 import { DOCX_MIME } from '@/platform/types';
 import { buildPages } from '@/engine/export-client';
 import { APP_VERSION } from './app-version';
+import { applyUpdate, useWebUpdate } from './web-update';
 
 function useMedia(query: string) {
   const [match, setMatch] = useState(() => window.matchMedia(query).matches);
@@ -568,6 +569,7 @@ const OPEN_HINT = {
 
 function EmptyState({ onOpen, onScan, session }: { onOpen: () => void; onScan: () => void; session: DocumentSession }) {
   const platform = usePlatform();
+  const update = useWebUpdate();
   return (
     <div className="flex h-full w-full flex-col items-center overflow-y-auto bg-canvas p-6" data-testid="state-empty">
       <div className="my-auto flex w-full max-w-md flex-col gap-6 py-6">
@@ -595,9 +597,23 @@ function EmptyState({ onOpen, onScan, session }: { onOpen: () => void; onScan: (
         <DraftList onOpen={(r) => void session.resumeDraft(r)} />
       </div>
       {/* the running version, at the foot of the first screen: after an update it shows the new number */}
-      <p className="shrink-0 pt-4 text-[12px] text-muted-foreground tabular-nums select-text" data-testid="app-version">
-        ezPDF phiên bản {APP_VERSION}
-      </p>
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-2 pt-4 text-[12px] text-muted-foreground tabular-nums">
+        <span className="select-text" data-testid="app-version">
+          ezPDF phiên bản {APP_VERSION}
+        </span>
+        {/* web app: a newer version is there (src/app/web-update.ts) */}
+        {update.kind !== 'none' && (
+          <span className="flex items-center gap-2" data-testid="update-ready">
+            <span className="font-medium text-foreground">
+              Có bản mới{update.kind === 'ready' && update.version && update.version !== APP_VERSION ? ` ${update.version}` : ''}
+            </span>
+            <Button size="sm" onClick={applyUpdate} disabled={update.kind === 'reloading'} data-testid="btn-update">
+              {update.kind === 'reloading' ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+              {update.kind === 'reloading' ? 'Đang cập nhật…' : 'Cập nhật'}
+            </Button>
+          </span>
+        )}
+      </div>
     </div>
   );
 }

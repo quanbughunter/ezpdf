@@ -6,27 +6,48 @@
  * build/pwa.ts). It never sends anything anywhere: documents are opened and
  * saved by the page itself, on this device.
  *
- * A new version installs in the background and takes over once every ezPDF
- * tab or window has been closed, so a page never mixes two versions.
+ * A new version installs in the background and takes over at once (0.8.9;
+ * before, it waited for every ezPDF tab to close, and reloading a page never
+ * brought it). A page that is already open keeps running its own version:
+ * the files of the version just replaced stay cached for it, and the page
+ * offers "Cập nhật" at the foot of its start screen (src/app/web-update.ts),
+ * which reloads it into the new one.
  */
 const VERSION = '__EZPDF_VERSION__';
+/** the version people see ("0.8.9"), told to a page that asks */
+const APP_VERSION = '__EZPDF_APP__';
 const FILES = __EZPDF_FILES__;
 const CACHE = `ezpdf-${VERSION}`;
 const scoped = (f) => new URL(f, self.registration.scope).href;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(FILES.map((f) => new Request(scoped(f), { cache: 'reload' })))),
+    (async () => {
+      const cache = await caches.open(CACHE);
+      await cache.addAll(FILES.map((f) => new Request(scoped(f), { cache: 'reload' })));
+      // every file is here: take over now, without waiting for the open tabs to close
+      await self.skipWaiting();
+    })(),
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      for (const key of await caches.keys()) if (key.startsWith('ezpdf-') && key !== CACHE) await caches.delete(key);
+      // keep the version this one replaces (the newest other cache: tabs still open on it load
+      // their code from there), drop anything older
+      const older = (await caches.keys()).filter((key) => key.startsWith('ezpdf-') && key !== CACHE);
+      for (const key of older.slice(0, -1)) await caches.delete(key);
       await self.clients.claim();
     })(),
   );
+});
+
+self.addEventListener('message', (event) => {
+  const type = event.data && event.data.type;
+  if (type === 'version' && event.ports[0]) event.ports[0].postMessage(APP_VERSION);
+  // a page asks a worker still waiting (one from before 0.8.9 never takes over by itself)
+  else if (type === 'skip-waiting') self.skipWaiting();
 });
 
 self.addEventListener('fetch', (event) => {
@@ -41,8 +62,10 @@ self.addEventListener('fetch', (event) => {
         // Every page of the app is the same shell.
         return (await cache.match(scoped('index.html'), { ignoreVary: true })) ?? fetch(req);
       }
-      // ignoreVary: the build server may answer with "Vary: Origin", module scripts send an Origin
-      return (await cache.match(req, { ignoreSearch: true, ignoreVary: true })) ?? fetch(req);
+      // ignoreVary: the build server may answer with "Vary: Origin", module scripts send an Origin.
+      // Not in this version: a tab still running the previous version asks for its own files
+      const opts = { ignoreSearch: true, ignoreVary: true };
+      return (await cache.match(req, opts)) ?? (await caches.match(req, opts)) ?? fetch(req);
     })(),
   );
 });

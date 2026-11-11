@@ -36,6 +36,9 @@
  *  2c. the page organizer in the shell's web view: thumbnails drawn, a split
  *     built in the PDFium worker, the rearranged document saved as the draft,
  *     and undone
+ *  8. OCR (0.9.0): "Nhận dạng chữ" on the start screen, a picture picked in
+ *     the system dialog read in WebKitGTK from the app's own Tesseract files,
+ *     the Word file and the searchable PDF saved through the save dialogs
  *  2b. sharing through the shell (src-tauri/src/share.rs): the share button
  *     sends the finished PDF over the IPC as raw bytes; the shell writes a
  *     temporary copy under the document's name (Vietnamese marks) and shows
@@ -122,6 +125,22 @@ async function session(args = []) {
   return { id, js, jsAsync, waitFor, shot, close, keys, click };
 }
 
+/**
+ * After a session is closed, the app it ran may take a moment to exit; a new
+ * launch meanwhile would find it on D-Bus (single instance) and hand it the
+ * arguments instead of starting. Wait until it is gone.
+ */
+async function appGone(ms = 20000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    // (by process name: this script's own command line holds the binary's path)
+    if (spawnSync('pgrep', ['-x', 'ezpdf']).status !== 0) break;
+    await sleep(250);
+  }
+  // and a moment for the session bus to let go of its name
+  await sleep(1500);
+}
+
 const T = (id) => `[data-testid="${id}"]`;
 const text = (sel) => `return document.querySelector('${sel}')?.textContent ?? null`;
 const has = (sel, needle) => `return (document.querySelector('${sel}')?.textContent ?? '').includes(${JSON.stringify(needle)})`;
@@ -159,6 +178,40 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
   fs.copyFileSync(sample, work);
 
   // 1. started with a PDF path
+  const xdo = (...a) => execFileSync('xdotool', a, { env, encoding: 'utf8' }).trim();
+  /** a system dialog (GTK here), found by its title, given a path and confirmed */
+  const dialog = async (title, typed, shotName, folder = false) => {
+    // find the dialog by its exact title among the app's windows (no window manager here)
+    let win = null;
+    for (let i = 0; i < 60 && !win; i++) {
+      const ids = spawnSync('xdotool', ['search', '--onlyvisible', '--class', 'ezpdf'], { env, encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean);
+      win = ids.find((w) => spawnSync('xdotool', ['getwindowname', w], { env, encoding: 'utf8' }).stdout.trim() === title) ?? null;
+      if (!win) await sleep(250);
+    }
+    if (!win) throw new Error(`no "${title}" dialog`);
+    await sleep(700);
+    xdo('windowfocus', '--sync', win);
+    // a folder chooser opens on "Recent", where it can't pick a folder: go Home (Alt+Home) first
+    if (folder) {
+      xdo('key', 'alt+Home');
+      await sleep(400);
+    }
+    xdo('key', 'ctrl+l');
+    await sleep(200);
+    xdo('key', 'ctrl+a');
+    xdo('type', '--delay', '15', typed);
+    await sleep(400);
+    // the whole X screen, dialog included (WebDriver only sees the page)
+    if (shotName) spawnSync('import', ['-window', 'root', '-display', display, path.join(OUT, shotName)]);
+    // the location entry may take the first Return for its completion popup
+    for (let i = 0; i < 4; i++) {
+      xdo('key', 'Return');
+      await sleep(900);
+      const still = spawnSync('xdotool', ['search', '--onlyvisible', '--class', 'ezpdf'], { env, encoding: 'utf8' }).stdout.trim().split('\n').includes(win);
+      if (!still) break;
+      xdo('windowfocus', '--sync', win);
+    }
+  };
   let s = await session([work]);
   try {
     await s.waitFor(has(T('page-total'), '/ 4'), 'the PDF given on the command line to open');
@@ -306,6 +359,7 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
   await sleep(800);
 
   // 4. restart: the draft is listed and reopens with the edit
+  await appGone();
   s = await session([]);
   try {
     await s.waitFor(`return !!document.querySelector('${T('draft-0')}')`, 'the draft list');
@@ -346,39 +400,6 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
 
     // 6. the system dialogs (GTK here, the Windows dialogs there), driven with xdotool
     if (hasXdotool) {
-      const xdo = (...a) => execFileSync('xdotool', a, { env, encoding: 'utf8' }).trim();
-      const dialog = async (title, typed, shotName, folder = false) => {
-        // find the dialog by its exact title among the app's windows (no window manager here)
-        let win = null;
-        for (let i = 0; i < 60 && !win; i++) {
-          const ids = spawnSync('xdotool', ['search', '--onlyvisible', '--class', 'ezpdf'], { env, encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean);
-          win = ids.find((w) => spawnSync('xdotool', ['getwindowname', w], { env, encoding: 'utf8' }).stdout.trim() === title) ?? null;
-          if (!win) await sleep(250);
-        }
-        if (!win) throw new Error(`no "${title}" dialog`);
-        await sleep(700);
-        xdo('windowfocus', '--sync', win);
-        // a folder chooser opens on "Recent", where it can't pick a folder: go Home (Alt+Home) first
-        if (folder) {
-          xdo('key', 'alt+Home');
-          await sleep(400);
-        }
-        xdo('key', 'ctrl+l');
-        await sleep(200);
-        xdo('key', 'ctrl+a');
-        xdo('type', '--delay', '15', typed);
-        await sleep(400);
-        // the whole X screen, dialog included (WebDriver only sees the page)
-        if (shotName) spawnSync('import', ['-window', 'root', '-display', display, path.join(OUT, shotName)]);
-        // the location entry may take the first Return for its completion popup
-        for (let i = 0; i < 4; i++) {
-          xdo('key', 'Return');
-          await sleep(900);
-          const still = spawnSync('xdotool', ['search', '--onlyvisible', '--class', 'ezpdf'], { env, encoding: 'utf8' }).stdout.trim().split('\n').includes(win);
-          if (!still) break;
-          xdo('windowfocus', '--sync', win);
-        }
-      };
       // a PDF with no draft yet (the same bytes as a draft would bring up the "resume draft?" offer instead)
       const third = path.join(OUT, 'chon-qua-hop-thoai.pdf');
       fs.copyFileSync(FIX('foreign-stamp.pdf'), third);
@@ -647,6 +668,7 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
 
   // 7. closing the window right after an edit: the draft is written before it goes
   if (hasXdotool) {
+    await appGone();
     fs.rmSync(STORE, { recursive: true, force: true });
     s = await session([work]);
     try {
@@ -673,6 +695,70 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
         pending !== 'saved' && gone && rec?.rotations?.[0] === 1,
         `draft state at close: ${pending}; window gone after ${Date.now() - t0} ms; saved rotation ${rec?.rotations?.[0]}`,
       );
+    } finally {
+      await s.close();
+    }
+  }
+
+
+  // 8. OCR (0.9.0): from the start screen, a picture picked in the system dialog read in
+  // WebKitGTK (Tesseract's WASM and the Vietnamese model from the app's own files), the Word
+  // file and the searchable PDF written through the save dialogs, "Mở thư mục"
+  if (hasXdotool) {
+    await appGone();
+    s = await session([]);
+    try {
+      await s.waitFor(`return !!document.querySelector('${T('btn-ocr-empty')}')`, 'the start screen with “Nhận dạng chữ”', 30000);
+      check('OCR: the desktop app offers “Nhận dạng chữ” on the start screen', true);
+      // (an ASCII name: xdotool cannot type Vietnamese letters into the dialog here)
+      const pic = path.join(OUT, 'trang-quet.png');
+      fs.copyFileSync(FIX('ocr/page.png'), pic);
+      await s.js(`document.querySelector('${T('btn-ocr-empty')}').click()`);
+      await dialog('Chọn ảnh hoặc tệp PDF để nhận dạng chữ', pic, '8-ocr-pick.png');
+      await s.waitFor(`return (document.querySelector('${T('ocr-source')}')?.textContent ?? '').includes('1 ảnh')`, 'the OCR dialog with the picture', 30000);
+      check('OCR: the picture picked in the system dialog is in the OCR dialog', (await s.js(`return document.querySelector('${T('ocr-source')}').textContent`)).includes('trang-quet.png'));
+      const t0 = Date.now();
+      await s.js(`document.querySelector('${T('ocr-go')}').click()`);
+      await s.waitFor(`return !!document.querySelector('${T('ocr-done')}') || !!document.querySelector('${T('ocr-error')}')`, 'OCR to finish', 300000);
+      const said = await s.js(`return (document.querySelector('${T('ocr-done-text')}') ?? document.querySelector('${T('ocr-error')}')).textContent`);
+      await s.shot('8-ocr-done.png');
+      check(`OCR in WebKitGTK: the page read in ${Math.round((Date.now() - t0) / 1000)} s`, /1 trang/.test(said) && /1 bảng/.test(said), said);
+      const wordOut = path.join(OUT, 'nhan-dang.docx');
+      await s.js(`document.querySelector('${T('ocr-save-docx')}').click()`);
+      await dialog('Lưu tệp Word', wordOut, null);
+      await s.waitFor(`return !!document.querySelector('${T('ocr-saved-docx')}')`, 'the Word file to be saved', 30000);
+      let facts = '';
+      try {
+        facts = execFileSync(
+          'python3',
+          ['-c', 'import sys,docx; d=docx.Document(sys.argv[1]); t=[t for t in d.tables if len(t.rows)==6][0]; x=t._tbl.xml; print(len(t.columns), "gridSpan" in x and \'w:val="4"\' in x, "vMerge" in x, "Tổng chất rắn lơ lửng" in [c.text for r in t.rows for c in r.cells], len(d.inline_shapes))', wordOut],
+          { encoding: 'utf8' },
+        ).trim();
+      } catch (e) {
+        facts = String(e.stderr || e).slice(0, 200);
+      }
+      check('OCR: the Word file saved through the system dialog; python-docx reads the table (5 columns, merged cells, its text) and the picture', facts === '5 True True True 1', facts);
+      const pdfOut = path.join(OUT, 'nhan-dang.pdf');
+      await s.js(`document.querySelector('${T('ocr-save-pdf')}').click()`);
+      await dialog('Xuất PDF', pdfOut, null);
+      await s.waitFor(`return !!document.querySelector('${T('ocr-saved-pdf')}')`, 'the PDF to be saved', 30000);
+      let found = '';
+      try {
+        found = execFileSync(
+          process.execPath,
+          ['--input-type=module', '-e', `import * as p from ${JSON.stringify(path.join(ROOT, 'node_modules/pdfjs-dist/legacy/build/pdf.mjs'))}; import fs from 'fs'; const d = await p.getDocument({ data: new Uint8Array(fs.readFileSync(process.argv[1])), disableFontFace: true }).promise; const t = await (await d.getPage(1)).getTextContent(); console.log(d.numPages, t.items.map((i) => i.str).join(' ').normalize('NFC').includes('chất rắn lơ lửng'));`, pdfOut],
+          { encoding: 'utf8' },
+        ).trim();
+      } catch (e) {
+        found = String(e.stderr || e).slice(0, 200);
+      }
+      check('OCR: the searchable PDF saved through the system dialog; pdf.js finds “chất rắn lơ lửng” in it', found === '1 true', found);
+      const before = fs.existsSync(xdgLog) ? fs.readFileSync(xdgLog, 'utf8') : '';
+      await s.js(`document.querySelector('${T('ocr-reveal-pdf')}').click()`);
+      await sleep(800);
+      const revealed = (fs.existsSync(xdgLog) ? fs.readFileSync(xdgLog, 'utf8') : '').slice(before.length).trim();
+      check('OCR: “Mở thư mục” shows where the file went', revealed === OUT, revealed);
+      await s.shot('8-ocr-saved.png');
     } finally {
       await s.close();
     }

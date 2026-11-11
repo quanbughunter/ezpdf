@@ -41,8 +41,8 @@ jobs:
           # tifffile + imagecodecs: the second, independent reader of ezPDF's TIFF pictures (test:images, e2e:share)
           pip install pymupdf pikepdf pillow numpy scipy python-docx tifffile imagecodecs
       - run: npm run build
-      - run: npm run test:layout && npm run test:engine && npm run verify && npm run test:m3 && npm run test:storage && npm run test:edit && npm run test:pages && npm run test:word && npm run test:images
-      - run: npm run e2e && npm run e2e:m3 && npm run e2e:m4 && npm run e2e:edit && npm run e2e:scan && npm run e2e:share && npm run e2e:pages && npm run e2e:word
+      - run: npm run test:layout && npm run test:engine && npm run verify && npm run test:m3 && npm run test:storage && npm run test:edit && npm run test:pages && npm run test:word && npm run test:images && npm run test:ocr
+      - run: npm run e2e && npm run e2e:m3 && npm run e2e:m4 && npm run e2e:edit && npm run e2e:scan && npm run e2e:share && npm run e2e:pages && npm run e2e:word && npm run e2e:ocr
       - name: production build in the browser
         run: |
           npx vite preview --port 4173 --strictPort &
@@ -89,6 +89,10 @@ jobs:
       - run: cargo test --lib
         working-directory: src-tauri
       - run: npx tauri build
+      # OCR's own files (Tesseract, the Vietnamese model) went into the app with the build
+      - name: OCR files in the build
+        shell: bash
+        run: for f in worker.min.js tesseract-core-simd-lstm.js tesseract-core-simd-lstm.wasm tesseract-core-lstm.js tesseract-core-lstm.wasm vie.traineddata.gz; do test -s "dist/ocr/$f" || { echo "missing dist/ocr/$f"; exit 1; }; done
       # the installers under names that carry the version, as in the release
       - name: Name the installers after the version
         id: v

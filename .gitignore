@@ -24,3 +24,6 @@ windows all versions/
 
 # the user's own sample files (tested on this machine only, never published)
 mau de test/
+
+# Python caches of the fixture scripts
+__pycache__/

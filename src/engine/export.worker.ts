@@ -21,6 +21,7 @@ import { assembleInPlace, assembleNew, pageInfos, PageOpsError, type PageInfo, t
 import { Wasm } from './wasm';
 import { jpegWithDpi, pngWithDpi } from './image-meta';
 import { lumaOf, tiffPage, type TiffPage } from './tiff-write';
+import { addTextLayer, pageScan, type OcrTextPage, type PageScan } from './ocr-pdf';
 
 export interface ExportRequest {
   id: number;
@@ -42,7 +43,20 @@ export type RenderRequest =
   | { id: number; kind: 'render-open'; bytes: ArrayBuffer; wasmUrl: string }
   /** unrotated: drawn without the page's /Rotate (the caller turns it as it likes) */
   | { id: number; kind: 'render-page'; session: number; pageIndex: number; dpi: number; unrotated?: boolean; encode?: PageEncoding }
+  /** what a page holds for OCR: text already, the resolution of its scan */
+  | { id: number; kind: 'render-scan'; session: number; pageIndex: number }
   | { id: number; kind: 'render-close'; session: number };
+
+/** OCR's searchable PDF: the words laid as invisible text over their pages (ocr-pdf.ts) */
+export interface OcrPdfRequest {
+  id: number;
+  kind: 'ocr-pdf';
+  bytes: ArrayBuffer;
+  pages: OcrTextPage[];
+  wasmUrl: string;
+  fontUrl: string;
+}
+export type OcrPdfResponse = { id: number; ok: true; bytes: ArrayBuffer; words: number } | { id: number; ok: false; error: string; userError?: boolean };
 
 /** Put a document together from pages (page-ops.ts). */
 export interface PagesRequest {
@@ -56,7 +70,7 @@ export interface PagesRequest {
   fontUrl: string;
 }
 
-export type WorkerRequest = ExportRequest | EditRequest | RenderRequest | PagesRequest;
+export type WorkerRequest = ExportRequest | EditRequest | RenderRequest | PagesRequest | OcrPdfRequest;
 
 /**
  * How a rendered page is handed back. Printing takes the default (JPEG 0.92);
@@ -65,7 +79,8 @@ export type WorkerRequest = ExportRequest | EditRequest | RenderRequest | PagesR
  * strips (tiff-write.ts), put together into a file by the page.
  */
 export interface PageEncoding {
-  format: 'png' | 'jpeg' | 'webp' | 'tiff';
+  /** rgba: the pixels themselves, for OCR */
+  format: 'png' | 'jpeg' | 'webp' | 'tiff' | 'rgba';
   /** 0–1, JPEG and WebP */
   quality?: number;
   gray?: boolean;
@@ -88,6 +103,8 @@ export type RenderResponse =
   | { id: number; ok: true; session: number; pages: { w: number; h: number }[]; infos: PageInfo[] }
   | { id: number; ok: true; image: Blob; width: number; height: number }
   | { id: number; ok: true; tiff: TiffPage; width: number; height: number }
+  | { id: number; ok: true; rgba: ArrayBuffer; width: number; height: number }
+  | { id: number; ok: true; scan: PageScan }
   | { id: number; ok: true }
   | { id: number; ok: false; error: string; userError?: boolean };
 
@@ -162,7 +179,7 @@ function closeSession(id: number) {
   new Wasm(s.m).free(s.srcPtr);
 }
 
-const post = (msg: ExportResponse | EditResponse | RenderResponse | PagesResponse, transfer: Transferable[] = []) =>
+const post = (msg: ExportResponse | EditResponse | RenderResponse | PagesResponse | OcrPdfResponse, transfer: Transferable[] = []) =>
   (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg, transfer);
 
 async function handleEdit(req: EditRequest) {
@@ -251,6 +268,7 @@ async function renderPage(m: WrappedPdfiumModule, doc: number, pageIndex: number
     const tiff = tiffPage(img.data, img.width, img.height, { gray: encode.gray, dpi });
     return { tiff, width: img.width, height: img.height };
   }
+  if (encode.format === 'rgba') return { rgba: img.data.buffer as ArrayBuffer, width: img.width, height: img.height };
   if (encode.gray) {
     const d = img.data;
     for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] = d[i + 2] = lumaOf(d[i], d[i + 1], d[i + 2]) | 0;
@@ -304,8 +322,9 @@ async function handleRender(req: RenderRequest) {
   }
   const r = renderDocs.get(req.session);
   if (!r) throw new Error('Bản in đã bị hủy.');
+  if (req.kind === 'render-scan') return post({ id: req.id, ok: true, scan: pageScan(r.m, r.doc, req.pageIndex) });
   const out = await renderPage(r.m, r.doc, req.pageIndex, req.dpi, req.unrotated, req.encode);
-  const transfer = 'tiff' in out && out.tiff ? out.tiff.strips.map((x) => x.buffer as ArrayBuffer) : [];
+  const transfer = 'tiff' in out && out.tiff ? out.tiff.strips.map((x) => x.buffer as ArrayBuffer) : 'rgba' in out && out.rgba ? [out.rgba] : [];
   post({ id: req.id, ok: true, ...out }, transfer);
 }
 
@@ -323,8 +342,40 @@ async function handlePages(req: PagesRequest) {
   post({ id: req.id, ok: true, bytes, ms: performance.now() - t0 }, [bytes]);
 }
 
+async function handleOcrPdf(req: OcrPdfRequest) {
+  const [m, font] = await Promise.all([module(req.wasmUrl), fontBytes(req.fontUrl)]);
+  const w = new Wasm(m);
+  const bytes = new Uint8Array(req.bytes);
+  const srcPtr = w.copyIn(bytes);
+  const doc = m.FPDF_LoadMemDocument(srcPtr, bytes.byteLength, '');
+  if (!doc) {
+    w.free(srcPtr);
+    throw new Error(`PDFium không mở được tài liệu (mã lỗi ${m.FPDF_GetLastError()})`);
+  }
+  try {
+    const report = addTextLayer(m, doc, req.pages, font);
+    try {
+      const out = save(m, doc);
+      post({ id: req.id, ok: true, bytes: out, words: report.words }, [out]);
+    } finally {
+      m.FPDFFont_Close(report.font);
+    }
+  } finally {
+    m.FPDF_CloseDocument(doc);
+    w.free(srcPtr);
+  }
+}
+
 self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
   const req = e.data;
+  if (req.kind === 'ocr-pdf') {
+    try {
+      await handleOcrPdf(req);
+    } catch (err) {
+      post({ id: req.id, ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+    return;
+  }
   if (req.kind === 'pages-build') {
     try {
       await handlePages(req);
@@ -333,7 +384,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
     }
     return;
   }
-  if (req.kind === 'render-open' || req.kind === 'render-page' || req.kind === 'render-close') {
+  if (req.kind === 'render-open' || req.kind === 'render-page' || req.kind === 'render-scan' || req.kind === 'render-close') {
     try {
       await handleRender(req);
     } catch (err) {

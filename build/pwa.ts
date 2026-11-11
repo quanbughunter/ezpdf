@@ -48,7 +48,7 @@ export function ezpdfPwa(): Plugin {
       const out = config.build.outDir;
       const files = walk(out)
         .map((p) => relative(out, p).split(sep).join('/'))
-        .filter((f) => f !== 'sw.js' && !f.endsWith('.map') && !f.endsWith('.txt') && !f.endsWith('.md'))
+        .filter((f) => f !== 'sw.js' && !f.startsWith('ocr/') && !f.endsWith('.map') && !f.endsWith('.txt') && !f.endsWith('.md'))
         .sort();
       const hash = createHash('sha256');
       for (const f of files) hash.update(f).update(readFileSync(join(out, f)));

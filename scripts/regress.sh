@@ -8,6 +8,8 @@ set -u
 cd "$(dirname "$0")/.."
 MODE="${1:-dev}"
 SUITES="e2e e2e-m3 e2e-m4 e2e-edit e2e-scan e2e-share-print e2e-pages e2e-word"
+# OCR: only builds that carry its files (the dev server; the desktop app, see smoke-desktop.cjs)
+[ "$MODE" = dev ] && SUITES="$SUITES e2e-ocr"
 if [ "$MODE" = preview ]; then
   # the web app's update: serves dist itself
   SUITES="$SUITES e2e-update"

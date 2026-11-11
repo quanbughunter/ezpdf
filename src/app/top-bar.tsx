@@ -18,6 +18,7 @@ import {
   RotateCcw,
   RotateCw,
   ScanLine,
+  ScanText,
   Search,
   Signature,
   TextCursorInput,
@@ -74,6 +75,8 @@ interface Props {
   onScan: () => void;
   /** "Bộ công cụ", the page tools: rearrange, add, remove, extract, split pages */
   onPages: () => void;
+  /** "Nhận dạng chữ (OCR)" of the open PDF (desktop app) */
+  onOcr?: () => void;
   onSearch: () => void;
   onExport: () => void;
   onClose: () => void;
@@ -144,6 +147,11 @@ export function TopBar(p: Props) {
               <BarDivider />
               <PrintButton />
               <ImagesButton />
+              {p.onOcr && (
+                <IconAction label="Nhận dạng chữ (OCR): ra tệp Word hoặc PDF tìm được chữ" onClick={p.onOcr} testId="btn-ocr">
+                  <ScanText />
+                </IconAction>
+              )}
               <ShareButton />
               <ToolsButton onClick={p.onPages} />
             </>

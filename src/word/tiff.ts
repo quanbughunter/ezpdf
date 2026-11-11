@@ -238,7 +238,7 @@ function jpegFrame(b: Uint8Array, off: number, len: number): { w: number; h: num
  * A copy of the file UTIF can read safely (see the top of this file), or
  * null when the file cannot be one.
  */
-export function safeCopy(bytes: Uint8Array): Uint8Array | null {
+export function safeCopy(bytes: Uint8Array, maxPages = MAX_PAGES): Uint8Array | null {
   const len = bytes.length;
   if (len < 8) return null;
   const b = bytes.slice();
@@ -268,7 +268,7 @@ export function safeCopy(bytes: Uint8Array): Uint8Array | null {
         dv.setUint32(e + 4, 0, le); // emptied
       }
     }
-    if (seen.size >= MAX_PAGES) {
+    if (seen.size >= maxPages) {
       dv.setUint32(next, 0, le);
       break;
     }
@@ -373,6 +373,51 @@ export function decodeTiff(bytes: Uint8Array): Bitmap | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Every page of a TIFF (a multi-page scan, for OCR), with its resolution in
+ * dots per inch when the file gives one; reduced-size copies are skipped.
+ * Up to `maxPages` pages; a page that cannot be decoded is left out.
+ */
+export function decodeTiffPages(bytes: Uint8Array, maxPages = 200): { bitmap: Bitmap; dpi: number }[] {
+  const out: { bitmap: Bitmap; dpi: number }[] = [];
+  const safe = safeCopy(bytes, maxPages);
+  if (!safe) return out;
+  const buf = safe.buffer as ArrayBuffer;
+  let pages: Page[];
+  try {
+    pages = UTIF.decode(buf) as Page[];
+  } catch {
+    return out;
+  }
+  for (const page of pages.filter((p) => p.t256 && p.t257 && !((p.t254?.[0] ?? 0) & 1))) {
+    try {
+      if (!fits(page, safe.length, safe)) continue;
+      const w = page.t256[0], h = page.t257[0];
+      rgbJpeg = page.t259?.[0] === 7 && page.t262[0] === 2;
+      lineCap = w + 64;
+      try {
+        UTIF.decodeImage(buf, page, pages);
+      } finally {
+        rgbJpeg = false;
+        lineCap = 0;
+      }
+      const data = (page as unknown as { data?: Uint8Array }).data;
+      if (!data) continue;
+      // XResolution (a rational), ResolutionUnit 2 inch or 3 cm
+      const xr = page.t282;
+      const unit = page.t296?.[0] ?? 2;
+      let dpi = xr && xr.length >= 1 ? (xr.length >= 2 && xr[1] ? xr[0] / xr[1] : xr[0]) : 0;
+      if (unit === 3) dpi *= 2.54;
+      if (unit === 1) dpi = 0;
+      out.push({ bitmap: { rgba: toRgba(page, data, w, h), w, h }, dpi: Math.round(dpi) });
+      (page as unknown as { data?: Uint8Array }).data = undefined;
+    } catch {
+      // the next page
+    }
+  }
+  return out;
 }
 
 /**

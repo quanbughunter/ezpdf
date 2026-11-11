@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FileText, FolderOpen, Loader2, RefreshCw, ScanLine } from 'lucide-react';
+import { FileText, FolderOpen, Loader2, RefreshCw, ScanLine, ScanText } from 'lucide-react';
 import { PdfAnnotationSubtype } from '@embedpdf/models';
 import { DocumentContent } from '@embedpdf/plugin-document-manager/react';
 import { useAnnotation, useAnnotationCapability } from '@embedpdf/plugin-annotation/react';
@@ -34,6 +34,8 @@ import { DOCX_MIME } from '@/platform/types';
 import { buildPages } from '@/engine/export-client';
 import { APP_VERSION } from './app-version';
 import { applyUpdate, useWebUpdate } from './web-update';
+import { OCR_ACCEPT, ocrAvailable } from './ocr/available';
+import type { OcrSource } from './ocr/OcrDialog';
 
 function useMedia(query: string) {
   const [match, setMatch] = useState(() => window.matchMedia(query).matches);
@@ -62,6 +64,9 @@ const OPEN_ACCEPT = `application/pdf,.pdf,.docx,${DOCX_MIME}`;
 
 /** the Word screen and its editor load only when a Word file is opened */
 const WordScreen = lazy(() => import('./word/WordScreen').then((m) => ({ default: m.WordScreen })));
+// OCR's dialog and engine load when first asked for
+const OcrDialog = lazy(() => import('./ocr/OcrDialog').then((m) => ({ default: m.OcrDialog })));
+const DocumentOcrDialog = lazy(() => import('./ocr/OcrDialog').then((m) => ({ default: m.DocumentOcrDialog })));
 
 /**
  * Resting modes (hand, select) are registered before any page mounts. On
@@ -83,6 +88,18 @@ export function Workspace({ documentId }: { documentId: string | null }) {
   const [organizing, setOrganizing] = useState(false);
   /** the Word file open on the Word screen (over the PDF workspace) */
   const [word, setWord] = useState<File | null>(null);
+  /** "Nhận dạng chữ (OCR)": of the open PDF, or of files picked for it */
+  const [ocr, setOcr] = useState<{ kind: 'document' } | Extract<OcrSource, { kind: 'files' }> | null>(null);
+  const canOcr = ocrAvailable(platform);
+  const ocrInput = useRef<HTMLInputElement>(null);
+  const pickForOcr = useCallback(() => {
+    const pick = platform.pickOcrFiles;
+    if (!pick) return ocrInput.current?.click();
+    void pick().then(
+      (files) => files?.length && setOcr({ kind: 'files', files }),
+      (e) => console.error('ezPDF: OCR files', e),
+    );
+  }, [platform]);
   const wordRef = useRef<WordScreenHandle>(null);
   useEffect(() => setLeftOpen(!phone), [phone]);
   // another document, or none: the organizer was for the old one
@@ -163,6 +180,21 @@ export function Workspace({ documentId }: { documentId: string | null }) {
 
   const frame = (
     <div className="flex h-full flex-col" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+      {canOcr && (
+        <input
+          ref={ocrInput}
+          type="file"
+          multiple
+          accept={OCR_ACCEPT}
+          className="hidden"
+          data-testid="ocr-file-input"
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])];
+            e.target.value = '';
+            if (files.length) setOcr({ kind: 'files', files });
+          }}
+        />
+      )}
       <input
         ref={fileInput}
         type="file"
@@ -188,6 +220,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
         onOpen={openPicker}
         onScan={() => setScanning(true)}
         onPages={() => setOrganizing(true)}
+        onOcr={canOcr ? () => setOcr({ kind: 'document' }) : undefined}
         onSearch={openSearch}
         onExport={session.exportPdf}
         onClose={() => void session.closeDocument()}
@@ -205,7 +238,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
             title={session.switching === 'open' ? 'Đang mở tài liệu…' : session.switching === 'update' ? 'Đang cập nhật trang…' : 'Đang đóng tài liệu…'}
           />
         ) : !documentId ? (
-          <EmptyState onOpen={openPicker} onScan={() => setScanning(true)} session={session} />
+          <EmptyState onOpen={openPicker} onScan={() => setScanning(true)} onOcr={canOcr ? pickForOcr : undefined} session={session} />
         ) : (
           <DocumentContent documentId={documentId}>
             {({ documentState, isLoading, isError, isLoaded }) => (
@@ -256,6 +289,15 @@ export function Workspace({ documentId }: { documentId: string | null }) {
       )}
       {organizing && documentId && !session.switching && (
         <PageOrganizer session={session} fileName={session.fileName} onClose={() => setOrganizing(false)} />
+      )}
+      {ocr && (
+        <Suspense fallback={null}>
+          {ocr.kind === 'files' ? (
+            <OcrDialog source={ocr} onClose={() => setOcr(null)} onOpenFile={(f) => void openAny(f)} />
+          ) : documentId && !session.switching ? (
+            <DocumentOcrDialog documentId={documentId} session={session} onClose={() => setOcr(null)} onOpenFile={(f) => void openAny(f)} />
+          ) : null}
+        </Suspense>
       )}
       {word && (
         <Suspense fallback={<div className="fixed inset-0 z-50 bg-canvas" data-ez-overlay="" data-testid="word-loading" />}>
@@ -567,7 +609,7 @@ const OPEN_HINT = {
   android: 'Chọn tệp, hoặc mở hay chia sẻ một tệp PDF, Word sang ezPDF từ ứng dụng khác.',
 } as const;
 
-function EmptyState({ onOpen, onScan, session }: { onOpen: () => void; onScan: () => void; session: DocumentSession }) {
+function EmptyState({ onOpen, onScan, onOcr, session }: { onOpen: () => void; onScan: () => void; onOcr?: () => void; session: DocumentSession }) {
   const platform = usePlatform();
   const update = useWebUpdate();
   return (
@@ -592,6 +634,11 @@ function EmptyState({ onOpen, onScan, session }: { onOpen: () => void; onScan: (
             <Button onClick={onScan} data-testid="btn-scan-empty" disabled={session.busy}>
               <ScanLine /> Quét tài liệu
             </Button>
+            {onOcr && (
+              <Button onClick={onOcr} data-testid="btn-ocr-empty" disabled={session.busy} title="Đọc chữ trong ảnh hoặc PDF quét, ra tệp Word hoặc PDF tìm được chữ">
+                <ScanText /> Nhận dạng chữ
+              </Button>
+            )}
           </div>
         </div>
         <DraftList onOpen={(r) => void session.resumeDraft(r)} />

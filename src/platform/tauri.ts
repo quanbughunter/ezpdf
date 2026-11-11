@@ -26,6 +26,8 @@ import { asDocFile, baseName, dirName, incomingQueue, rememberSource, type Platf
 const PDF = [{ name: 'PDF', extensions: ['pdf'] }];
 const WORD = [{ name: 'Word', extensions: ['docx'] }];
 const ANY = [{ name: 'PDF hoặc Word', extensions: ['pdf', 'docx'] }, ...PDF, ...WORD];
+const PICTURES = ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'bmp', 'gif', 'webp'];
+const OCR = [{ name: 'Ảnh hoặc PDF', extensions: ['pdf', ...PICTURES] }, { name: 'Ảnh', extensions: PICTURES }, ...PDF];
 
 async function fileAt(path: string) {
   return rememberSource(asDocFile(await readFile(path), baseName(path)), { path });
@@ -126,6 +128,12 @@ export async function createTauriPlatform(): Promise<Platform> {
     },
     async revealFile(path) {
       await invoke('reveal_file', { path });
+    },
+    async pickOcrFiles() {
+      const picked = await open({ multiple: true, directory: false, filters: OCR, title: 'Chọn ảnh hoặc tệp PDF để nhận dạng chữ' });
+      const paths = typeof picked === 'string' ? [picked] : picked;
+      if (!paths?.length) return null;
+      return Promise.all(paths.map(async (path) => rememberSource(new File([await readFile(path)], baseName(path)), { path })));
     },
     onIncomingFiles: incoming.subscribe,
     onCloseRequested(cb) {

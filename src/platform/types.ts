@@ -127,6 +127,12 @@ export interface Platform {
    * folder cannot be shown (the browser never says where a file is).
    */
   readonly showFolder?: (source: FileSource) => Promise<File | null>;
+  /**
+   * The system's file picker for OCR (desktop): one PDF, or one or more
+   * pictures (JPEG, PNG, TIFF…). null when cancelled. Absent elsewhere (the
+   * page uses a file input).
+   */
+  readonly pickOcrFiles?: () => Promise<File[] | null>;
 }
 
 /**

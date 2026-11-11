@@ -1,12 +1,13 @@
-import type { EditRequest, EditResponse, ExportRequest, ExportResponse, PageEncoding, PagesRequest, PagesResponse, RenderRequest, RenderResponse } from './export.worker';
+import type { EditRequest, EditResponse, ExportRequest, ExportResponse, OcrPdfRequest, OcrPdfResponse, PageEncoding, PagesRequest, PagesResponse, RenderRequest, RenderResponse } from './export.worker';
+import type { OcrTextPage, PageScan } from './ocr-pdf';
 import type { TiffPage } from './tiff-write';
 import type { PageInfo, PlanPage } from './page-ops';
 import type { FinalizeReport } from './vn-freetext-export';
 import type { EditReport, TextLine } from './text-edit';
 import { PDFIUM_WASM_URL, VN_FONT_URL, VN_BOLD_FONT_URL } from './config';
 
-type Response = ExportResponse | EditResponse | RenderResponse | PagesResponse;
-type Request = ExportRequest | EditRequest | RenderRequest | PagesRequest;
+type Response = ExportResponse | EditResponse | RenderResponse | PagesResponse | OcrPdfResponse;
+type Request = ExportRequest | EditRequest | RenderRequest | PagesRequest | OcrPdfRequest;
 
 let worker: Worker | null = null;
 let seq = 0;
@@ -112,6 +113,25 @@ export async function renderPageImage(session: number, pageIndex: number, dpi: n
 export async function renderPageEncoded(session: number, pageIndex: number, dpi: number, encode: PageEncoding) {
   const r = await call<{ id: number; ok: true; image?: Blob; tiff?: TiffPage; width: number; height: number }>({ kind: 'render-page', session, pageIndex, dpi, encode });
   return { image: r.image, tiff: r.tiff, width: r.width, height: r.height };
+}
+
+/** A page's pixels (RGBA) at `dpi`, as the reader sees it: for OCR. */
+export async function renderPageRgba(session: number, pageIndex: number, dpi: number) {
+  const r = await call<{ id: number; ok: true; rgba: ArrayBuffer; width: number; height: number }>({ kind: 'render-page', session, pageIndex, dpi, encode: { format: 'rgba' } });
+  return { rgba: new Uint8ClampedArray(r.rgba), width: r.width, height: r.height };
+}
+
+/** What a page holds for OCR: text already, the resolution of its scan. */
+export async function pageScanInfo(session: number, pageIndex: number): Promise<PageScan> {
+  const r = await call<{ id: number; ok: true; scan: PageScan }>({ kind: 'render-scan', session, pageIndex });
+  return r.scan;
+}
+
+/** OCR's searchable PDF: `bytes` with the words laid over their pages as invisible text (a copy is sent). */
+export async function writeTextLayer(bytes: ArrayBuffer, pages: OcrTextPage[]) {
+  const copy = bytes.slice(0);
+  const r = await call<{ id: number; ok: true; bytes: ArrayBuffer; words: number }>({ kind: 'ocr-pdf', bytes: copy, pages, wasmUrl: PDFIUM_WASM_URL, fontUrl: VN_FONT_URL }, [copy]);
+  return { bytes: r.bytes, words: r.words };
 }
 
 export function closeRenderSession(session: number): Promise<unknown> {

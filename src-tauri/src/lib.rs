@@ -99,20 +99,24 @@ fn share_file(window: tauri::WebviewWindow, request: tauri::ipc::Request<'_>) ->
     }
 }
 
-/// Shows a page picture ezPDF has just written (Xuất thành ảnh) in its folder:
-/// Explorer with the file selected. Only existing picture files, by full path.
+/// Shows a file ezPDF has just written in its folder: Explorer with the file
+/// selected. A page picture (Xuất thành ảnh), or the Word file or PDF made by
+/// OCR. Only existing files of those kinds, by full path.
 #[tauri::command]
 fn reveal_file(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
-    let picture = p
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| matches!(e.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp" | "tif" | "tiff"))
-        .unwrap_or(false);
-    if !p.is_absolute() || !picture || !p.is_file() {
-        return Err("Không tìm thấy ảnh để mở thư mục.".into());
+    if !p.is_absolute() || !revealable(&p) || !p.is_file() {
+        return Err("Không tìm thấy tệp để mở thư mục.".into());
     }
     share::reveal(&p).map_err(|e| format!("Không mở được thư mục: {e}"))
+}
+
+/// the kinds of file the page may ask to be shown in their folder
+fn revealable(p: &std::path::Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| matches!(e.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp" | "tif" | "tiff" | "pdf" | "docx"))
+        .unwrap_or(false)
 }
 
 /** "ezPDF 0.8.8": the main window's title */
@@ -159,6 +163,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reveals_only_pictures_pdf_and_word() {
+        use std::path::Path;
+        assert!(revealable(Path::new("/a/trang 1.PNG")));
+        assert!(revealable(Path::new("/a/b (OCR).docx")));
+        assert!(revealable(Path::new("/a/b (OCR).pdf")));
+        assert!(!revealable(Path::new("/a/b.exe")));
+        assert!(!revealable(Path::new("/a/b")));
+    }
 
     #[test]
     fn window_title_carries_the_version() {

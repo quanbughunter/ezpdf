@@ -1,0 +1,215 @@
+{
+ "dpi": 200,
+ "lines": [
+  "CÔNG TY CỔ PHẦN ABC",
+  "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM",
+  "Số: 15/2024/BC",
+  "Độc lập - Tự do - Hạnh phúc",
+  "BÁO CÁO KẾT QUẢ QUAN TRẮC MÔI TRƯỜNG",
+  "(Đợt 2 năm 2024)",
+  "Thực hiện kế hoạch bảo vệ môi trường của cơ sở, công ty đã phối hợp với đơn vị",
+  "tư vấn tiến hành lấy mẫu và phân tích chất lượng nước thải, khí thải tại các vị trí đã đăng",
+  "ký. Kết quả cho thấy các chỉ tiêu đều nằm trong giới hạn cho phép của quy chuẩn hiện",
+  "hành.",
+  "1. Kết quả quan trắc nước thải",
+  "Ghi chú: mẫu được lấy vào ngày 12 tháng 6 năm 2024 tại hố ga cuối trước khi xả",
+  "ra hệ thống thoát nước chung của khu công nghiệp.",
+  "Công ty Cổ phần ABC - Báo cáo quan trắc",
+  "1"
+ ],
+ "table": {
+  "rows": 6,
+  "cols": 5,
+  "cells": [
+   {
+    "r0": 0,
+    "c0": 0,
+    "r1": 1,
+    "c1": 1,
+    "text": "STT"
+   },
+   {
+    "r0": 0,
+    "c0": 1,
+    "r1": 1,
+    "c1": 2,
+    "text": "Chỉ tiêu"
+   },
+   {
+    "r0": 0,
+    "c0": 2,
+    "r1": 1,
+    "c1": 3,
+    "text": "Đơn vị"
+   },
+   {
+    "r0": 0,
+    "c0": 3,
+    "r1": 1,
+    "c1": 4,
+    "text": "Kết quả"
+   },
+   {
+    "r0": 0,
+    "c0": 4,
+    "r1": 1,
+    "c1": 5,
+    "text": "Giới hạn"
+   },
+   {
+    "r0": 1,
+    "c0": 0,
+    "r1": 2,
+    "c1": 1,
+    "text": "1"
+   },
+   {
+    "r0": 1,
+    "c0": 1,
+    "r1": 2,
+    "c1": 2,
+    "text": "pH"
+   },
+   {
+    "r0": 1,
+    "c0": 2,
+    "r1": 2,
+    "c1": 3,
+    "text": "-"
+   },
+   {
+    "r0": 1,
+    "c0": 3,
+    "r1": 2,
+    "c1": 4,
+    "text": "7,2"
+   },
+   {
+    "r0": 1,
+    "c0": 4,
+    "r1": 2,
+    "c1": 5,
+    "text": "5,5 - 9"
+   },
+   {
+    "r0": 2,
+    "c0": 0,
+    "r1": 3,
+    "c1": 1,
+    "text": "2"
+   },
+   {
+    "r0": 2,
+    "c0": 1,
+    "r1": 3,
+    "c1": 2,
+    "text": "BOD5"
+   },
+   {
+    "r0": 2,
+    "c0": 2,
+    "r1": 3,
+    "c1": 3,
+    "text": "mg/l"
+   },
+   {
+    "r0": 2,
+    "c0": 3,
+    "r1": 3,
+    "c1": 4,
+    "text": "18"
+   },
+   {
+    "r0": 2,
+    "c0": 4,
+    "r1": 4,
+    "c1": 5,
+    "text": "50"
+   },
+   {
+    "r0": 3,
+    "c0": 0,
+    "r1": 4,
+    "c1": 1,
+    "text": "3"
+   },
+   {
+    "r0": 3,
+    "c0": 1,
+    "r1": 4,
+    "c1": 2,
+    "text": "COD"
+   },
+   {
+    "r0": 3,
+    "c0": 2,
+    "r1": 4,
+    "c1": 3,
+    "text": "mg/l"
+   },
+   {
+    "r0": 3,
+    "c0": 3,
+    "r1": 4,
+    "c1": 4,
+    "text": "42"
+   },
+   {
+    "r0": 4,
+    "c0": 0,
+    "r1": 5,
+    "c1": 1,
+    "text": "4"
+   },
+   {
+    "r0": 4,
+    "c0": 1,
+    "r1": 5,
+    "c1": 2,
+    "text": "Tổng chất rắn lơ lửng"
+   },
+   {
+    "r0": 4,
+    "c0": 2,
+    "r1": 5,
+    "c1": 3,
+    "text": "mg/l"
+   },
+   {
+    "r0": 4,
+    "c0": 3,
+    "r1": 5,
+    "c1": 4,
+    "text": "25"
+   },
+   {
+    "r0": 4,
+    "c0": 4,
+    "r1": 5,
+    "c1": 5,
+    "text": "100"
+   },
+   {
+    "r0": 5,
+    "c0": 1,
+    "r1": 6,
+    "c1": 5,
+    "text": "Kết luận: đạt quy chuẩn"
+   }
+  ]
+ },
+ "picture": [
+  1.2,
+  7.11,
+  2.6,
+  8.21
+ ],
+ "page2": [
+  "2. Kết quả quan trắc khí thải",
+  "Khí thải sau hệ thống xử lý được lấy mẫu tại ống khói số 01 và số 02. Nồng độ bụi",
+  "tổng, khí SO2 và khí NOx đều thấp hơn giới hạn của quy chuẩn kỹ thuật quốc gia về khí",
+  "thải công nghiệp.",
+  "Công ty sẽ tiếp tục duy trì việc vận hành thường xuyên các công trình xử lý chất",
+  "thải và thực hiện quan trắc định kỳ theo đúng giấy phép môi trường đã được cấp."
+ ]
+}

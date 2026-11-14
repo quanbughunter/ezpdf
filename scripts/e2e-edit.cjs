@@ -21,6 +21,9 @@
  *    redo; a highlight annotation too; the cells of a table row are separate
  *    lines; the exported file checked by scripts/verify_unmark.py (the bands
  *    leave the drawings, the words stay, nothing painted over)
+ *  - "Bỏ tô sáng hàng loạt": the dialog finds every highlight by colour and
+ *    page, keeps the colours left out, takes the rest off in one undo step;
+ *    exported file checked the same way; on a phone the dialog fits
  *
  * Usage: node scripts/e2e-edit.cjs
  *        BASE=http://localhost:4173 node scripts/e2e-edit.cjs
@@ -478,6 +481,120 @@ let onCrash = async () => {};
     page = was;
   }
 
+  // ── "Bỏ tô sáng hàng loạt" ──
+  {
+    const bp = await ctx.newPage();
+    track(bp);
+    const was = page;
+    page = bp;
+    await bp.goto(server.base + '/?e2e');
+    await bp.waitForSelector(tid('state-empty'), { timeout: 60000 });
+    const chooser = bp.waitForEvent('filechooser');
+    await bp.click(tid('btn-open-empty'));
+    await (await chooser).setFiles(FIX('highlight.pdf'));
+    // the section above left a draft of this file: open the original
+    await bp.waitForSelector(tid('btn-draft-original'), { timeout: 30000 });
+    await bp.click(tid('btn-draft-original'));
+    await bp.waitForFunction(() => document.querySelector('[data-testid="page-total"]')?.textContent?.includes('/ 3'), null, { timeout: 60000 });
+    await sleep(800);
+    await bp.keyboard.press('e');
+    await bp.waitForSelector(`${tid('textedit-layer-0')}[data-ready="true"]`, { timeout: 30000 });
+    const openBulk = async () => {
+      await bp.click(tid('btn-unmark-all'));
+      await bp.waitForSelector(tid('unmark-all-dialog'));
+      await bp.waitForSelector(`${tid('unmark-all-found')}, ${tid('unmark-all-none')}`, { timeout: 60000 });
+      const found = bp.locator(tid('unmark-all-found'));
+      if (!(await found.count())) return { spots: 0, pages: 0, colors: [] };
+      return {
+        spots: +(await found.getAttribute('data-spots')),
+        pages: +(await found.getAttribute('data-pages')),
+        colors: await bp.$$eval('[data-testid="unmark-all-color"]', (els) => els.map((e) => `${e.dataset.name} ${e.dataset.count}`)),
+      };
+    };
+    const plan = () => bp.textContent(tid('unmark-all-plan'));
+    const first = await openBulk();
+    check(
+      'the button finds every highlight: 11 places on 3 pages, by colour (vàng 8, xanh lá 2, cam 1)',
+      first.spots === 11 && first.pages === 3 && first.colors.join(', ') === 'vàng 8, xanh lá 2, cam 1',
+      JSON.stringify(first),
+    );
+    await bp.screenshot({ path: path.join(OUT, 'unmark-all.png') });
+    await bp.click(tid('unmark-all-pages-current'));
+    const onePage = await plan();
+    await bp.click(tid('unmark-all-pages-all'));
+    await bp.locator(tid('unmark-all-color')).nth(1).click();
+    await bp.locator(tid('unmark-all-color')).nth(2).click();
+    const yellowOnly = await plan();
+    const go = await bp.textContent(tid('unmark-all-go'));
+    check(
+      'pages and colours narrow the plan: page 1 alone has 6; leaving out green and orange, 8 places on 3 pages',
+      onePage.includes('6 chỗ tô trên 1 trang') && yellowOnly.includes('8 chỗ tô trên 3 trang') && go.includes('Bỏ 8 chỗ tô'),
+      `${onePage} | ${yellowOnly} | ${go}`,
+    );
+    await bp.click(tid('unmark-all-go'));
+    await bp.waitForSelector(tid('unmark-all-dialog'), { state: 'detached', timeout: 60000 });
+    await bp.waitForFunction(() => document.querySelector('[data-testid="tool-hint"]')?.textContent?.includes('Đã bỏ 8 chỗ tô'), null, { timeout: 30000 });
+    const said = await hint();
+    await sleep(800);
+    const after = await openBulk();
+    check(
+      'one click takes the 8 yellow places off and says so; green and orange are left (3 places on 2 pages)',
+      said.includes('trên 3 trang') && said.includes('Hoàn tác') && after.spots === 3 && after.pages === 2 && after.colors.join(', ') === 'xanh lá 2, cam 1',
+      `${said} | ${JSON.stringify(after)}`,
+    );
+    await bp.click(tid('unmark-all-cancel'));
+    await bp.click(tid('btn-undo'));
+    await sleep(1500);
+    const undone = await openBulk();
+    await bp.click(tid('unmark-all-cancel'));
+    await bp.click(tid('btn-redo'));
+    await sleep(1500);
+    const redone = await openBulk();
+    await bp.click(tid('unmark-all-cancel'));
+    check('undo brings all 8 back in one step, redo takes them off again', undone.spots === 11 && redone.spots === 3, `${undone.spots} → ${redone.spots}`);
+    await bp.keyboard.press('Escape');
+    await bp.waitForSelector(tid('state-draft-saved'), { timeout: 30000 });
+    const dl = bp.waitForEvent('download');
+    await bp.click(tid('btn-export'));
+    const exp = path.join(OUT, 'unmarked-all.pdf');
+    await (await dl).saveAs(exp);
+    fs.writeFileSync(
+      path.join(OUT, 'unmark-all.json'),
+      JSON.stringify(
+        [
+          {
+            file: 'unmarked-all.pdf',
+            source: 'highlight.pdf',
+            pages: {
+              0: { removed: ['Báo cáo số lượng', 'đoàn viên có mặt tại', 'Đại hội#1', 'Thư ký#0', 'Thư ký#1', 'riêng', 'nhiều dòng để kiểm tra', 'một đoạn liền nhau'], kept: ['một cụm tô xanh', 'TT', 'Ô có nền xám'] },
+              1: { removed: ['highlighted passage', 'processor has to paint'], kept: ['Green cell text', 'Shaded run', 'Grey cell'] },
+              2: { removed: ['highlight annotation', 'A flattened highlight drawn over the text.'], kept: ['covered', 'White on dark', 'A callout box', 'thin bar'] },
+            },
+            annots: { 2: 0 },
+          },
+        ],
+        null,
+        2,
+      ),
+    );
+    let bv = '';
+    let bok = false;
+    try {
+      bv = execFileSync('python3', [path.join(ROOT, 'scripts/verify_unmark.py'), path.join(OUT, 'unmark-all.json')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      bok = true;
+    } catch (e) {
+      bv = String(e.stdout || e);
+    }
+    const bl = bv.split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
+    check(
+      'exported PDF: every yellow band gone from the drawings of all 3 pages, nothing painted over, words and the kept highlights as before (MuPDF, Poppler, qpdf)',
+      bok && bl.length >= 15,
+      `${bl.filter((l) => l.startsWith('PASS')).length}/${bl.length} independent checks${bok ? '' : ': ' + bl.filter((l) => l.startsWith('FAIL')).join(' | ')}`,
+    );
+    await bp.close();
+    page = was;
+  }
+
   // ── phone ──
   {
     const pctx = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
@@ -536,6 +653,17 @@ let onCrash = async () => {};
       'phone: the Bỏ tô sáng row fits the screen and a tap takes the highlight off',
       rowBox.x >= 0 && rowBox.x + rowBox.width <= 412 && btnBox.x + btnBox.width <= 412 && btnBox.height >= 28,
       `row ${Math.round(rowBox.x)}–${Math.round(rowBox.x + rowBox.width)} px, button ${Math.round(btnBox.width)}×${Math.round(btnBox.height)}`,
+    );
+    await ph.waitForSelector(tid('btn-unmark-all'), { timeout: 15000 });
+    await ph.tap(tid('btn-unmark-all'));
+    await ph.waitForSelector(tid('unmark-all-found'), { timeout: 60000 });
+    const dlg = await ph.locator(tid('unmark-all-dialog')).boundingBox();
+    const goBox = await ph.locator(tid('unmark-all-go')).boundingBox();
+    await ph.screenshot({ path: path.join(OUT, 'phone-unmark-all.png') });
+    check(
+      'phone: Bỏ tô sáng hàng loạt is in reach and its dialog fits the screen',
+      dlg.x >= 0 && dlg.x + dlg.width <= 412 && goBox.y + goBox.height <= 915 && goBox.height >= 28,
+      `dialog ${Math.round(dlg.x)}–${Math.round(dlg.x + dlg.width)} px, button bottom ${Math.round(goBox.y + goBox.height)}`,
     );
     await pctx.close();
   }

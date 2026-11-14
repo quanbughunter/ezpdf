@@ -17,7 +17,7 @@
  */
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium';
 import { finalizeExport, type FinalizeReport } from './vn-freetext-export';
-import { TextEditor, TextEditError, type EditReport, type MarkReport, type TextLine } from './text-edit';
+import { TextEditor, TextEditError, type EditReport, type MarkReport, type PageMark, type TextLine } from './text-edit';
 import { assembleInPlace, assembleNew, pageInfos, PageOpsError, type PageInfo, type PlanPage } from './page-ops';
 import { Wasm } from './wasm';
 import { jpegWithDpi, pngWithDpi } from './image-meta';
@@ -40,6 +40,12 @@ export type EditRequest =
   | { id: number; kind: 'edit-replace'; session: number; pageIndex: number; key: string; text: string }
   /** "Bỏ tô sáng": the highlight under the line `key` and its passage */
   | { id: number; kind: 'edit-unmark'; session: number; pageIndex: number; key: string }
+  /** "Bỏ tô sáng hàng loạt": every highlight of a page */
+  | { id: number; kind: 'edit-marks'; session: number; pageIndex: number }
+  /** take off the highlights of these colours on a page, without saving */
+  | { id: number; kind: 'edit-unmark-page'; session: number; pageIndex: number; colors: [number, number, number][] }
+  /** the whole document as it now is */
+  | { id: number; kind: 'edit-save'; session: number }
   | { id: number; kind: 'edit-close'; session: number };
 
 export type RenderRequest =
@@ -100,6 +106,9 @@ export type EditResponse =
   | { id: number; ok: true; lines: TextLine[] }
   | { id: number; ok: true; bytes: ArrayBuffer; report: EditReport; ms: number }
   | { id: number; ok: true; bytes: ArrayBuffer; marks: MarkReport; ms: number }
+  | { id: number; ok: true; pageMarks: PageMark[] }
+  | { id: number; ok: true; report: MarkReport }
+  | { id: number; ok: true; bytes: ArrayBuffer }
   | { id: number; ok: true }
   | { id: number; ok: false; error: string; userError?: boolean };
 
@@ -208,6 +217,12 @@ async function handleEdit(req: EditRequest) {
   const s = sessions.get(req.session);
   if (!s) throw new TextEditError('Phiên sửa chữ đã đóng, hãy chọn lại dòng.');
   if (req.kind === 'edit-lines') return post({ id: req.id, ok: true, lines: s.editor.lines(req.pageIndex) });
+  if (req.kind === 'edit-marks') return post({ id: req.id, ok: true, pageMarks: s.editor.pageMarks(req.pageIndex) });
+  if (req.kind === 'edit-unmark-page') return post({ id: req.id, ok: true, report: s.editor.removeAllMarks(req.pageIndex, req.colors) });
+  if (req.kind === 'edit-save') {
+    const bytes = save(s.m, s.doc);
+    return post({ id: req.id, ok: true, bytes }, [bytes]);
+  }
   const t0 = performance.now();
   if (req.kind === 'edit-unmark') {
     const marks = s.editor.removeMarks(req.pageIndex, req.key);

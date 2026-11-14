@@ -2,7 +2,7 @@
 
 Ứng dụng đọc và chỉnh PDF (và sửa nhẹ tệp Word) chạy trên trình duyệt, desktop và Android. Mọi xử lý diễn ra trên thiết bị: tài liệu không bao giờ bị tải lên đâu cả.
 
-**Trạng thái: bản 0.9.1.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra) và trên Windows. Web app (cả trên iPhone): **https://quanbughunter.github.io/ezpdf/**. Bộ cài Windows và APK Android của mỗi phiên bản: **https://github.com/quanbughunter/ezpdf/releases/latest**. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và:
+**Trạng thái: bản 0.9.2.** Đã chạy trên điện thoại Android thật (Galaxy S24 Ultra) và trên Windows. Web app (cả trên iPhone): **https://quanbughunter.github.io/ezpdf/**. Bộ cài Windows và APK Android của mỗi phiên bản: **https://github.com/quanbughunter/ezpdf/releases/latest**. Tính năng: thumbnail, tìm kiếm, ô chữ tiếng Việt khớp tệp xuất, tô sáng, ghi chú dán, ảnh, chữ ký, xoay trang lưu vào tệp, bản nháp tự lưu, xuất PDF mới, và:
 
 - **Tệp Word** (bản 0.8.0, hình vẽ và công thức từ 0.8.1, ảnh mọi định dạng, phóng to, phông và cỡ chữ từ 0.8.2, chia trang và điểm dừng tab từ 0.8.3, điện thoại đọc trước và phông đúng độ rộng từ 0.8.4, hình nổi có chữ chạy quanh và mũ góc MathType từ 0.8.5, ngoặc MathType vẽ giống nhau trên mọi máy và bảng thông tin tệp từ 0.8.6): mở `.docx` ngay trên máy, sửa chữ, đậm/nghiêng/gạch chân, đổi phông và cỡ chữ, thêm và xóa đoạn, sửa chữ trong bảng, rồi lưu ra `… (ezPDF).docx`. Chia trang như Word (đầu trang, chân trang, số trang trên từng tờ), tab dừng đúng điểm dừng; điện thoại mở tệp để đọc (chạm không bật bàn phím, chạm hai lần để phóng, **Sửa** khi cần sửa), cả trang thu nhỏ vừa màn hình; phông Times New Roman, Arial, Calibri, Palatino Linotype giữ đúng độ rộng chữ cả trên máy không có chúng. Phóng to, thu nhỏ bằng nút, Ctrl + lăn chuột hay hai ngón. Ảnh mọi định dạng (cả TIFF, EPS, PICT), hình vẽ, hộp chữ, nhóm hình, công thức Word và MathType, biểu đồ, SmartArt, chú thích cuối trang hiện đúng như hình; chữ quanh công thức sửa được. Phần không sửa được ghi lại y như cũ; đoạn theo dõi thay đổi, ô điều khiển nội dung chỉ xem. Nút ⓘ hiện thông tin tệp (tên, đường dẫn trên Android, dung lượng, tác giả, ngày tạo…), có nút chép. Xem `docs/11-word.md`.
 - **Bộ công cụ** (bản 0.7.0, tên cũ “Sắp xếp trang”; từ 0.8.0 nằm cạnh nút Chia sẻ): thêm trang từ PDF khác, từ ảnh quét hay trang trắng; kéo thả để đổi chỗ (trên điện thoại: giữ rồi kéo); xoay, xóa; trích các trang chọn ra tệp mới; tách tài liệu thành nhiều tệp. Áp dụng một lần, hoàn tác được. Quét xong có thể **Thêm vào tài liệu này**. Xem `docs/10-sap-xep-trang.md`.
@@ -15,7 +15,7 @@
 - **Xuất thành ảnh** (bản 0.8.7; Windows: nút cạnh In, điện thoại: ⋮): các trang thành ảnh PNG, JPEG, TIFF (nén LZW, mỗi trang một tệp hoặc cả tài liệu trong một tệp) hay WebP, 72–600 dpi, ảnh xám, tất cả hoặc một số trang; ảnh có đủ chữ đã thêm, chữ ký, phần đã sửa. Windows lưu vào thư mục chọn trong hộp thoại (không ghi đè, có nút Mở thư mục); Android lưu vào Ảnh › ezPDF (TIFF vào Tải xuống › ezPDF); iPhone và trình duyệt: Lưu hình ảnh qua bảng chia sẻ, hoặc tải về. Xem `docs/12-xuat-anh.md`.
 
 - **Sửa chữ có sẵn trong PDF** (bản 0.5.0, phím E): sửa từng dòng, và chỉ phần đã đổi bị viết lại (nhãn đậm đứng trước vẫn giữ nguyên). Chữ cũ được xóa khỏi nội dung trang rồi viết chữ mới vào, không phủ đè. Giữ phông gốc khi phông đó vẽ được mọi chữ mới; nếu không thì dùng phông ezSans (Latin, tiếng Việt, tiếng Nga, Hy Lạp) và báo trước. Từ bản 0.9.1, mỗi ô của một hàng bảng là một dòng riêng. Xem `docs/07-sua-chu-va-quet.md`.
-- **Bỏ tô sáng có sẵn trong tệp** (bản 0.9.1, trong công cụ Sửa chữ có sẵn): chạm vào dòng đang được tô, bấm **Bỏ tô sáng**, cả đoạn tô liền nhau mất màu. Dải màu mà Google Docs, Word, LibreOffice, Chrome vẽ dưới chữ được xóa khỏi nội dung trang, không phủ trắng; ghi chú tô sáng thì được gỡ khỏi trang. Chữ giữ nguyên. Nền ô bảng, chữ trắng trên nền đậm, ô đen che chữ không bao giờ bị bỏ. Xem `docs/14-bo-to-sang.md`.
+- **Bỏ tô sáng có sẵn trong tệp** (bản 0.9.1, trong công cụ Sửa chữ có sẵn): chạm vào dòng đang được tô, bấm **Bỏ tô sáng**, cả đoạn tô liền nhau mất màu. Dải màu mà Google Docs, Word, LibreOffice, Chrome vẽ dưới chữ được xóa khỏi nội dung trang, không phủ trắng; ghi chú tô sáng thì được gỡ khỏi trang. Chữ giữ nguyên. Nền ô bảng, chữ trắng trên nền đậm, ô đen che chữ không bao giờ bị bỏ. Từ bản 0.9.2 có **Bỏ tô sáng hàng loạt…**: tìm mọi chỗ tô trong tệp, chọn màu và trang, bỏ hết trong một lần (một bước hoàn tác). Xem `docs/14-bo-to-sang.md`.
 - **Quét tài liệu** (bản 0.5.0): chụp hoặc chọn ảnh giấy tờ. App tìm mép giấy, kể cả tờ nằm đè lên tờ khác (bản 0.6.2); người dùng kéo 4 góc nếu cần (có kính lúp). App làm phẳng và làm sáng ảnh với màu tự nhiên, rồi tạo PDF. Xử lý hoàn toàn trên máy.
 
 Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
@@ -83,7 +83,7 @@ npm run test:ocr     # OCR trong Node qua đúng các bước của app: trang t
 npm run e2e:ocr      # OCR trong Chromium thật (dev server, ?ocr): ảnh, TIFF hai trang, PDF đang mở → Word (python-docx), PDF (pdf.js)
 npm run test:edit    # sửa chữ có sẵn: 6 kiểu PDF (Chromium, LibreOffice, Helvetica, LaTeX, trang xoay, chữ ẩn/Form)
                      # + tệp mã hóa → kiểm độc lập bằng qpdf, Poppler, MuPDF (chữ cũ hết, phần còn lại không đổi điểm ảnh nào)
-                     # + bỏ tô sáng: Chromium (như Google Docs), LibreOffice, ghi chú, ô đen, nền ô, khung → kiểm độc lập
+                     # + bỏ tô sáng (từng đoạn và hàng loạt theo màu): Chromium (như Google Docs), LibreOffice, ghi chú, ô đen, nền ô, khung → kiểm độc lập
                      #   (dải màu rời khỏi danh sách hình vẽ, không có gì phủ lên, chữ y hệt)
 npm run e2e:edit     # sửa chữ trong app: thanh sửa, báo phông, giữ góc xoay/mức phóng, hoàn tác, nháp, xuất, điện thoại, bỏ tô sáng
 npm run e2e:scan     # quét: 7 ảnh chụp giả lập (góc, tỉ lệ A4, độ sáng giấy, màu dấu), PDF, luồng trong app, camera trên điện thoại
@@ -150,7 +150,7 @@ src/
     tiff-write.ts          bộ ghi TIFF (LZW, predictor, nhiều trang); image-meta.ts: dpi trong PNG và JPEG
     text-edit.ts           sửa chữ có sẵn: gom dòng (ngắt ở đường kẻ bảng), thay đối tượng chữ, chọn phông, đọc lại để kiểm;
                            bỏ tô sáng (removeMarks)
-    marks.ts               nhận ra dải tô sáng dưới chữ, đường kẻ bảng, gom đoạn tô liền nhau
+    marks.ts               nhận ra dải tô sáng dưới chữ, đường kẻ bảng, gom đoạn tô liền nhau, nhóm và tên màu
 public/fonts/          ezPDF Sans VN (subset Noto Sans: Latin, Việt, Kirin, Hy Lạp; SIL OFL 1.1, đã đổi tên); metric/: Tinos, Arimo, Carlito (OFL), ezPDF Pagella (GUST) cùng độ rộng chữ với phông của Word
 public/icons/, manifest.webmanifest   biểu tượng và manifest của web app
 build/                 plugin Vite: service worker (danh sách tệp của bản build), CSP cho bản web

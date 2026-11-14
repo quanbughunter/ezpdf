@@ -29,8 +29,9 @@
  * as filled rectangles in the page content, one per line, just before the
  * words. `removeMarks` takes those rectangles (marks.ts says which ones)
  * out of the content, and highlight annotations off the page, for the
- * passage a line belongs to. The words are not touched; nothing is painted
- * over the band.
+ * passage a line belongs to; `pageMarks` lists every highlight of a page and
+ * `removeAllMarks` takes off those of chosen colours ("Bỏ tô sáng hàng
+ * loạt"). The words are not touched; nothing is painted over the band.
  *
  * Lines stop at a table's vertical rules, so the cells of one row are
  * separate lines (an edit never moves the next cell's text).
@@ -47,7 +48,7 @@
 import type { WrappedPdfiumModule } from '@embedpdf/pdfium';
 import { Wasm, wideString } from './wasm';
 import { readFontMetrics, type FontMetrics } from './font-metrics';
-import { annotLines, classifyPath, findMarks, passage, ruleSplits, shapeOf, type AnnotMark, type Fill, type MarkText, type Rule } from './marks';
+import { annotLines, classifyPath, findMarks, passage, passages, ruleSplits, shapeOf, type AnnotMark, type Fill, type MarkText, type Rule } from './marks';
 
 const FPDF_PAGEOBJ_TEXT = 1;
 const FPDF_PAGEOBJ_PATH = 2;
@@ -106,6 +107,14 @@ export interface LineMarks {
   /** first and last line of the passage */
   first: string;
   last: string;
+}
+
+/** One highlight of a page: a passage of bands, or a highlight annotation. */
+export interface PageMark {
+  kind: 'fill' | 'annot';
+  color: [number, number, number];
+  /** text lines it lies on (an annotation over no text: 0) */
+  lines: number;
 }
 
 export interface MarkReport {
@@ -360,51 +369,95 @@ export class TextEditor {
    */
   removeMarks(pageIndex: number, key: string): MarkReport {
     return this.withPage(pageIndex, (page) => {
-      const tp = this.m.FPDFText_LoadPage(page);
-      let shapes: PageShapes;
-      let plan: ReturnType<TextEditor['passageOf']>;
-      let before: string;
-      try {
-        const objs = this.textObjects(page, tp);
-        shapes = this.shapes(page);
-        const groups = groupLines(objs, shapes.rules);
-        const line = groups.findIndex((g) => g.map((o) => o.index).join(',') === key);
-        if (line < 0) throw new TextEditError('Trang đã thay đổi, hãy chọn lại dòng.');
-        plan = this.passageOf(line, this.markState(page, groups, shapes), shapes);
-        if (!plan.fills.length && !plan.annots.length) throw new TextEditError('Dòng này không có màu tô nào để bỏ.');
-        before = objs.map((o) => o.text).join('\u0001');
-      } finally {
-        this.m.FPDFText_ClosePage(tp);
-      }
-
-      // Take the rectangles out of the page; they go back if anything fails.
-      const taken = plan.fills.map((k) => ({ handle: shapes.handles[k], index: shapes.fills[k].index })).sort((a, b) => b.index - a.index);
-      const out: typeof taken = [];
-      try {
-        for (const t of taken) {
-          if (!this.m.FPDFPage_RemoveObject(page, t.handle)) throw new Error('FPDFPage_RemoveObject failed');
-          out.push(t);
-        }
-        if (taken.length) this.generate(page);
-      } catch (e) {
-        for (const t of [...out].sort((a, b) => a.index - b.index)) this.m.FPDFPage_InsertObjectAtIndex(page, t.handle, t.index);
-        throw e;
-      }
-      for (const t of taken) this.m.FPDFPageObj_Destroy(t.handle);
-      // from the last, so the others keep their index
-      for (const x of [...plan.annots].sort((a, b) => b.a.index - a.a.index)) {
-        if (!this.m.FPDFPage_RemoveAnnot(page, x.a.index)) throw new Error('FPDFPage_RemoveAnnot failed');
-      }
-
-      const tp2 = this.m.FPDFText_LoadPage(page);
-      try {
-        const after = this.textObjects(page, tp2).map((o) => o.text).join('\u0001');
-        if (after !== before) throw new Error('chữ trên trang đã đổi sau khi bỏ màu tô');
-      } finally {
-        this.m.FPDFText_ClosePage(tp2);
-      }
-      return { removedFills: taken.length, removedAnnots: plan.annots.length, lines: plan.lines.size };
+      const r = this.readMarks(page, false);
+      const line = r.groups.findIndex((g) => g.map((o) => o.index).join(',') === key);
+      if (line < 0) throw new TextEditError('Trang đã thay đổi, hãy chọn lại dòng.');
+      const plan = this.passageOf(line, r.state, r.shapes);
+      if (!plan.fills.length && !plan.annots.length) throw new TextEditError('Dòng này không có màu tô nào để bỏ.');
+      return this.takeOff(page, r, plan.fills, plan.annots.map((x) => x.a), plan.lines.size);
     });
+  }
+
+  /**
+   * Every highlight of a page, for "Bỏ tô sáng hàng loạt": one entry per
+   * passage of bands (marks.ts), one per highlight annotation (all of them,
+   * over text or not).
+   */
+  pageMarks(pageIndex: number): PageMark[] {
+    return this.withPage(pageIndex, (page) => {
+      const { state, shapes } = this.readMarks(page, true);
+      const out: PageMark[] = passages(state.marks, shapes.fills, shapes.rules).map((group) => {
+        const [r, g, b] = shapes.fills[group[0]].color;
+        return { kind: 'fill', color: [r, g, b], lines: new Set(group.flatMap((k) => state.marks.get(k)!)).size };
+      });
+      for (const x of state.annots) out.push({ kind: 'annot', color: x.a.color, lines: x.lines.length });
+      return out;
+    });
+  }
+
+  /**
+   * Take off every highlight of the given colours on a page (bands and
+   * highlight annotations). Does not save: the caller saves once after all
+   * pages.
+   */
+  removeAllMarks(pageIndex: number, colors: [number, number, number][]): MarkReport {
+    return this.withPage(pageIndex, (page) => {
+      const r = this.readMarks(page, true);
+      const wanted = (c: number[]) => colors.some((k) => Math.abs(k[0] - c[0]) <= 3 && Math.abs(k[1] - c[1]) <= 3 && Math.abs(k[2] - c[2]) <= 3);
+      const fills = [...r.state.marks.keys()].filter((k) => wanted(r.shapes.fills[k].color));
+      const annots = r.state.annots.filter((x) => wanted(x.a.color));
+      if (!fills.length && !annots.length) return { removedFills: 0, removedAnnots: 0, lines: 0 };
+      const lines = new Set([...fills.flatMap((k) => r.state.marks.get(k)!), ...annots.flatMap((x) => x.lines)]);
+      return this.takeOff(page, r, fills, annots.map((x) => x.a), lines.size);
+    });
+  }
+
+  /** Text objects, rules, filled rectangles and the marks among them, for one page. */
+  private readMarks(page: number, allAnnots: boolean) {
+    const tp = this.m.FPDFText_LoadPage(page);
+    try {
+      const objs = this.textObjects(page, tp);
+      const shapes = this.shapes(page);
+      const groups = groupLines(objs, shapes.rules);
+      const state = this.markState(page, groups, shapes, allAnnots);
+      return { shapes, groups, state, text: objs.map((o) => o.text).join('\u0001') };
+    } finally {
+      this.m.FPDFText_ClosePage(tp);
+    }
+  }
+
+  /**
+   * Take fills (numbers into `r.shapes.fills`) out of the page content and
+   * annotations off the page, then check every text object is as it was.
+   */
+  private takeOff(page: number, r: ReturnType<TextEditor['readMarks']>, fills: number[], annots: AnnotMark[], lines: number): MarkReport {
+    // Take the rectangles out of the page; they go back if anything fails.
+    const taken = fills.map((k) => ({ handle: r.shapes.handles[k], index: r.shapes.fills[k].index })).sort((a, b) => b.index - a.index);
+    const out: typeof taken = [];
+    try {
+      for (const t of taken) {
+        if (!this.m.FPDFPage_RemoveObject(page, t.handle)) throw new Error('FPDFPage_RemoveObject failed');
+        out.push(t);
+      }
+      if (taken.length) this.generate(page);
+    } catch (e) {
+      for (const t of [...out].sort((a, b) => a.index - b.index)) this.m.FPDFPage_InsertObjectAtIndex(page, t.handle, t.index);
+      throw e;
+    }
+    for (const t of taken) this.m.FPDFPageObj_Destroy(t.handle);
+    // from the last, so the others keep their index
+    for (const a of [...annots].sort((x, y) => y.index - x.index)) {
+      if (!this.m.FPDFPage_RemoveAnnot(page, a.index)) throw new Error('FPDFPage_RemoveAnnot failed');
+    }
+
+    const tp = this.m.FPDFText_LoadPage(page);
+    try {
+      const after = this.textObjects(page, tp).map((o) => o.text).join('\u0001');
+      if (after !== r.text) throw new Error('chữ trên trang đã đổi sau khi bỏ màu tô');
+    } finally {
+      this.m.FPDFText_ClosePage(tp);
+    }
+    return { removedFills: taken.length, removedAnnots: annots.length, lines };
   }
 
   /** Release the fonts this session embedded (call before closing the document). */
@@ -535,8 +588,8 @@ export class TextEditor {
     return [255, 212, 59];
   }
 
-  /** Which fills and annotations mark which lines. */
-  private markState(page: number, groups: Obj[][], shapes: PageShapes): MarkState {
+  /** Which fills and annotations mark which lines; `allAnnots` keeps highlight annotations over no text too. */
+  private markState(page: number, groups: Obj[][], shapes: PageShapes, allAnnots = false): MarkState {
     const texts: MarkText[] = groups.flatMap((g, line) =>
       g.map((o) => {
         const [r, gr, b] = this.color(o.handle, 'fill');
@@ -546,7 +599,7 @@ export class TextEditor {
     const marks = findMarks(shapes.fills, texts, shapes.rules);
     const annots = this.highlightAnnots(page)
       .map((a) => ({ a, lines: annotLines(a, texts) }))
-      .filter((x) => x.lines.length);
+      .filter((x) => allAnnots || x.lines.length);
     return { marks, annots };
   }
 

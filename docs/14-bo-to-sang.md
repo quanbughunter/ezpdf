@@ -1,4 +1,4 @@
-# 14 · Bỏ tô sáng có sẵn trong PDF (bản 0.9.1)
+# 14 · Bỏ tô sáng có sẵn trong PDF (bản 0.9.1; hàng loạt từ 0.9.2)
 
 Yêu cầu (14/11, kèm ảnh chụp bản Windows 0.9.0 đang mở kịch bản điều hành Đại hội xuất từ Google Docs): công cụ sửa chưa cho bỏ phần chữ đang được tô vàng.
 
@@ -72,6 +72,37 @@ Tệp mẫu `tests/fixtures/highlight.pdf` (`scripts/make_highlight_fixture.py`)
 
 Một điểm nhỏ về số liệu: PDFium ghi màu lại bằng số thực 32 bit (0,85 thành 0,85000002). Khi vẽ, màu phẳng có thể lệch 1/255. Mắt không thấy được, nên bộ kiểm coi lệch từ 3/255 trở xuống là không đổi.
 
+## Bỏ tô sáng hàng loạt (bản 0.9.2)
+
+Yêu cầu (15/11): “giả sử một file pdf đang bị highlight rải rác ở nhiều chỗ. tôi muốn có tính năng sao cho bỏ đi highlight đồng loạt”.
+
+**Cách dùng.** Bấm **E** (Sửa chữ có sẵn). Phía trên dòng hướng dẫn ở cuối màn hình có nút **Bỏ tô sáng hàng loạt…**. Bấm vào thì app tìm qua mọi trang (có thanh tiến độ, bấm Dừng được) rồi hiện:
+
+- “Tìm thấy 11 chỗ tô trên 3 trang.” Một đoạn tô kéo qua nhiều dòng tính là một chỗ, một ghi chú tô sáng cũng là một chỗ.
+- **Màu cần bỏ**: mỗi màu một nút, có số chỗ, ví dụ “vàng · 8”, “xanh lá · 2”, “cam · 1”. Lúc đầu mọi màu đều được chọn. Chạm vào một màu để giữ lại màu đó.
+- **Trang**: tất cả, trang đang xem, hoặc các trang ghi tay (1-3, 5).
+- “Sẽ bỏ 8 chỗ tô trên 3 trang.”, rồi nút **Bỏ 8 chỗ tô**.
+
+Bấm xong, app báo “Đã bỏ 8 chỗ tô trên 3 trang, chữ giữ nguyên.” **Một lần Hoàn tác lấy lại tất cả.** Đang bỏ mà bấm Dừng thì tài liệu giữ nguyên như trước khi bấm.
+
+**Cách làm.** Dùng đúng các quy tắc nhận ra dải tô ở trên, chạy cho cả trang thay vì một dòng:
+
+- `pageMarks`: liệt kê các đoạn tô của trang (gom các dải liền nhau, cùng màu) và **mọi** ghi chú tô sáng, kể cả ghi chú không nằm trên chữ.
+- `colorGroups`: gộp các màu chênh nhau dưới 24/255 mỗi kênh thành một nhóm, đặt tên tiếng Việt theo sắc màu. Tên khớp với các màu tô của Word: Pink là hồng, Violet là tím, Turquoise là xanh ngọc.
+- `removeAllMarks`: từng trang được chọn, lấy các dải có màu đã chọn ra khỏi nội dung trang, gỡ các ghi chú cùng màu, rồi đọc lại toàn bộ chữ của trang (phải y hệt). Tệp chỉ được ghi một lần sau khi xong mọi trang, nên chỉ có một bước hoàn tác.
+
+Những thứ không bao giờ bị tính là tô sáng ở chế độ một dòng thì ở đây cũng không bị bỏ: nền ô bảng, chữ trắng trên nền đậm, khung nền nhiều dòng, ô đục vẽ đè lên chữ.
+
+**Kiểm chứng** (cùng tệp mẫu `highlight.pdf`):
+
+| Bộ kiểm | Kết quả |
+|---|---|
+| `tests/unmark-probe.ts` | **40/40** (5 điểm mới). Tìm đúng mọi chỗ tô của từng trang. Trang 1: năm đoạn vàng (3, 2, 1, 1, 1 dòng) và một cụm xanh lá. Trang 2: vàng, xanh lá, cam. Trang 3: một ghi chú và một dải trong suốt. Gộp màu: vàng 8, xanh lá 2, cam 1. Tên màu đúng cho 10 màu tô của Word và Acrobat. Bỏ màu vàng ở cả 3 trang: 11 dải (8 chỗ) và 1 ghi chú; xanh lá và cam còn nguyên. Chạy lại lần hai không bỏ thêm gì |
+| `scripts/verify_unmark.py` | **48/48** (18 điểm mới cho tệp bỏ hàng loạt, cả 3 trang). Dải vàng không còn trong danh sách hình vẽ, không có hình mới phủ lên, chữ vẫn đậm, Poppler và MuPDF đọc chữ y hệt, các chỗ tô xanh và cam không đổi |
+| `npm run e2e:edit` | **40/40** (6 điểm mới). Nút tìm ra 11 chỗ trên 3 trang theo màu. Chọn trang đang xem thì còn 6 chỗ; bỏ chọn xanh lá và cam thì còn 8 chỗ trên 3 trang. Một lần bấm bỏ cả 8 và app báo kết quả, còn lại 3 chỗ trên 2 trang. Hoàn tác lấy lại cả 8 trong một bước, Làm lại thì bỏ lại. Tệp xuất qua bộ kiểm độc lập (18/18). Trên điện thoại: nút với tới được, hộp thoại vừa màn hình |
+
+Ảnh hộp thoại trên tệp mẫu: `docs/bang-chung/m14-bo-to-sang-hang-loat.png`.
+
 ## Giới hạn
 
 1. **Bỏ theo đoạn, chưa bỏ được một phần đoạn.** Bấm ở dòng nào cũng bỏ cả đoạn tô liền nhau. Muốn giữ màu ở một dòng thì bỏ cả đoạn rồi dùng công cụ **Tô sáng chữ** tô lại dòng đó (thành ghi chú).
@@ -79,6 +110,7 @@ Một điểm nhỏ về số liệu: PDFium ghi màu lại bằng số thực 3
 3. **Nền ô bảng không có viền và vừa khít một dòng chữ** có thể bị coi là tô sáng. Bảng có viền thì không bị.
 4. **Tô sáng làm bằng hình khác hình chữ nhật** (bo góc, nét bút vẽ tay) chưa được nhận ra.
 5. Mỗi lần bỏ tô, app ghi lại cả tệp rồi mở lại, như sửa chữ (xem `07-sua-chu-va-quet.md`, mục Giới hạn 6).
+6. **Hàng loạt:** hộp thoại tìm qua mọi trang mỗi lần mở. Tệp vài trăm trang cần vài giây đến vài chục giây; trang nhiều hình vẽ chậm hơn (thử trang 20.000 hình chữ nhật: khoảng 0,4–0,7 giây một trang). Hai màu gần nhau (chênh dưới 24/255) được tính là một màu.
 
 ## Tự kiểm trên tệp của bạn
 
@@ -86,5 +118,7 @@ Một điểm nhỏ về số liệu: PDFium ghi màu lại bằng số thực 3
 2. Bấm **E**, chạm vào dòng “Báo cáo số lượng”. Thanh sửa phải có hàng ô vàng, ghi đoạn gồm 3 dòng, từ “Báo cáo số lượng” đến “tại Đại hội”.
 3. Bấm **Bỏ tô sáng**. Ba dòng hết vàng, chữ đậm vẫn còn. Khung của dòng chỉ bao ô “Báo cáo số lượng”, không chạy sang ô “Đ/c Nguyễn Thị Hường”.
 4. Bấm **Hoàn tác** thì màu vàng quay lại, **Làm lại** thì mất. Xuất PDF rồi mở bằng Edge hoặc Chrome: không còn vàng, chọn và tìm chữ vẫn được.
+
+5. (0.9.2) Bấm **E** rồi **Bỏ tô sáng hàng loạt…**. Số chỗ tô và các màu phải khớp với những gì bạn thấy trên tệp. Bỏ chọn một màu, bấm Bỏ, rồi kiểm: màu đó còn, các màu khác mất. Một lần Hoàn tác lấy lại tất cả.
 
 Nếu bước 2 không có hàng Bỏ tô sáng, gửi tôi tệp đó (hoặc chép vào thư mục `mau de test`; thư mục này không lên GitHub) để tôi xem dải màu được lưu thế nào.

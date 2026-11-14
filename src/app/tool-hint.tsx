@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { Eraser } from 'lucide-react';
 import { PdfAnnotationSubtype } from '@embedpdf/models';
 import { useAnnotation } from '@embedpdf/plugin-annotation/react';
 import { cn } from '@/lib/utils';
@@ -80,7 +81,7 @@ export function ToolHint({ documentId }: { documentId: string }) {
       textEdit.status === 'opening'
         ? 'Đang chuẩn bị sửa chữ…'
         : textEdit.status === 'saving'
-          ? textEdit.saving === 'marks'
+          ? textEdit.saving === 'marks' || textEdit.saving === 'all'
             ? 'Đang bỏ tô sáng…'
             : 'Đang sửa dòng trong tệp…'
           : m
@@ -93,7 +94,17 @@ export function ToolHint({ documentId }: { documentId: string }) {
                 ? 'Chạm vào một dòng có khung nét đứt để sửa chữ. Chạm lại nút Sửa chữ để thoát.'
                 : 'Bấm vào một dòng có khung nét đứt để sửa chữ. Esc để thoát.';
     return (
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex flex-col items-center gap-2 px-4">
+        {textEdit.status === 'ready' && !textEdit.selected && (
+          <button
+            type="button"
+            onClick={() => textEdit.openBulk(true)}
+            data-testid="btn-unmark-all"
+            className="pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border bg-background px-3.5 text-[13px] font-medium text-foreground shadow-[0_2px_10px_rgba(0,0,0,0.14)] transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <Eraser className="size-4" /> Bỏ tô sáng hàng loạt…
+          </button>
+        )}
         <p
           role="status"
           data-testid="tool-hint"

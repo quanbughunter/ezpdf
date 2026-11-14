@@ -155,15 +155,10 @@ function touches(p: Box, q: Box, rules: Rule[]) {
   return vGap <= 0.8 * h && hGap <= 0.5 * h && !ruleBetween(p, q, rules);
 }
 
-/**
- * The passage of marks a line belongs to: the fills under it, and the fills
- * of the same colour that touch them line after line. Returns fill numbers
- * (keys of `marks`).
- */
-export function passage(line: number, marks: Map<number, number[]>, fills: Fill[], rules: Rule[]): number[] {
-  const seen = new Set<number>();
-  const queue: number[] = [];
-  for (const [k, lines] of marks) if (lines.includes(line)) (seen.add(k), queue.push(k));
+/** Grow a set of fills to the passage: same colour, touching line after line. */
+function grow(start: number[], marks: Map<number, number[]>, fills: Fill[], rules: Rule[]): number[] {
+  const seen = new Set(start);
+  const queue = [...start];
   while (queue.length) {
     const a = queue.pop()!;
     for (const b of marks.keys()) {
@@ -175,6 +170,66 @@ export function passage(line: number, marks: Map<number, number[]>, fills: Fill[
     }
   }
   return [...seen].sort((x, y) => x - y);
+}
+
+/**
+ * The passage of marks a line belongs to: the fills under it, and the fills
+ * of the same colour that touch them line after line. Returns fill numbers
+ * (keys of `marks`).
+ */
+export function passage(line: number, marks: Map<number, number[]>, fills: Fill[], rules: Rule[]): number[] {
+  const start = [...marks].filter(([, lines]) => lines.includes(line)).map(([k]) => k);
+  return start.length ? grow(start, marks, fills, rules) : [];
+}
+
+/** All the passages of a page, top to bottom of the drawing order. */
+export function passages(marks: Map<number, number[]>, fills: Fill[], rules: Rule[]): number[][] {
+  const done = new Set<number>();
+  const out: number[][] = [];
+  for (const k of [...marks.keys()].sort((x, y) => x - y)) {
+    if (done.has(k)) continue;
+    const group = grow([k], marks, fills, rules);
+    group.forEach((g) => done.add(g));
+    out.push(group);
+  }
+  return out;
+}
+
+/** A short Vietnamese name for a highlight colour. */
+export function colorName([r, g, b]: [number, number, number]): string {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 510;
+  const s = max === min ? 0 : (max - min) / (255 - Math.abs(max + min - 255));
+  if (s < 0.2) return l > 0.85 ? 'trắng' : l < 0.2 ? 'đen' : 'xám';
+  const d = max - min;
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = (h * 60 + 360) % 360;
+  if (h < 15) return l > 0.75 ? 'hồng' : 'đỏ';
+  if (h < 46) return 'cam';
+  if (h < 70) return 'vàng';
+  if (h < 165) return 'xanh lá';
+  if (h < 200) return 'xanh ngọc';
+  if (h < 255) return 'xanh dương';
+  if (h < 280) return 'tím';
+  // Word's "Pink" highlight is magenta, its "Violet" a dark magenta
+  if (h < 320) return l >= 0.4 ? 'hồng' : 'tím';
+  return 'hồng';
+}
+
+/**
+ * Highlight colours that read as one (each channel within 24 of the group's
+ * first colour), with how many highlights each has. Most used first.
+ */
+export function colorGroups(colors: [number, number, number][]): { color: [number, number, number]; members: [number, number, number][]; count: number; name: string }[] {
+  const groups: { color: [number, number, number]; members: [number, number, number][]; count: number; name: string }[] = [];
+  for (const c of colors) {
+    const g = groups.find((x) => Math.abs(x.color[0] - c[0]) <= 24 && Math.abs(x.color[1] - c[1]) <= 24 && Math.abs(x.color[2] - c[2]) <= 24);
+    if (g) {
+      g.count++;
+      if (!g.members.some((m) => m[0] === c[0] && m[1] === c[1] && m[2] === c[2])) g.members.push(c);
+    } else groups.push({ color: c, members: [c], count: 1, name: colorName(c) });
+  }
+  return groups.sort((a, b) => b.count - a.count);
 }
 
 /** A vertical rule between two text boxes on one line (two table cells). */

@@ -3,7 +3,7 @@ import type { OcrTextPage, PageScan } from './ocr-pdf';
 import type { TiffPage } from './tiff-write';
 import type { PageInfo, PlanPage } from './page-ops';
 import type { FinalizeReport } from './vn-freetext-export';
-import type { EditReport, MarkReport, TextLine } from './text-edit';
+import type { EditReport, MarkReport, PageMark, TextLine } from './text-edit';
 import { PDFIUM_WASM_URL, VN_FONT_URL, VN_BOLD_FONT_URL } from './config';
 
 type Response = ExportResponse | EditResponse | RenderResponse | PagesResponse | OcrPdfResponse;
@@ -84,6 +84,21 @@ export async function replaceTextLine(session: number, pageIndex: number, key: s
 /** Takes the highlight off the passage of line `key`; returns the whole document after the change. */
 export async function unmarkTextLine(session: number, pageIndex: number, key: string) {
   return call<{ id: number; ok: true; bytes: ArrayBuffer; marks: MarkReport; ms: number }>({ kind: 'edit-unmark', session, pageIndex, key });
+}
+
+/** Every highlight of a page ("Bỏ tô sáng hàng loạt"). */
+export async function pageMarks(session: number, pageIndex: number) {
+  return (await call<{ id: number; ok: true; pageMarks: PageMark[] }>({ kind: 'edit-marks', session, pageIndex })).pageMarks;
+}
+
+/** Takes off the highlights of these colours on a page; nothing is saved until `saveTextEdit`. */
+export async function unmarkPage(session: number, pageIndex: number, colors: [number, number, number][]) {
+  return (await call<{ id: number; ok: true; report: MarkReport }>({ kind: 'edit-unmark-page', session, pageIndex, colors })).report;
+}
+
+/** The session's document as it now is. */
+export async function saveTextEdit(session: number) {
+  return (await call<{ id: number; ok: true; bytes: ArrayBuffer }>({ kind: 'edit-save', session })).bytes;
 }
 
 export function closeTextEditSession(session: number): Promise<unknown> {

@@ -10,6 +10,9 @@
  *    not move the next one
  *  - taking highlights off: the filled rectangles leave the page content,
  *    a highlight annotation leaves the page, the text objects stay
+ *  - "Bỏ tô sáng hàng loạt": every highlight of each page (passages of
+ *    bands, annotations), grouped and named by colour; taking off one colour
+ *    everywhere leaves the others
  * Writes out/unmark/<name>.pdf plus expected.json for scripts/verify_unmark.py,
  * which checks the files without PDFium (Poppler, MuPDF, qpdf).
  */
@@ -18,6 +21,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium';
 import { TextEditor, TextEditError, type TextLine } from '../src/engine/text-edit';
+import { colorGroups, colorName } from '../src/engine/marks';
 import { Wasm } from '../src/engine/wasm';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -227,6 +231,49 @@ const expectations: object[] = [];
     file: 'unmark-c.pdf',
     source: 'highlight.pdf',
     pages: { 2: { removed: ['highlight annotation', 'A flattened highlight drawn over the text.'], kept: ['covered', 'White on dark', 'A callout box', 'thin bar'] } },
+    annots: { 2: 0 },
+  });
+  close();
+}
+{
+  // d: every page, one colour (yellow) off, green and orange kept
+  const { doc, ed, close } = open();
+  const found = [0, 1, 2].map((p) => ed.pageMarks(p));
+  const summary = found.map((ms) => ms.map((m) => `${m.kind}:${colorName(m.color)}:${m.lines}`).sort().join(' '));
+  check(
+    'every highlight of each page is found: p1 five yellow passages and a green one, p2 yellow, green, orange, p3 an annotation and a see-through band',
+    summary[0] === 'fill:vàng:1 fill:vàng:1 fill:vàng:1 fill:vàng:2 fill:vàng:3 fill:xanh lá:1' &&
+      summary[1] === 'fill:cam:1 fill:vàng:2 fill:xanh lá:1' &&
+      summary[2] === 'annot:vàng:1 fill:vàng:1',
+    summary.join(' | '),
+  );
+  const groups = colorGroups(found.flat().map((m) => m.color));
+  check(
+    'grouped by colour, most used first: vàng 8, xanh lá 2, cam 1',
+    groups.map((g) => `${g.name} ${g.count}`).join(', ') === 'vàng 8, xanh lá 2, cam 1',
+    groups.map((g) => `${g.name} ${g.count} ${JSON.stringify(g.members)}`).join('; '),
+  );
+  const names = ([[255, 255, 0], [0, 255, 0], [255, 192, 0], [0, 255, 255], [0, 0, 255], [255, 0, 255], [255, 0, 0], [128, 0, 128], [200, 200, 200], [255, 212, 59]] as [number, number, number][]).map(colorName);
+  check('colour names: the highlight colours of Word and Acrobat', names.join(',') === 'vàng,xanh lá,cam,xanh ngọc,xanh dương,hồng,đỏ,tím,xám,vàng', names.join(','));
+  const yellow = groups[0].members;
+  const reports = [0, 1, 2].map((p) => ed.removeAllMarks(p, yellow));
+  const left = [0, 1, 2].map((p) => ed.pageMarks(p).map((m) => colorName(m.color)).sort().join(' '));
+  check(
+    'taking off yellow everywhere: 11 bands (8 passages) and 1 annotation go; green (2) and orange (1) stay',
+    reports.reduce((n, r) => n + r.removedFills, 0) === 11 && reports.reduce((n, r) => n + r.removedAnnots, 0) === 1 && left.join('|') === 'xanh lá|cam xanh lá|',
+    `${JSON.stringify(reports)} left ${JSON.stringify(left)}`,
+  );
+  const again = [0, 1, 2].map((p) => ed.removeAllMarks(p, yellow));
+  check('a second pass finds nothing more to take off', again.every((r) => !r.removedFills && !r.removedAnnots), JSON.stringify(again));
+  save(doc, 'unmark-d.pdf');
+  expectations.push({
+    file: 'unmark-d.pdf',
+    source: 'highlight.pdf',
+    pages: {
+      0: { removed: ['Báo cáo số lượng', 'đoàn viên có mặt tại', 'Đại hội#1', 'Thư ký#0', 'Thư ký#1', 'riêng', 'nhiều dòng để kiểm tra', 'một đoạn liền nhau'], kept: ['một cụm tô xanh', 'TT', 'Ô có nền xám'] },
+      1: { removed: ['highlighted passage', 'processor has to paint'], kept: ['Green cell text', 'Shaded run', 'Grey cell'] },
+      2: { removed: ['highlight annotation', 'A flattened highlight drawn over the text.'], kept: ['covered', 'White on dark', 'A callout box', 'thin bar'] },
+    },
     annots: { 2: 0 },
   });
   close();

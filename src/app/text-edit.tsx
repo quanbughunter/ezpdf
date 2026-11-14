@@ -14,7 +14,9 @@
  * "Bỏ tô sáng": when the line sits on a highlight (the coloured band Google
  * Docs, Word or LibreOffice paint behind words, or a highlight annotation),
  * the bar offers to take it off, for the whole highlighted passage. The band
- * leaves the page content; nothing is painted over it.
+ * leaves the page content; nothing is painted over it. "Bỏ tô sáng hàng
+ * loạt" (unmark-all.tsx) does the same for every highlight of the document,
+ * by colour and page, in one undo step.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, Eraser, Loader2, TriangleAlert } from 'lucide-react';
@@ -27,12 +29,16 @@ import { cn } from '@/lib/utils';
 import {
   closeTextEditSession,
   openTextEditSession,
+  pageMarks,
   replaceTextLine,
+  saveTextEdit,
   textLines,
+  unmarkPage,
   unmarkTextLine,
   UserFacingError,
 } from '@/engine/export-client';
-import { describeEdit, normalizeLineText, type TextLine } from '@/engine/text-edit';
+import { describeEdit, normalizeLineText, type PageMark, type TextLine } from '@/engine/text-edit';
+import { UnmarkAllDialog } from './unmark-all';
 import type { DocumentSession } from './use-document-session';
 import { usePlacement } from './images/placement';
 
@@ -43,8 +49,8 @@ type Status = 'off' | 'opening' | 'ready' | 'saving';
 export interface TextEditApi {
   active: boolean;
   status: Status;
-  /** while saving: a line's text, or a highlight taken off */
-  saving: 'line' | 'marks' | null;
+  /** while saving: a line's text, a highlight taken off, or highlights throughout */
+  saving: 'line' | 'marks' | 'all' | null;
   /** result of the last action, or why it failed */
   message: { text: string; tone: 'ok' | 'warn' | 'error' } | null;
   selected: { pageIndex: number; line: TextLine } | null;
@@ -57,6 +63,22 @@ export interface TextEditApi {
   commit(text: string): Promise<void>;
   /** take the highlight off the selected line's passage */
   unmark(): Promise<void>;
+  /** the "Bỏ tô sáng hàng loạt" dialog */
+  bulk: boolean;
+  openBulk(open: boolean): void;
+  /** every highlight of these pages, page by page; null when stopped */
+  scanMarks(pages: number[], onPage: (done: number) => void, signal: AbortSignal): Promise<PageMark[][] | null>;
+  /**
+   * Take off the highlights of these colours on these pages, one undo step;
+   * `spots` is how many the user was told. Null when stopped (nothing changed).
+   */
+  unmarkAll(
+    pages: number[],
+    colors: [number, number, number][],
+    spots: number,
+    onPage: (done: number) => void,
+    signal: AbortSignal,
+  ): Promise<{ fills: number; annots: number; pages: number } | null>;
   /** content undo/redo, after EmbedPDF's own history */
   contentUndo: DocumentSession['contentUndo'];
 }
@@ -75,6 +97,7 @@ export function TextEditProvider({
 }) {
   const [status, setStatus] = useState<Status>('off');
   const [saving, setSaving] = useState<TextEditApi['saving']>(null);
+  const [bulk, setBulk] = useState(false);
   const [message, setMessage] = useState<TextEditApi['message']>(null);
   const [selected, setSelected] = useState<TextEditApi['selected']>(null);
   const [tick, bump] = useState(0);
@@ -120,6 +143,7 @@ export function TextEditProvider({
       setSelected(null);
       setMessage(null);
       if (!on) {
+        setBulk(false);
         setStatus('off');
         dropSession();
         return;
@@ -255,6 +279,76 @@ export function TextEditProvider({
     }
   }, [selected, status, ensureSession, session, dropSession]);
 
+  const openBulk = useCallback((open: boolean) => {
+    if (open) {
+      setSelected(null);
+      setMessage(null);
+    }
+    setBulk(open);
+  }, []);
+
+  const scanMarks = useCallback<TextEditApi['scanMarks']>(
+    async (pages, onPage, signal) => {
+      const id = await ensureSession();
+      const out: PageMark[][] = [];
+      for (let i = 0; i < pages.length; i++) {
+        if (signal.aborted) return null;
+        out[pages[i]] = await pageMarks(id, pages[i]);
+        onPage(i + 1);
+      }
+      return out;
+    },
+    [ensureSession],
+  );
+
+  const unmarkAll = useCallback<TextEditApi['unmarkAll']>(
+    async (pages, colors, spots, onPage, signal) => {
+      if (status !== 'ready') return null;
+      setStatus('saving');
+      setSaving('all');
+      setSelected(null);
+      setMessage(null);
+      try {
+        const id = await ensureSession();
+        const previous = base.current;
+        let fills = 0;
+        let annots = 0;
+        let touched = 0;
+        for (let i = 0; i < pages.length; i++) {
+          if (signal.aborted) {
+            // the worker's copy is half done: drop it, the document is as it was
+            dropSession();
+            return null;
+          }
+          const r = await unmarkPage(id, pages[i], colors);
+          fills += r.removedFills;
+          annots += r.removedAnnots;
+          if (r.removedFills || r.removedAnnots) touched++;
+          onPage(i + 1);
+        }
+        if (signal.aborted) {
+          dropSession();
+          return null;
+        }
+        if (!fills && !annots) return { fills, annots, pages: 0 };
+        const bytes = await saveTextEdit(id);
+        base.current = bytes.slice(0);
+        cache.current.clear();
+        bump((n) => n + 1);
+        setMessage({ text: `Đã bỏ ${spots} chỗ tô trên ${touched} trang, chữ giữ nguyên. Bấm Hoàn tác nếu muốn lấy lại.`, tone: 'ok' });
+        if (previous) await session.replaceContent(bytes, previous);
+        return { fills, annots, pages: touched };
+      } catch (e) {
+        dropSession();
+        throw e;
+      } finally {
+        setStatus((s) => (s === 'saving' ? 'ready' : s));
+        setSaving(null);
+      }
+    },
+    [status, ensureSession, session, dropSession],
+  );
+
   const api = useMemo<TextEditApi>(
     () => ({
       active,
@@ -272,13 +366,22 @@ export function TextEditProvider({
       cancel: () => setSelected(null),
       commit,
       unmark,
+      bulk,
+      openBulk,
+      scanMarks,
+      unmarkAll,
       contentUndo: session.contentUndo,
     }),
     // `tick` changes when a page's lines arrive, so pages asking for them re-render
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [active, status, saving, message, selected, setActive, lines, commit, unmark, session.contentUndo, tick],
+    [active, status, saving, message, selected, setActive, lines, commit, unmark, bulk, openBulk, scanMarks, unmarkAll, session.contentUndo, tick],
   );
-  return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={api}>
+      {children}
+      {documentId && active && <UnmarkAllDialog api={api} documentId={documentId} />}
+    </Ctx.Provider>
+  );
 }
 
 function useActiveTool(documentId: string | null) {

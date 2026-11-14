@@ -10,9 +10,14 @@
  * The old text is removed from the file, never covered. When the line's own
  * font cannot draw a new character, the bar says so before saving, and the
  * line is set in ezSansVN.
+ *
+ * "Bỏ tô sáng": when the line sits on a highlight (the coloured band Google
+ * Docs, Word or LibreOffice paint behind words, or a highlight annotation),
+ * the bar offers to take it off, for the whole highlighted passage. The band
+ * leaves the page content; nothing is painted over it.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Check, Loader2, TriangleAlert } from 'lucide-react';
+import { Check, Eraser, Loader2, TriangleAlert } from 'lucide-react';
 import { useDocumentState } from '@embedpdf/core/react';
 import { useAnnotationCapability } from '@embedpdf/plugin-annotation/react';
 import { useHistoryCapability } from '@embedpdf/plugin-history/react';
@@ -24,6 +29,7 @@ import {
   openTextEditSession,
   replaceTextLine,
   textLines,
+  unmarkTextLine,
   UserFacingError,
 } from '@/engine/export-client';
 import { describeEdit, normalizeLineText, type TextLine } from '@/engine/text-edit';
@@ -37,6 +43,8 @@ type Status = 'off' | 'opening' | 'ready' | 'saving';
 export interface TextEditApi {
   active: boolean;
   status: Status;
+  /** while saving: a line's text, or a highlight taken off */
+  saving: 'line' | 'marks' | null;
   /** result of the last action, or why it failed */
   message: { text: string; tone: 'ok' | 'warn' | 'error' } | null;
   selected: { pageIndex: number; line: TextLine } | null;
@@ -47,6 +55,8 @@ export interface TextEditApi {
   explain(line: TextLine): void;
   cancel(): void;
   commit(text: string): Promise<void>;
+  /** take the highlight off the selected line's passage */
+  unmark(): Promise<void>;
   /** content undo/redo, after EmbedPDF's own history */
   contentUndo: DocumentSession['contentUndo'];
 }
@@ -64,6 +74,7 @@ export function TextEditProvider({
   children: ReactNode;
 }) {
   const [status, setStatus] = useState<Status>('off');
+  const [saving, setSaving] = useState<TextEditApi['saving']>(null);
   const [message, setMessage] = useState<TextEditApi['message']>(null);
   const [selected, setSelected] = useState<TextEditApi['selected']>(null);
   const [tick, bump] = useState(0);
@@ -182,6 +193,7 @@ export function TextEditProvider({
         return;
       }
       setStatus('saving');
+      setSaving('line');
       setMessage(null);
       try {
         const id = await ensureSession();
@@ -207,15 +219,47 @@ export function TextEditProvider({
           dropSession();
           setMessage({ text: `Không sửa được dòng: ${e instanceof Error ? e.message : String(e)}`, tone: 'error' });
         }
+      } finally {
+        setSaving(null);
       }
     },
     [selected, status, ensureSession, session, dropSession],
   );
 
+  const unmark = useCallback(async () => {
+    const sel = selected;
+    if (!sel || !sel.line.marks || status !== 'ready') return;
+    setStatus('saving');
+    setSaving('marks');
+    setMessage(null);
+    try {
+      const id = await ensureSession();
+      const previous = base.current;
+      const r = await unmarkTextLine(id, sel.pageIndex, sel.line.key);
+      base.current = r.bytes.slice(0);
+      cache.current.delete(sel.pageIndex);
+      setSelected(null);
+      const n = r.marks.lines;
+      setMessage({ text: `Đã bỏ tô sáng ${n > 1 ? `ở ${n} dòng` : 'ở dòng này'}, chữ giữ nguyên. Bấm Hoàn tác nếu muốn lấy lại.`, tone: 'ok' });
+      if (previous) await session.replaceContent(r.bytes, previous);
+      setStatus((s) => (s === 'saving' ? 'ready' : s));
+    } catch (e) {
+      setStatus((s) => (s === 'saving' ? 'ready' : s));
+      if (e instanceof UserFacingError) setMessage({ text: e.message, tone: 'error' });
+      else {
+        dropSession();
+        setMessage({ text: `Không bỏ được tô sáng: ${e instanceof Error ? e.message : String(e)}`, tone: 'error' });
+      }
+    } finally {
+      setSaving(null);
+    }
+  }, [selected, status, ensureSession, session, dropSession]);
+
   const api = useMemo<TextEditApi>(
     () => ({
       active,
       status,
+      saving,
       message,
       selected,
       setActive,
@@ -227,11 +271,12 @@ export function TextEditProvider({
       explain: (line) => setMessage({ text: line.reason ?? 'Dòng này không sửa được.', tone: 'warn' }),
       cancel: () => setSelected(null),
       commit,
+      unmark,
       contentUndo: session.contentUndo,
     }),
     // `tick` changes when a page's lines arrive, so pages asking for them re-render
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [active, status, message, selected, setActive, lines, commit, session.contentUndo, tick],
+    [active, status, saving, message, selected, setActive, lines, commit, unmark, session.contentUndo, tick],
   );
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }
@@ -443,7 +488,7 @@ function EditBar({ api, pageIndex, line }: { api: TextEditApi; pageIndex: number
             Hủy
           </Button>
           <Button type="submit" size="sm" disabled={saving || empty || unchanged} data-testid="textedit-save">
-            {saving && <Loader2 className="animate-spin" />}
+            {api.saving === 'line' && <Loader2 className="animate-spin" />}
             Lưu dòng
           </Button>
         </div>
@@ -475,7 +520,37 @@ function EditBar({ api, pageIndex, line }: { api: TextEditApi; pageIndex: number
             </>
           )}
         </p>
+        {line.marks && <MarksRow marks={line.marks} disabled={saving || !unchanged} busy={api.saving === 'marks'} onUnmark={() => void api.unmark()} />}
       </form>
+    </div>
+  );
+}
+
+const short = (s: string) => (s.length > 28 ? `${s.slice(0, 26).trimEnd()}…` : s);
+
+/** The line sits on a highlight: say how far it goes and offer to take it off. */
+function MarksRow({ marks, disabled, busy, onUnmark }: { marks: NonNullable<TextLine['marks']>; disabled: boolean; busy: boolean; onUnmark: () => void }) {
+  const [r, g, b] = marks.color;
+  return (
+    <div data-testid="textedit-marks" data-lines={marks.lines} className="flex items-center gap-2 px-0.5 text-xs leading-snug text-muted-foreground">
+      <span aria-hidden className="size-3.5 shrink-0 rounded-[3px] border border-black/15" style={{ background: `rgb(${r} ${g} ${b})` }} />
+      <span className="min-w-0 flex-1">
+        {marks.lines > 1
+          ? `Đoạn được tô gồm ${marks.lines} dòng (“${short(marks.first)}” … “${short(marks.last)}”). Bỏ tô sáng sẽ bỏ cả ${marks.lines} dòng.`
+          : 'Dòng này đang được tô màu.'}
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onUnmark}
+        disabled={disabled}
+        title={disabled ? 'Lưu hoặc hủy phần sửa chữ trước khi bỏ tô sáng.' : 'Xóa màu tô khỏi trang, chữ giữ nguyên.'}
+        data-testid="textedit-unmark"
+      >
+        {busy ? <Loader2 className="animate-spin" /> : <Eraser />}
+        Bỏ tô sáng
+      </Button>
     </div>
   );
 }

@@ -5,8 +5,9 @@
  *  - export: post-processes the bytes EmbedPDF saved (FreeText appearances
  *    with an embedded VN font, page rotations)
  *  - text editing: holds one copy of the document open while the "edit
- *    text" tool is on, lists a page's lines and replaces one line at a time
- *    (text-edit.ts), returning the new bytes
+ *    text" tool is on, lists a page's lines and replaces one line at a time,
+ *    or takes the highlight off a passage (text-edit.ts), returning the new
+ *    bytes
  *  - printing (browser, desktop): renders the finished PDF page by page to
  *    JPEG at print resolution, for the print-only page the app builds; the
  *    same rendering makes the page organizer's thumbnails
@@ -16,7 +17,7 @@
  */
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium';
 import { finalizeExport, type FinalizeReport } from './vn-freetext-export';
-import { TextEditor, TextEditError, type EditReport, type TextLine } from './text-edit';
+import { TextEditor, TextEditError, type EditReport, type MarkReport, type TextLine } from './text-edit';
 import { assembleInPlace, assembleNew, pageInfos, PageOpsError, type PageInfo, type PlanPage } from './page-ops';
 import { Wasm } from './wasm';
 import { jpegWithDpi, pngWithDpi } from './image-meta';
@@ -37,6 +38,8 @@ export type EditRequest =
   | { id: number; kind: 'edit-open'; bytes: ArrayBuffer; wasmUrl: string; fontUrl: string; boldFontUrl: string }
   | { id: number; kind: 'edit-lines'; session: number; pageIndex: number }
   | { id: number; kind: 'edit-replace'; session: number; pageIndex: number; key: string; text: string }
+  /** "Bỏ tô sáng": the highlight under the line `key` and its passage */
+  | { id: number; kind: 'edit-unmark'; session: number; pageIndex: number; key: string }
   | { id: number; kind: 'edit-close'; session: number };
 
 export type RenderRequest =
@@ -96,6 +99,7 @@ export type EditResponse =
   | { id: number; ok: true; session: number }
   | { id: number; ok: true; lines: TextLine[] }
   | { id: number; ok: true; bytes: ArrayBuffer; report: EditReport; ms: number }
+  | { id: number; ok: true; bytes: ArrayBuffer; marks: MarkReport; ms: number }
   | { id: number; ok: true }
   | { id: number; ok: false; error: string; userError?: boolean };
 
@@ -205,6 +209,11 @@ async function handleEdit(req: EditRequest) {
   if (!s) throw new TextEditError('Phiên sửa chữ đã đóng, hãy chọn lại dòng.');
   if (req.kind === 'edit-lines') return post({ id: req.id, ok: true, lines: s.editor.lines(req.pageIndex) });
   const t0 = performance.now();
+  if (req.kind === 'edit-unmark') {
+    const marks = s.editor.removeMarks(req.pageIndex, req.key);
+    const bytes = save(s.m, s.doc);
+    return post({ id: req.id, ok: true, bytes, marks, ms: performance.now() - t0 }, [bytes]);
+  }
   const report = s.editor.replaceLine(req.pageIndex, req.key, req.text);
   const bytes = save(s.m, s.doc);
   post({ id: req.id, ok: true, bytes, report, ms: performance.now() - t0 }, [bytes]);

@@ -3,7 +3,7 @@ import type { OcrTextPage, PageScan } from './ocr-pdf';
 import type { TiffPage } from './tiff-write';
 import type { PageInfo, PlanPage } from './page-ops';
 import type { FinalizeReport } from './vn-freetext-export';
-import type { EditReport, TextLine } from './text-edit';
+import type { EditReport, MarkReport, TextLine } from './text-edit';
 import { PDFIUM_WASM_URL, VN_FONT_URL, VN_BOLD_FONT_URL } from './config';
 
 type Response = ExportResponse | EditResponse | RenderResponse | PagesResponse | OcrPdfResponse;
@@ -79,6 +79,11 @@ export async function textLines(session: number, pageIndex: number): Promise<Tex
 /** Replaces one line; returns the whole document after the change. */
 export async function replaceTextLine(session: number, pageIndex: number, key: string, text: string) {
   return call<{ id: number; ok: true; bytes: ArrayBuffer; report: EditReport; ms: number }>({ kind: 'edit-replace', session, pageIndex, key, text });
+}
+
+/** Takes the highlight off the passage of line `key`; returns the whole document after the change. */
+export async function unmarkTextLine(session: number, pageIndex: number, key: string) {
+  return call<{ id: number; ok: true; bytes: ArrayBuffer; marks: MarkReport; ms: number }>({ kind: 'edit-unmark', session, pageIndex, key });
 }
 
 export function closeTextEditSession(session: number): Promise<unknown> {

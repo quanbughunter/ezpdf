@@ -1,7 +1,7 @@
 {
   "name": "ezpdf",
   "private": true,
-  "version": "0.9.0",
+  "version": "0.9.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -26,7 +26,7 @@
     "e2e:m4": "node scripts/e2e-m4.cjs",
     "icons": "node scripts/make_icons.cjs && tauri icon branding/icon-1024.png -o src-tauri/icons",
     "e2e:m4:preview": "BASE=http://localhost:4173 node scripts/e2e-m4.cjs",
-    "test:edit": "tsx tests/text-edit-probe.ts && python3 scripts/verify_text_edit.py out/text-edit/expected.json",
+    "test:edit": "tsx tests/text-edit-probe.ts && python3 scripts/verify_text_edit.py out/text-edit/expected.json && tsx tests/unmark-probe.ts && python3 scripts/verify_unmark.py out/unmark/expected.json",
     "e2e:edit": "node scripts/e2e-edit.cjs",
     "e2e:edit:preview": "BASE=http://localhost:4173 node scripts/e2e-edit.cjs",
     "e2e:scan": "node scripts/e2e-scan.cjs",

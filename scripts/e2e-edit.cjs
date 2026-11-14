@@ -15,6 +15,12 @@
  *    qpdf): old text gone from the file, new text there and drawn, the rest
  *    of each edited page unchanged pixel for pixel
  *  - phone: touch, the bar never covers the line being edited
+ *  - "Bỏ tô sáng" on tests/fixtures/highlight.pdf: the bar offers it only on
+ *    highlighted lines (not on a cell background or white words on a dark
+ *    band), names the passage, takes it off from any of its lines, undo and
+ *    redo; a highlight annotation too; the cells of a table row are separate
+ *    lines; the exported file checked by scripts/verify_unmark.py (the bands
+ *    leave the drawings, the words stay, nothing painted over)
  *
  * Usage: node scripts/e2e-edit.cjs
  *        BASE=http://localhost:4173 node scripts/e2e-edit.cjs
@@ -329,6 +335,149 @@ let onCrash = async () => {};
   check('the exported file keeps page 2 turned', rot === '90', `/Rotate ${rot}`);
   await page.screenshot({ path: path.join(OUT, 'desktop.png') });
 
+  // ── "Bỏ tô sáng": highlights already in the file ──
+  {
+    const hp = await ctx.newPage();
+    track(hp);
+    const was = page;
+    page = hp; // the helpers above use `page`
+    await hp.goto(server.base + '/?e2e');
+    await hp.waitForSelector(tid('state-empty'), { timeout: 60000 });
+    const chooser = hp.waitForEvent('filechooser');
+    await hp.click(tid('btn-open-empty'));
+    await (await chooser).setFiles(FIX('highlight.pdf'));
+    await hp.waitForFunction(() => document.querySelector('[data-testid="page-total"]')?.textContent?.includes('/ 3'), null, { timeout: 60000 });
+    await sleep(800);
+    await hp.keyboard.press('e');
+    await hp.waitForSelector(`${tid('textedit-layer-0')}[data-ready="true"]`, { timeout: 30000 });
+    const cells = await hp.$$eval(`${tid('textedit-layer-0')} [data-testid="textedit-line"]`, (els) => els.map((e) => e.dataset.text));
+    check(
+      'a table row is split at its rules: number, content, detail and person are four lines',
+      ['6', 'Báo cáo số lượng', 'Đ/c Nguyễn Thị Hường: Kính thưa Đại hội!', 'Đoàn Chủ tịch'].every((t) => cells.includes(t)),
+      cells.slice(0, 10).join(' | '),
+    );
+    const marksRow = async (text, nth = 0) => {
+      await hp.locator(lineSel(0, text)).nth(nth).click();
+      await hp.waitForSelector(tid('textedit-input'));
+      const row = hp.locator(tid('textedit-marks'));
+      return (await row.count()) ? { lines: await row.getAttribute('data-lines'), text: await row.textContent() } : null;
+    };
+    const mid = await marksRow('đoàn viên có mặt tại');
+    await hp.screenshot({ path: path.join(OUT, 'unmark-bar.png') });
+    check(
+      'a highlighted line: the bar offers Bỏ tô sáng and names the passage (3 lines, first and last)',
+      mid?.lines === '3' && mid.text.includes('3 dòng') && mid.text.includes('“Báo cáo số lượng”') && mid.text.includes('“Đại hội”'),
+      mid?.text,
+    );
+    const plain = await marksRow('Dòng này không tô gì cả.');
+    const header = await marksRow('TT');
+    const grey = await marksRow('Ô có nền xám');
+    check('nothing is offered on a plain line, white words on the dark header, or a grey cell', !plain && !header && !grey, JSON.stringify([plain, header, grey]));
+    await marksRow('Báo cáo số lượng');
+    await hp.fill(tid('textedit-input'), 'Báo cáo số lượng mới');
+    const lockedWhileTyping = await hp.isDisabled(tid('textedit-unmark'));
+    await hp.fill(tid('textedit-input'), 'Báo cáo số lượng');
+    const freeAgain = await hp.isEnabled(tid('textedit-unmark'));
+    check('while the line’s text has unsaved changes, Bỏ tô sáng waits (nothing typed is lost)', lockedWhileTyping && freeAgain);
+    const ink = () => hp.evaluate(() => {
+      // yellow pixels on the first page as drawn by the viewer
+      const imgs = [...(document.querySelector('[data-testid="viewer"] [data-testid="page-0"]')?.parentElement?.querySelectorAll('img') ?? [])];
+      const img = imgs.filter((i) => i.complete && i.naturalWidth).sort((a, b) => b.naturalWidth - a.naturalWidth)[0];
+      if (!img) return -1;
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, c.width, Math.round(c.height * 0.3)).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 200 && d[i + 2] < 90) n++;
+      return n;
+    });
+    const yellowBefore = await ink();
+    await hp.click(tid('textedit-unmark'));
+    await hp.waitForFunction(() => document.querySelector('[data-testid="tool-hint"]')?.textContent?.includes('Đã bỏ tô sáng'), null, { timeout: 30000 });
+    const hintAfter = await hint();
+    await hp.waitForSelector(`${tid('textedit-layer-0')}[data-ready="true"]`, { timeout: 30000 });
+    const gone = await marksRow('Báo cáo số lượng');
+    const greenKept = await marksRow('Văn bản thường có một cụm tô xanh ở giữa.');
+    check(
+      'Bỏ tô sáng takes the whole passage off; the app says so and points to undo; another highlight is still offered',
+      hintAfter.includes('ở 3 dòng') && hintAfter.includes('Hoàn tác') && !gone && greenKept?.lines === '1',
+      hintAfter,
+    );
+    await hp.keyboard.press('Escape');
+    await sleep(1500);
+    const yellowAfter = await ink();
+    check('the viewer draws the page without the yellow band', yellowBefore > 500 && yellowAfter >= 0 && yellowAfter < yellowBefore * 0.6, `yellow px in the top of page 1: ${yellowBefore} → ${yellowAfter}`);
+    await hp.click(tid('btn-undo'));
+    await hp.waitForSelector(`${tid('textedit-layer-0')}[data-ready="true"]`, { timeout: 30000 });
+    await sleep(500);
+    const back = await marksRow('Báo cáo số lượng');
+    await hp.keyboard.press('Escape');
+    await hp.click(tid('btn-redo'));
+    await hp.waitForSelector(`${tid('textedit-layer-0')}[data-ready="true"]`, { timeout: 30000 });
+    await sleep(500);
+    const again = await marksRow('Báo cáo số lượng');
+    check('undo brings the highlight back, redo takes it off again', back?.lines === '3' && !again, JSON.stringify([back, again]));
+    await hp.keyboard.press('Escape');
+    // a highlight annotation on page 3
+    await hp.evaluate(() => document.querySelector('[data-testid="viewer"] [data-testid="page-2"]').scrollIntoView({ block: 'start' }));
+    await hp.waitForSelector(`${tid('textedit-layer-2')}[data-ready="true"]`, { timeout: 30000 });
+    await sleep(600);
+    await hp.click(lineSel(2, 'Annotated line with a highlight annotation.'));
+    await hp.waitForSelector(tid('textedit-marks'));
+    await hp.click(tid('textedit-unmark'));
+    await hp.waitForFunction(() => document.querySelector('[data-testid="tool-hint"]')?.textContent?.includes('Đã bỏ tô sáng'), null, { timeout: 30000 });
+    await hp.waitForSelector(`${tid('textedit-layer-2')}[data-ready="true"]`, { timeout: 30000 });
+    await hp.click(lineSel(2, 'This word is covered by a black box.'));
+    await hp.waitForSelector(tid('textedit-input'));
+    const boxRow = await hp.locator(tid('textedit-marks')).count();
+    check('a highlight annotation is taken off the same way; an opaque box over a word is never offered', boxRow === 0);
+    await hp.keyboard.press('Escape');
+    await hp.waitForSelector(tid('state-draft-saved'), { timeout: 30000 });
+    const dl2 = hp.waitForEvent('download');
+    await hp.click(tid('btn-export'));
+    const hd = await dl2;
+    const hexp = path.join(OUT, 'unmarked.pdf');
+    await hd.saveAs(hexp);
+    fs.writeFileSync(
+      path.join(OUT, 'unmark.json'),
+      JSON.stringify(
+        [
+          {
+            file: 'unmarked.pdf',
+            source: 'highlight.pdf',
+            pages: {
+              0: { removed: ['Báo cáo số lượng', 'đoàn viên có mặt tại', 'Đại hội#1'], kept: ['một cụm tô xanh', 'Thư ký#0', 'Thư ký#1', 'riêng', 'TT', 'Ô có nền xám'] },
+              2: { removed: ['highlight annotation'], kept: ['covered', 'A flattened highlight', 'White on dark', 'A callout box'] },
+            },
+            annots: { 2: 0 },
+          },
+        ],
+        null,
+        2,
+      ),
+    );
+    let hv = '';
+    let hok = false;
+    try {
+      hv = execFileSync('python3', [path.join(ROOT, 'scripts/verify_unmark.py'), path.join(OUT, 'unmark.json')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      hok = true;
+    } catch (e) {
+      hv = String(e.stdout || e);
+    }
+    const hl = hv.split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
+    check(
+      'exported PDF: the bands left the drawings, the annotation left the page, the words and the rest of the pages are as before (MuPDF, Poppler, qpdf)',
+      hok && hl.length >= 10,
+      `${hl.filter((l) => l.startsWith('PASS')).length}/${hl.length} independent checks${hok ? '' : ': ' + hl.filter((l) => l.startsWith('FAIL')).join(' | ')}`,
+    );
+    await hp.screenshot({ path: path.join(OUT, 'unmark.png') });
+    await hp.close();
+    page = was;
+  }
+
   // ── phone ──
   {
     const pctx = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
@@ -365,6 +514,29 @@ let onCrash = async () => {};
     const pt = await ph.evaluate(() => window.__ezpdf.pageText(0));
     check('phone: a line edited by touch is saved into the document', pt.includes('Biên bản bàn giao máy'), pt.slice(0, 60));
     await ph.screenshot({ path: path.join(OUT, 'phone.png') });
+    // Bỏ tô sáng on a phone: the row fits, the button is in reach
+    await ph.goto(server.base + '/?e2e');
+    await ph.waitForSelector(tid('state-empty'), { timeout: 60000 });
+    const chooser2 = ph.waitForEvent('filechooser');
+    await ph.click(tid('btn-open-empty'));
+    await (await chooser2).setFiles(FIX('highlight.pdf'));
+    await ph.waitForSelector(tid('page-0'), { state: 'attached', timeout: 60000 });
+    await ph.waitForTimeout(1200);
+    await ph.tap(tid('tool-edit-text'));
+    await ph.waitForSelector(`${tid('textedit-layer-0')}[data-ready="true"]`, { timeout: 30000 });
+    const t2 = await ph.locator(lineSel(0, 'Báo cáo số lượng')).boundingBox();
+    await ph.touchscreen.tap(t2.x + t2.width / 2, t2.y + t2.height / 2);
+    await ph.waitForSelector(tid('textedit-marks'), { timeout: 15000 });
+    const rowBox = await ph.locator(tid('textedit-marks')).boundingBox();
+    const btnBox = await ph.locator(tid('textedit-unmark')).boundingBox();
+    await ph.screenshot({ path: path.join(OUT, 'phone-unmark.png') });
+    await ph.tap(tid('textedit-unmark'));
+    await ph.waitForFunction(() => document.querySelector('[data-testid="tool-hint"]')?.textContent?.includes('Đã bỏ tô sáng'), null, { timeout: 30000 });
+    check(
+      'phone: the Bỏ tô sáng row fits the screen and a tap takes the highlight off',
+      rowBox.x >= 0 && rowBox.x + rowBox.width <= 412 && btnBox.x + btnBox.width <= 412 && btnBox.height >= 28,
+      `row ${Math.round(rowBox.x)}–${Math.round(rowBox.x + rowBox.width)} px, button ${Math.round(btnBox.width)}×${Math.round(btnBox.height)}`,
+    );
     await pctx.close();
   }
 

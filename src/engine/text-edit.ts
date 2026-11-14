@@ -25,6 +25,16 @@
  * Cyrillic), slanted for an italic line. When the original font has no space character (TeX places
  * words by kerning) the words become separate objects so the font is kept.
  *
+ * Highlights: Google Docs, Chrome, Word and LibreOffice paint a highlight
+ * as filled rectangles in the page content, one per line, just before the
+ * words. `removeMarks` takes those rectangles (marks.ts says which ones)
+ * out of the content, and highlight annotations off the page, for the
+ * passage a line belongs to. The words are not touched; nothing is painted
+ * over the band.
+ *
+ * Lines stop at a table's vertical rules, so the cells of one row are
+ * separate lines (an edit never moves the next cell's text).
+ *
  * Limits (stated to the user): one line at a time, no reflow of the
  * paragraph, character and word spacing of the original are not kept,
  * text inside Form XObjects and rotated text are not editable, hidden text
@@ -37,8 +47,13 @@
 import type { WrappedPdfiumModule } from '@embedpdf/pdfium';
 import { Wasm, wideString } from './wasm';
 import { readFontMetrics, type FontMetrics } from './font-metrics';
+import { annotLines, classifyPath, findMarks, passage, ruleSplits, shapeOf, type AnnotMark, type Fill, type MarkText, type Rule } from './marks';
 
 const FPDF_PAGEOBJ_TEXT = 1;
+const FPDF_PAGEOBJ_PATH = 2;
+const FPDF_SEGMENT_BEZIERTO = 1;
+const FPDF_SEGMENT_MOVETO = 2;
+const FPDF_ANNOT_HIGHLIGHT = 9;
 const FPDF_PAGEOBJ_FORM = 5;
 const FPDF_FONT_TRUETYPE = 2;
 const RENDER_INVISIBLE = 3;
@@ -78,6 +93,40 @@ export interface TextLine {
   editable: boolean;
   /** why not, in the user's words */
   reason?: string;
+  /** a highlight under the line that `removeMarks` can take off */
+  marks?: LineMarks;
+}
+
+/** The highlight a line sits on, and the passage it belongs to. */
+export interface LineMarks {
+  /** colour of the mark under this line (0–255) */
+  color: [number, number, number];
+  /** lines of the passage, this one included */
+  lines: number;
+  /** first and last line of the passage */
+  first: string;
+  last: string;
+}
+
+export interface MarkReport {
+  /** filled rectangles taken out of the page content */
+  removedFills: number;
+  /** highlight annotations taken off the page */
+  removedAnnots: number;
+  /** lines that lost their highlight */
+  lines: number;
+}
+
+/** The filled paths and rules of a page; `handles` go with `fills`. */
+interface PageShapes {
+  fills: Fill[];
+  handles: number[];
+  rules: Rule[];
+}
+
+interface MarkState {
+  marks: Map<number, number[]>;
+  annots: { a: AnnotMark; lines: number[] }[];
 }
 
 export interface LinePart {
@@ -155,7 +204,18 @@ export class TextEditor {
       try {
         const objs = this.textObjects(page, tp);
         const chars = this.charsByFont(tp);
-        const lines = groupLines(objs).map((g) => this.describe(g, chars));
+        const shapes = this.shapes(page);
+        const groups = groupLines(objs, shapes.rules);
+        const lines = groups.map((g) => this.describe(g, chars));
+        const state = this.markState(page, groups, shapes);
+        lines.forEach((line, i) => {
+          const p = this.passageOf(i, state, shapes);
+          if (!p.fills.length && !p.annots.length) return;
+          const own = p.fills.find((k) => state.marks.get(k)!.includes(i));
+          const order = [...p.lines].sort((a, b) => lines[b].baseline - lines[a].baseline || lines[a].box.left - lines[b].box.left);
+          const color = own !== undefined ? shapes.fills[own].color : p.annots[0]?.a.color ?? shapes.fills[p.fills[0]].color;
+          line.marks = { color: [color[0], color[1], color[2]], lines: p.lines.size, first: lines[order[0]].text, last: lines[order[order.length - 1]].text };
+        });
         lines.push(...this.formLines(page, tp));
         return lines.sort((a, b) => b.baseline - a.baseline || a.box.left - b.box.left);
       } finally {
@@ -293,6 +353,60 @@ export class TextEditor {
     });
   }
 
+  /**
+   * Take the highlight off the passage the line `key` belongs to: its filled
+   * rectangles leave the page content, its highlight annotations leave the
+   * page. The text objects stay as they are (checked after).
+   */
+  removeMarks(pageIndex: number, key: string): MarkReport {
+    return this.withPage(pageIndex, (page) => {
+      const tp = this.m.FPDFText_LoadPage(page);
+      let shapes: PageShapes;
+      let plan: ReturnType<TextEditor['passageOf']>;
+      let before: string;
+      try {
+        const objs = this.textObjects(page, tp);
+        shapes = this.shapes(page);
+        const groups = groupLines(objs, shapes.rules);
+        const line = groups.findIndex((g) => g.map((o) => o.index).join(',') === key);
+        if (line < 0) throw new TextEditError('Trang đã thay đổi, hãy chọn lại dòng.');
+        plan = this.passageOf(line, this.markState(page, groups, shapes), shapes);
+        if (!plan.fills.length && !plan.annots.length) throw new TextEditError('Dòng này không có màu tô nào để bỏ.');
+        before = objs.map((o) => o.text).join('\u0001');
+      } finally {
+        this.m.FPDFText_ClosePage(tp);
+      }
+
+      // Take the rectangles out of the page; they go back if anything fails.
+      const taken = plan.fills.map((k) => ({ handle: shapes.handles[k], index: shapes.fills[k].index })).sort((a, b) => b.index - a.index);
+      const out: typeof taken = [];
+      try {
+        for (const t of taken) {
+          if (!this.m.FPDFPage_RemoveObject(page, t.handle)) throw new Error('FPDFPage_RemoveObject failed');
+          out.push(t);
+        }
+        if (taken.length) this.generate(page);
+      } catch (e) {
+        for (const t of [...out].sort((a, b) => a.index - b.index)) this.m.FPDFPage_InsertObjectAtIndex(page, t.handle, t.index);
+        throw e;
+      }
+      for (const t of taken) this.m.FPDFPageObj_Destroy(t.handle);
+      // from the last, so the others keep their index
+      for (const x of [...plan.annots].sort((a, b) => b.a.index - a.a.index)) {
+        if (!this.m.FPDFPage_RemoveAnnot(page, x.a.index)) throw new Error('FPDFPage_RemoveAnnot failed');
+      }
+
+      const tp2 = this.m.FPDFText_LoadPage(page);
+      try {
+        const after = this.textObjects(page, tp2).map((o) => o.text).join('\u0001');
+        if (after !== before) throw new Error('chữ trên trang đã đổi sau khi bỏ màu tô');
+      } finally {
+        this.m.FPDFText_ClosePage(tp2);
+      }
+      return { removedFills: taken.length, removedAnnots: plan.annots.length, lines: plan.lines.size };
+    });
+  }
+
   /** Release the fonts this session embedded (call before closing the document). */
   dispose() {
     for (const f of this.fallback.values()) this.m.FPDFFont_Close(f);
@@ -322,13 +436,132 @@ export class TextEditor {
     return out;
   }
 
-  private readObject(h: number, index: number, tp: number): Obj {
+  private matrix(h: number): Matrix {
     const { w, m } = this;
-    const box = this.bounds(h);
-    const mat = w.withScratch(24, (p) => {
+    return w.withScratch(24, (p) => {
       m.FPDFPageObj_GetMatrix(h, p);
       return [0, 1, 2, 3, 4, 5].map((k) => w.f32(p + k * 4)) as Matrix;
     });
+  }
+
+  /** Filled rectangles that could be highlights, and the rules (table borders) of the page. */
+  private shapes(page: number): PageShapes {
+    const { w, m } = this;
+    const out: PageShapes = { fills: [], handles: [], rules: [] };
+    const n = m.FPDFPage_CountObjects(page);
+    for (let i = 0; i < n; i++) {
+      const h = m.FPDFPage_GetObject(page, i);
+      if (!h || m.FPDFPageObj_GetType(h) !== FPDF_PAGEOBJ_PATH) continue;
+      const mode = w.withScratch(8, (p) => (m.FPDFPath_GetDrawMode(h, p, p + 4) ? { fill: w.i32(p) !== 0, stroke: w.i32(p + 4) !== 0 } : null));
+      if (!mode || (!mode.fill && !mode.stroke)) continue;
+      const count = m.FPDFPath_CountSegments(h);
+      if (count <= 0 || count > 400) continue;
+      const { rules, fillPieces } = classifyPath(shapeOf(this.subpaths(h, count)), mode.fill, mode.stroke);
+      out.rules.push(...rules);
+      if (fillPieces) {
+        out.fills.push({ index: i, pieces: fillPieces, color: this.color(h, 'fill') });
+        out.handles.push(h);
+      }
+    }
+    return out;
+  }
+
+  /** A path's subpaths, points in page space. */
+  private subpaths(h: number, count: number) {
+    const { w, m } = this;
+    const [a, b, c, d, e, f] = this.matrix(h);
+    const out: { points: [number, number][]; curved: boolean }[] = [];
+    let cur: (typeof out)[number] | null = null;
+    w.withScratch(8, (p) => {
+      for (let k = 0; k < count; k++) {
+        const seg = m.FPDFPath_GetPathSegment(h, k);
+        if (!seg || !m.FPDFPathSegment_GetPoint(seg, p, p + 4)) continue;
+        const x = w.f32(p), y = w.f32(p + 4);
+        const type = m.FPDFPathSegment_GetType(seg);
+        if (type === FPDF_SEGMENT_MOVETO || !cur) out.push((cur = { points: [], curved: false }));
+        if (type === FPDF_SEGMENT_BEZIERTO) cur.curved = true;
+        cur.points.push([a * x + c * y + e, b * x + d * y + f]);
+      }
+    });
+    return out;
+  }
+
+  /** Highlight annotations of the page, with their quads. */
+  private highlightAnnots(page: number): AnnotMark[] {
+    const { w, m } = this;
+    const out: AnnotMark[] = [];
+    const n = m.FPDFPage_GetAnnotCount(page);
+    for (let i = 0; i < n; i++) {
+      const a = m.FPDFPage_GetAnnot(page, i);
+      if (!a) continue;
+      try {
+        if (m.FPDFAnnot_GetSubtype(a) !== FPDF_ANNOT_HIGHLIGHT) continue;
+        const pieces: Box[] = [];
+        w.withScratch(32, (p) => {
+          const k = m.FPDFAnnot_CountAttachmentPoints(a);
+          for (let q = 0; q < k; q++) {
+            if (!m.FPDFAnnot_GetAttachmentPoints(a, q, p)) continue;
+            const v = [0, 1, 2, 3, 4, 5, 6, 7].map((j) => w.f32(p + j * 4));
+            const xs = [v[0], v[2], v[4], v[6]], ys = [v[1], v[3], v[5], v[7]];
+            pieces.push({ left: Math.min(...xs), right: Math.max(...xs), bottom: Math.min(...ys), top: Math.max(...ys) });
+          }
+          if (!pieces.length && m.FPDFAnnot_GetRect(a, p)) {
+            const [l, t, r, b] = [0, 1, 2, 3].map((j) => w.f32(p + j * 4));
+            pieces.push({ left: Math.min(l, r), right: Math.max(l, r), bottom: Math.min(t, b), top: Math.max(t, b) });
+          }
+        });
+        out.push({ index: i, pieces, color: this.annotColor(a) });
+      } finally {
+        m.FPDFPage_CloseAnnot(a);
+      }
+    }
+    return out;
+  }
+
+  /** The colour a highlight annotation shows: its /C, or the fill of its appearance when it has one. */
+  private annotColor(a: number): [number, number, number] {
+    const { w, m } = this;
+    const rgb = (p: number): [number, number, number] => [w.i32(p) & 0xff, w.i32(p + 4) & 0xff, w.i32(p + 8) & 0xff];
+    // PDFium answers /C only for annotations without an appearance stream
+    const c = w.withScratch(16, (p) => (m.FPDFAnnot_GetColor(a, 0, p, p + 4, p + 8, p + 12) ? rgb(p) : null));
+    if (c) return c;
+    const n = m.FPDFAnnot_GetObjectCount(a);
+    for (let k = 0; k < n; k++) {
+      const o = m.FPDFAnnot_GetObject(a, k);
+      if (!o || m.FPDFPageObj_GetType(o) !== FPDF_PAGEOBJ_PATH) continue;
+      const f = w.withScratch(16, (p) => (m.FPDFPageObj_GetFillColor(o, p, p + 4, p + 8, p + 12) ? rgb(p) : null));
+      if (f) return f;
+    }
+    return [255, 212, 59];
+  }
+
+  /** Which fills and annotations mark which lines. */
+  private markState(page: number, groups: Obj[][], shapes: PageShapes): MarkState {
+    const texts: MarkText[] = groups.flatMap((g, line) =>
+      g.map((o) => {
+        const [r, gr, b] = this.color(o.handle, 'fill');
+        return { index: o.index, box: o.box, size: o.size, line, dark: (0.299 * r + 0.587 * gr + 0.114 * b) / 255 <= 0.6 };
+      }),
+    );
+    const marks = findMarks(shapes.fills, texts, shapes.rules);
+    const annots = this.highlightAnnots(page)
+      .map((a) => ({ a, lines: annotLines(a, texts) }))
+      .filter((x) => x.lines.length);
+    return { marks, annots };
+  }
+
+  /** What "Bỏ tô sáng" on line `line` takes off, and the lines that lose their highlight. */
+  private passageOf(line: number, state: MarkState, shapes: PageShapes) {
+    const fills = passage(line, state.marks, shapes.fills, shapes.rules);
+    const annots = state.annots.filter((x) => x.lines.includes(line));
+    const lines = new Set([...fills.flatMap((k) => state.marks.get(k)!), ...annots.flatMap((x) => x.lines)]);
+    return { fills, annots, lines };
+  }
+
+  private readObject(h: number, index: number, tp: number): Obj {
+    const { w, m } = this;
+    const box = this.bounds(h);
+    const mat = this.matrix(h);
     const fontSize = w.withScratch(4, (p) => (m.FPDFTextObj_GetFontSize(h, p) ? w.f32(p) : 0));
     return {
       index,
@@ -700,9 +933,10 @@ const mainObject = (objs: Obj[]) => objs.reduce((best, o) => (o.text.trim().leng
 /**
  * Objects on one baseline, close enough to read as one line. A gap wider
  * than three times the text size starts a new line (two columns, a form's
- * label and value far apart).
+ * label and value far apart), and so does a vertical rule between them
+ * (the cells of a table row).
  */
-function groupLines(objs: Obj[]): Obj[][] {
+function groupLines(objs: Obj[], rules: Rule[] = []): Obj[][] {
   const items = objs.filter((o) => o.size > 0 && o.box.right > o.box.left);
   items.sort((p, q) => q.m[5] - p.m[5] || p.box.left - q.box.left);
   const lines: Obj[][] = [];
@@ -715,7 +949,8 @@ function groupLines(objs: Obj[]): Obj[][] {
         Math.abs(last.m[5] - o.m[5]) < size * 0.35 &&
         Math.max(last.size, o.size) < size * 1.6 &&
         o.box.left - last.box.right < size * 3 &&
-        o.box.left > last.box.left - size * 0.5
+        o.box.left > last.box.left - size * 0.5 &&
+        !ruleSplits(last.box, o.box, rules)
       );
     });
     if (line) line.push(o);

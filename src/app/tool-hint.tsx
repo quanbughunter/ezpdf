@@ -80,7 +80,9 @@ export function ToolHint({ documentId }: { documentId: string }) {
       textEdit.status === 'opening'
         ? 'Đang chuẩn bị sửa chữ…'
         : textEdit.status === 'saving'
-          ? 'Đang sửa dòng trong tệp…'
+          ? textEdit.saving === 'marks'
+            ? 'Đang bỏ tô sáng…'
+            : 'Đang sửa dòng trong tệp…'
           : m
             ? m.text
             : textEdit.selected

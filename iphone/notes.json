@@ -1,0 +1,58 @@
+[
+  {
+    "id": "1-start",
+    "title": "Màn hình đầu",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "2-word-math",
+    "title": "Công thức MathType: ngoặc tròn, ngoặc nhọn, mũ góc",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "2b-word-math-150",
+    "title": "Các công thức đó, phóng to 150%",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "3-word-info",
+    "title": "Thông tin tệp Word",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "4-word-pages",
+    "title": "Đề có điểm dừng tab, bảng, công thức",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "5-pdf-info",
+    "title": "Tệp PDF và bảng thông tin",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "6-pictures",
+    "title": "Xuất thành ảnh (trong ⋮): định dạng, trang, độ phân giải",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2"
+  },
+  {
+    "id": "7-pictures-png",
+    "title": "Ảnh PNG của mọi trang: Android lưu vào Ảnh › ezPDF, iPhone đưa qua “Lưu hoặc chia sẻ”",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2",
+    "detail": "Ứng dụng báo: 4 ảnh PNG đã sẵn sàng. Trên iPhone, chọn “Lưu hình ảnh” để đưa vào app Ảnh."
+  },
+  {
+    "id": "8-pictures-tiff",
+    "title": "Một tệp TIFF nhiều trang: Android lưu vào Tải xuống › ezPDF",
+    "note": "ok",
+    "device": "iPhone 15 Pro Max, iOS 26.2",
+    "detail": "Ứng dụng báo: 1 ảnh TIFF đã sẵn sàng. Trên iPhone, chọn “Lưu hình ảnh” để đưa vào app Ảnh."
+  }
+]

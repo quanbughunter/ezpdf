@@ -1,0 +1,51 @@
+[
+  {
+    "id": "1-start",
+    "title": "Màn hình đầu",
+    "note": "ok",
+    "detail": "Nhật ký: 20 s: pointer: coarse = true (điện thoại thật: true)"
+  },
+  {
+    "id": "2-word-math",
+    "title": "Công thức MathType: ngoặc tròn, ngoặc nhọn, mũ góc",
+    "note": "ok",
+    "detail": "Nhật ký: 33 s: trang của WebView đã đóng · 33 s: ảnh 2-word-math: page.evaluate: Target page, context or browser has been closed; làm lại · 33 s: logcat: 11-14 16:52:05.824 3924 3924 D Capacitor: Loading app at https://localhost / 11-14 16:52:05.868 3924 3924 D Capacitor: App started / 11-14 16:52:05.871 3924 3924 D Capacitor: App resumed / 11-14 16:52:05.879 3924 4068 D Capacitor: Handling local request: https://localhost/ / 11-14 16:52:05.937 3924 3924 W cr_AwContents: at com.getcapacitor.cordova.MockCordovaWebViewImpl.lambda$eval$0(MockCordovaWebViewImpl.java:189) / 11-14 16:52:05.937 3924 3924 W cr_AwContents: at com.getcapacitor.cordova.MockCordovaWebViewImpl.$r8$lambda$4KdV8CYlWQxu6zbahMKlKsvDFpM(Unknown Source:0) / 11-14 16:52:05.937 3924 3924 W cr_AwContents: at com.getcapacitor.cordova.MockCordovaWebViewImpl$$ExternalSyntheticLambda1.run(D8$$SyntheticClass:0) / 11-14 16:52:05.958 3924 4068 D Capacitor: Handling local request: https://localhost/assets/index-Ia3A1uD3.js · 33 s: dùng trang mới của WebView"
+  },
+  {
+    "id": "2b-word-math-150",
+    "title": "Các công thức đó, phóng to 150%",
+    "note": "ok"
+  },
+  {
+    "id": "3-word-info",
+    "title": "Thông tin tệp Word",
+    "note": "ok"
+  },
+  {
+    "id": "4-word-pages",
+    "title": "Đề có điểm dừng tab, bảng, công thức",
+    "note": "ok"
+  },
+  {
+    "id": "5-pdf-info",
+    "title": "Tệp PDF và bảng thông tin",
+    "note": "ok"
+  },
+  {
+    "id": "6-pictures",
+    "title": "Xuất thành ảnh (trong ⋮): định dạng, trang, độ phân giải",
+    "note": "ok"
+  },
+  {
+    "id": "7-pictures-png",
+    "title": "Ảnh PNG của mọi trang: Android lưu vào Ảnh › ezPDF, iPhone đưa qua “Lưu hoặc chia sẻ”",
+    "note": "ok",
+    "detail": "Ứng dụng báo: Đã lưu 4 ảnh PNG vào Ảnh › ezPDF (mở bằng Thư viện).\n\nTrong /sdcard/Pictures/ezPDF:\n\n```\ntotal 440\n-rwxrwx--- 1 u0_a189 media_rw  93146 2026-11-14 16:53 sample\\ -\\ trang\\ 1.png\n-rwxrwx--- 1 u0_a189 media_rw 128090 2026-11-14 16:53 sample\\ -\\ trang\\ 2.png\n-rwxrwx--- 1 u0_a189 media_rw  81771 2026-11-14 16:53 sample\\ -\\ trang\\ 3.png\n-rwxrwx--- 1 u0_a189 media_rw 126766 2026-11-14 16:53 sample\\ -\\ trang\\ 4.png\n```\n\nThư viện ảnh/tệp của Android (MediaStore):\n\n```\nRow: 0 _display_name=sample - trang 1.png, relative_path=Pictures/ezPDF/, mime_type=image/png, is_pending=0\nRow: 1 _display_name=sample - trang 2.png, relative_path=Pictures/ezPDF/, mime_type=image/png, is_pending=0\nRow: 2 _display_name=sample - trang 3.png, relative_path=Pictures/ezPDF/, mime_type=image/png, is_pending=0\nRow: 3 _display_name=sample - trang 4.png, relative_path=Pictures/ezPDF/, mime_type=image/png, is_pending=0\n```"
+  },
+  {
+    "id": "8-pictures-tiff",
+    "title": "Một tệp TIFF nhiều trang: Android lưu vào Tải xuống › ezPDF",
+    "note": "ok",
+    "detail": "Ứng dụng báo: Đã lưu 1 ảnh TIFF vào Tải xuống › ezPDF (mở bằng Tệp của tôi).\n\nTrong /sdcard/Download/ezPDF:\n\n```\ntotal 404\n-rwxrwx--- 1 u0_a189 media_rw 408686 2026-11-14 16:53 sample.tif\n```\n\nThư viện ảnh/tệp của Android (MediaStore):\n\n```\nRow: 0 _display_name=sample.tif, relative_path=Download/ezPDF/, mime_type=image/tiff, is_pending=0\n```"
+  }
+]

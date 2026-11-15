@@ -21,6 +21,11 @@
  *  - leaving with changes asks first; the viewer's shortcuts are off meanwhile
  *  - a scan onto the end of the open document, and a scan as pages inside
  *    the organizer
+ *  - "Gộp PDF" (0.9.4) from the start screen: several files picked at once,
+ *    each read (pages; a non-PDF and a file with a password refused with the
+ *    reason), reordered, joined into one new file in that order with each
+ *    page's rotation (MuPDF, qpdf), saved and opened in ezPDF; on a phone the
+ *    start screen and the dialog fit
  *  - nothing leaves the device; no page errors
  *
  * Usage: node scripts/e2e-pages.cjs
@@ -108,7 +113,8 @@ let onCrash = async () => {};
 (async () => {
   const server = await startServer();
   const origin = new URL(server.base).origin;
-  const browser = await chromium.launch();
+  // a UTF-8 locale, or Chromium names a download with Vietnamese letters “download”
+  const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
   const errors = [];
   const requests = [];
   const track = (p) => {
@@ -605,6 +611,96 @@ let onCrash = async () => {};
 
   const foreign = [...new Set(requests.filter((u) => !u.startsWith(origin) && !u.startsWith('blob:') && !u.startsWith('data:')))];
   check('documents never left the device (every request went to the app itself)', foreign.length === 0, foreign.join(' ') || 'none');
+  // ── "Gộp PDF" ──
+  {
+    stepName = 'merge';
+    const mctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, acceptDownloads: true });
+    const mp = await mctx.newPage();
+    track(mp);
+    await mp.goto(server.base + '/?e2e');
+    await mp.waitForSelector(tid('state-empty'), { timeout: 60000 });
+    const locked = path.join(OUT, 'locked.pdf');
+    execFileSync('qpdf', ['--encrypt', 'mo', 'chu', '256', '--', FIX('pages-b.pdf'), locked]);
+    const chooser = mp.waitForEvent('filechooser');
+    await mp.click(tid('btn-merge-empty'));
+    const fc = await chooser;
+    const several = fc.isMultiple();
+    await fc.setFiles([FIX('pages-a.pdf'), FIX('pages-b.pdf'), FIX('not-an-image.png'), locked]);
+    await mp.waitForSelector(tid('merge-dialog'));
+    await mp.waitForFunction(() => [...document.querySelectorAll('[data-testid="merge-item"]')].every((e) => e.dataset.state !== 'reading'), null, { timeout: 30000 });
+    const listed = () =>
+      mp.$$eval('[data-testid="merge-item"]', (els) => els.map((e) => `${e.dataset.name}:${e.dataset.state}:${e.dataset.pages}`));
+    const first = await listed();
+    const reasons = await mp.$$eval('[data-testid="merge-item"][data-state="error"]', (els) => els.map((e) => e.textContent));
+    const summary1 = await mp.textContent(tid('merge-summary'));
+    check(
+      '“Gộp PDF” on the start screen picks several files at once; each is read (5 and 3 pages); a picture and a file with a password are refused with the reason and left out',
+      several &&
+        first.join(' | ') === 'pages-a.pdf:ok:5 | pages-b.pdf:ok:3 | not-an-image.png:error: | locked.pdf:error:' &&
+        /Không phải tệp PDF/.test(reasons[0]) && /mật khẩu/.test(reasons[1]) && summary1.includes('2 tệp, 8 trang'),
+      `${first.join(' | ')} · ${reasons.join(' | ')} · ${summary1}`,
+    );
+    // pages-b before pages-a; the refused files out; one more added and taken out again
+    await mp.locator(tid('merge-up')).nth(1).click();
+    await mp.locator(tid('merge-remove')).nth(3).click();
+    await mp.locator(tid('merge-remove')).nth(2).click();
+    const more = mp.waitForEvent('filechooser');
+    await mp.click(tid('merge-add'));
+    await (await more).setFiles([FIX('sample.pdf')]);
+    await mp.waitForFunction(() => [...document.querySelectorAll('[data-testid="merge-item"]')].length === 3 && [...document.querySelectorAll('[data-testid="merge-item"]')].every((e) => e.dataset.state !== 'reading'), null, { timeout: 30000 });
+    const three = await listed();
+    await mp.locator(tid('merge-remove')).nth(2).click();
+    const order = await listed();
+    const go = await mp.textContent(tid('merge-go'));
+    await mp.screenshot({ path: path.join(OUT, 'merge.png') });
+    check(
+      'the list can be reordered, files removed and more added; the button says how many files',
+      three[2]?.startsWith('sample.pdf:ok:') && order.join(' | ') === 'pages-b.pdf:ok:3 | pages-a.pdf:ok:5' && go.includes('Gộp 2 tệp'),
+      `${three.join(' | ')} → ${order.join(' | ')} · ${go}`,
+    );
+    await mp.click(tid('merge-go'));
+    await mp.waitForSelector(tid('merge-done'), { timeout: 60000 });
+    const doneText = await mp.textContent(tid('merge-done-text'));
+    const dl = mp.waitForEvent('download');
+    await mp.click(tid('merge-save'));
+    const d = await dl;
+    const merged = path.join(OUT, 'merged.pdf');
+    await d.saveAs(merged);
+    const pagesOut = read(merged);
+    check(
+      'joined in the order set: pages-b then pages-a, 8 pages, page A-3 still turned 90°; saved as “pages-b (gộp 2 tệp).pdf”; qpdf finds no error',
+      marks(pagesOut) === 'B-1 B-2 B-3 A-1 A-2 A-3 A-4 A-5' &&
+        pagesOut.map((p) => p.rot).join() === '0,0,0,0,0,90,0,0' &&
+        d.suggestedFilename() === 'pages-b (gộp 2 tệp).pdf' && doneText.includes('Đã gộp 2 tệp thành một tệp 8 trang') && qpdfClean(merged),
+      `${marks(pagesOut)} · rot ${pagesOut.map((p) => p.rot).join()} · ${d.suggestedFilename()} · ${doneText}`,
+    );
+    await mp.click(tid('merge-open'));
+    await mp.waitForFunction(() => document.querySelector('[data-testid="page-total"]')?.textContent?.includes('/ 8'), null, { timeout: 60000 });
+    const title = await mp.evaluate(() => document.title + ' | ' + (document.querySelector('header')?.textContent ?? ''));
+    check('“Mở trong ezPDF” opens the joined file (8 pages) to rearrange or share it', title.includes('pages-b (gộp 2 tệp)'), title.slice(0, 160));
+    await mctx.close();
+
+    // phone: the start screen buttons and the dialog fit
+    const pc = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
+    const pp = await pc.newPage();
+    track(pp);
+    await pp.goto(server.base + '/?e2e');
+    await pp.waitForSelector(tid('state-empty'), { timeout: 60000 });
+    const pch = pp.waitForEvent('filechooser');
+    await pp.tap(tid('btn-merge-empty'));
+    await (await pch).setFiles([FIX('pages-a.pdf'), FIX('pages-b.pdf')]);
+    await pp.waitForSelector(tid('merge-go') + ':not([disabled])', { timeout: 30000 });
+    const fits = await pp.evaluate(() =>
+      ['merge-dialog', 'merge-go', 'merge-add', 'merge-cancel'].every((id) => {
+        const r = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
+        return r && r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+      }),
+    );
+    await pp.screenshot({ path: path.join(OUT, 'phone-merge.png') });
+    check('phone: “Gộp PDF” is on the start screen and its dialog fits the screen', fits);
+    await pc.close();
+  }
+
   check('no page errors', errors.length === 0, errors.slice(0, 5).join(' | '));
 
   await browser.close();

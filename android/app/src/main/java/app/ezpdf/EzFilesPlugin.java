@@ -54,7 +54,8 @@ import java.util.UUID;
  *
  *  - openDocument    system picker (ACTION_OPEN_DOCUMENT) for one PDF, or for
  *                    one PDF or Word file when the page passes `mimes`; with
- *                    `initialUri`, it starts in that document's folder
+ *                    `initialUri`, it starts in that document's folder; with
+ *                    `multiple`, several at once (Gộp PDF), given back as `files`
  *  - createDocument  system "save as" (ACTION_CREATE_DOCUMENT)
  *  - openWrite/write/closeWrite  stream the exported bytes into that document
  *  - takeIncoming + "incoming" event  PDFs and Word files opened with ezPDF (ACTION_VIEW)
@@ -158,20 +159,26 @@ public class EzFilesPlugin extends Plugin {
         if (initial != null && initial.startsWith("content://") && Build.VERSION.SDK_INT >= 26) {
             intent.putExtra("android.provider.extra.INITIAL_URI", Uri.parse(initial));
         }
+        if (Boolean.TRUE.equals(call.getBoolean("multiple", false))) {
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
         startActivityForResult(call, intent, "openDocumentResult");
     }
 
     @ActivityCallback
     private void openDocumentResult(PluginCall call, ActivityResult result) {
         if (call == null) return;
-        Uri uri = picked(result);
-        if (uri == null) {
+        java.util.List<Uri> uris = pickedAll(result);
+        if (uris.isEmpty()) {
             call.resolve(cancelled());
             return;
         }
         JSObject ret = new JSObject();
         ret.put("cancelled", false);
-        ret.put("file", describe(uri));
+        ret.put("file", describe(uris.get(0)));
+        JSArray files = new JSArray();
+        for (Uri u : uris) files.put(describe(u));
+        ret.put("files", files);
         call.resolve(ret);
     }
 
@@ -603,6 +610,23 @@ public class EzFilesPlugin extends Plugin {
         if (result == null || result.getResultCode() != Activity.RESULT_OK) return null;
         Intent data = result.getData();
         return data == null ? null : data.getData();
+    }
+
+    /** every document picked: several (EXTRA_ALLOW_MULTIPLE gives them as ClipData), or one */
+    private static java.util.List<Uri> pickedAll(ActivityResult result) {
+        java.util.List<Uri> out = new java.util.ArrayList<>();
+        if (result == null || result.getResultCode() != Activity.RESULT_OK) return out;
+        Intent data = result.getData();
+        if (data == null) return out;
+        ClipData clip = data.getClipData();
+        if (clip != null) {
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri u = clip.getItemAt(i).getUri();
+                if (u != null) out.add(u);
+            }
+        }
+        if (out.isEmpty() && data.getData() != null) out.add(data.getData());
+        return out;
     }
 
     private static JSObject cancelled() {

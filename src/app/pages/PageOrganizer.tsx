@@ -227,10 +227,12 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
   };
 
   const pickFiles = async () => {
-    if (platform.pickPdf) {
+    // several at once where the system picker allows it (desktop, Android); the browser's input takes several too
+    const pick = platform.pickPdfs ?? (platform.pickPdf ? async () => ((f) => (f ? [f] : null))(await platform.pickPdf!()) : null);
+    if (pick) {
       try {
-        const f = await platform.pickPdf();
-        if (f) await addFiles([f]);
+        const files = await pick();
+        if (files?.length) await addFiles(files);
       } catch (e) {
         setError(message(e));
       }

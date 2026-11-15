@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FileText, FolderOpen, Loader2, RefreshCw, ScanLine, ScanText } from 'lucide-react';
+import { Combine, FileText, FolderOpen, Loader2, RefreshCw, ScanLine, ScanText } from 'lucide-react';
 import { PdfAnnotationSubtype } from '@embedpdf/models';
 import { DocumentContent } from '@embedpdf/plugin-document-manager/react';
 import { useAnnotation, useAnnotationCapability } from '@embedpdf/plugin-annotation/react';
@@ -67,6 +67,7 @@ const WordScreen = lazy(() => import('./word/WordScreen').then((m) => ({ default
 // OCR's dialog and engine load when first asked for
 const OcrDialog = lazy(() => import('./ocr/OcrDialog').then((m) => ({ default: m.OcrDialog })));
 const DocumentOcrDialog = lazy(() => import('./ocr/OcrDialog').then((m) => ({ default: m.DocumentOcrDialog })));
+const MergeDialog = lazy(() => import('./merge/MergeDialog').then((m) => ({ default: m.MergeDialog })));
 
 /**
  * Resting modes (hand, select) are registered before any page mounts. On
@@ -92,6 +93,17 @@ export function Workspace({ documentId }: { documentId: string | null }) {
   const [ocr, setOcr] = useState<{ kind: 'document' } | Extract<OcrSource, { kind: 'files' }> | null>(null);
   const canOcr = ocrAvailable(platform);
   const ocrInput = useRef<HTMLInputElement>(null);
+  /** "Gộp PDF": the files picked to join */
+  const [merging, setMerging] = useState<File[] | null>(null);
+  const mergeInput = useRef<HTMLInputElement>(null);
+  const pickForMerge = useCallback(() => {
+    const pick = platform.pickPdfs;
+    if (!pick) return mergeInput.current?.click();
+    void pick().then(
+      (files) => files?.length && setMerging(files),
+      (e) => console.error('ezPDF: merge files', e),
+    );
+  }, [platform]);
   const pickForOcr = useCallback(() => {
     const pick = platform.pickOcrFiles;
     if (!pick) return ocrInput.current?.click();
@@ -196,6 +208,19 @@ export function Workspace({ documentId }: { documentId: string | null }) {
         />
       )}
       <input
+        ref={mergeInput}
+        type="file"
+        multiple
+        accept="application/pdf,.pdf"
+        className="hidden"
+        data-testid="merge-pick-input"
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = '';
+          if (files.length) setMerging(files);
+        }}
+      />
+      <input
         ref={fileInput}
         type="file"
         accept={OPEN_ACCEPT}
@@ -238,7 +263,7 @@ export function Workspace({ documentId }: { documentId: string | null }) {
             title={session.switching === 'open' ? 'Đang mở tài liệu…' : session.switching === 'update' ? 'Đang cập nhật trang…' : 'Đang đóng tài liệu…'}
           />
         ) : !documentId ? (
-          <EmptyState onOpen={openPicker} onScan={() => setScanning(true)} onOcr={canOcr ? pickForOcr : undefined} session={session} />
+          <EmptyState onOpen={openPicker} onScan={() => setScanning(true)} onOcr={canOcr ? pickForOcr : undefined} onMerge={pickForMerge} session={session} />
         ) : (
           <DocumentContent documentId={documentId}>
             {({ documentState, isLoading, isError, isLoaded }) => (
@@ -289,6 +314,11 @@ export function Workspace({ documentId }: { documentId: string | null }) {
       )}
       {organizing && documentId && !session.switching && (
         <PageOrganizer session={session} fileName={session.fileName} onClose={() => setOrganizing(false)} />
+      )}
+      {merging && (
+        <Suspense fallback={null}>
+          <MergeDialog files={merging} onClose={() => setMerging(null)} onOpen={session.openMade} />
+        </Suspense>
       )}
       {ocr && (
         <Suspense fallback={null}>
@@ -609,7 +639,19 @@ const OPEN_HINT = {
   android: 'Chọn tệp, hoặc mở hay chia sẻ một tệp PDF, Word sang ezPDF từ ứng dụng khác.',
 } as const;
 
-function EmptyState({ onOpen, onScan, onOcr, session }: { onOpen: () => void; onScan: () => void; onOcr?: () => void; session: DocumentSession }) {
+function EmptyState({
+  onOpen,
+  onScan,
+  onOcr,
+  onMerge,
+  session,
+}: {
+  onOpen: () => void;
+  onScan: () => void;
+  onOcr?: () => void;
+  onMerge: () => void;
+  session: DocumentSession;
+}) {
   const platform = usePlatform();
   const update = useWebUpdate();
   return (
@@ -639,6 +681,9 @@ function EmptyState({ onOpen, onScan, onOcr, session }: { onOpen: () => void; on
                 <ScanText /> Nhận dạng chữ
               </Button>
             )}
+            <Button onClick={onMerge} data-testid="btn-merge-empty" disabled={session.busy} title="Nối nhiều tệp PDF thành một tệp">
+              <Combine /> Gộp PDF
+            </Button>
           </div>
         </div>
         <DraftList onOpen={(r) => void session.resumeDraft(r)} />

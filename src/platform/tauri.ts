@@ -129,6 +129,12 @@ export async function createTauriPlatform(): Promise<Platform> {
     async revealFile(path) {
       await invoke('reveal_file', { path });
     },
+    async pickPdfs() {
+      const picked = await open({ multiple: true, directory: false, filters: PDF, title: 'Chọn các tệp PDF' });
+      const paths = typeof picked === 'string' ? [picked] : picked;
+      if (!paths?.length) return null;
+      return Promise.all(paths.map(async (path) => rememberSource(new File([await readFile(path)], baseName(path), { type: 'application/pdf' }), { path })));
+    },
     async pickOcrFiles() {
       const picked = await open({ multiple: true, directory: false, filters: OCR, title: 'Chọn ảnh hoặc tệp PDF để nhận dạng chữ' });
       const paths = typeof picked === 'string' ? [picked] : picked;

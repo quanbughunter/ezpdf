@@ -1,4 +1,4 @@
-# 10 · Bộ công cụ: thêm, xóa, đổi chỗ, trích, tách trang (bản 0.7.0, đổi tên ở 0.8.0)
+# 10 · Bộ công cụ: thêm, xóa, đổi chỗ, trích, tách trang (bản 0.7.0, đổi tên ở 0.8.0); gộp PDF (0.9.4)
 
 Bản 0.7.0 gọi màn này là **Sắp xếp trang**. Từ bản 0.8.0 nó tên là **Bộ công cụ**, có biểu tượng riêng (hộp đồ nghề có một trang giấy nhô lên, `src/app/pages/toolbox-icon.tsx`) và nằm ngay cạnh nút Chia sẻ trên thanh trên cùng, cả trên máy tính lẫn điện thoại. Cách dùng không đổi.
 
@@ -21,7 +21,7 @@ Màn này hiện mọi trang dưới dạng ảnh nhỏ, đúng chiều xoay nh�
 | Đổi chỗ | **Kéo thả.** Bằng chuột thì kéo luôn. Trên điện thoại, giữ trang một chút rồi kéo; vuốt nhanh chỉ cuộn danh sách. Một vạch màu xanh chỉ chỗ trang sẽ rơi xuống. Kéo một trang đang chọn thì cả nhóm trang đã chọn đi theo. Cũng có nút **Lên trước / Ra sau** (Alt ← / Alt →). |
 | Xoay | **Xoay trái / Xoay phải** các trang đã chọn. |
 | Xóa | **Xóa** (phím Delete) các trang đã chọn. Tài liệu phải còn ít nhất một trang. |
-| Thêm trang | **Thêm trang ▾** → **Từ tệp PDF khác…** (chọn được nhiều tệp một lúc), **Quét hoặc chụp ảnh…**, hoặc **Trang trắng**. Trang trắng có cùng khổ với trang đứng trước nó. Trang mới vào ngay sau trang được chọn cuối cùng; nếu chưa chọn trang nào thì vào cuối. Dưới mỗi trang lấy từ tệp khác có ghi tên tệp và số trang gốc. |
+| Thêm trang | **Thêm trang ▾** → **Từ tệp PDF khác…** (chọn được nhiều tệp một lúc; trên Windows và Android từ 0.9.4), **Quét hoặc chụp ảnh…**, hoặc **Trang trắng**. Trang trắng có cùng khổ với trang đứng trước nó. Trang mới vào ngay sau trang được chọn cuối cùng; nếu chưa chọn trang nào thì vào cuối. Dưới mỗi trang lấy từ tệp khác có ghi tên tệp và số trang gốc. |
 | Hoàn tác trong màn | Nút **Hoàn tác** hoặc Ctrl Z. |
 | Áp dụng | **Áp dụng**: tài liệu thành đúng như lưới đang thấy, rồi app chuyển tới trang đầu tiên có thay đổi. Cả lần sắp xếp là **một bước hoàn tác** (nút ↶ trên thanh công cụ). Bản nháp tự lưu thứ tự mới. |
 | Trích ra tệp mới | Các trang đã chọn, theo thứ tự đang thấy, thành một tệp riêng, ví dụ `Hop dong (trang 2, 4).pdf`. Bấm **Lưu** để lưu tệp. Tài liệu đang mở không đổi. |
@@ -30,6 +30,22 @@ Màn này hiện mọi trang dưới dạng ảnh nhỏ, đúng chiều xoay nh�
 **Lưu tất cả** lưu lần lượt từng tệp theo cách lưu của mỗi nền tảng:
 - trình duyệt: tải về từng tệp; Chrome có thể hỏi một lần có cho tải nhiều tệp không;
 - Windows và Android: mỗi tệp một hộp thoại lưu. Bấm Hủy ở một hộp thoại thì dừng ở tệp đó.
+
+## Gộp PDF (bản 0.9.4)
+
+Trên màn đầu tiên có nút **Gộp PDF**. Chọn nhiều tệp PDF một lúc (Windows, Android: hộp thoại chọn được nhiều tệp; trình duyệt: chọn nhiều tệp trong ô chọn tệp). Hộp thoại **Gộp PDF** liệt kê các tệp theo thứ tự, mỗi tệp có số trang và dung lượng:
+
+- **↑ / ↓** đổi thứ tự, **✕** bỏ khỏi danh sách, **Thêm tệp…** thêm nữa.
+- Tệp không đọc được thì hiện lý do và không được gộp: không phải PDF, có mật khẩu mở, tệp hỏng.
+- Dưới danh sách ghi “2 tệp, 8 trang sẽ được gộp theo thứ tự trên”, rồi bấm **Gộp 2 tệp**.
+
+Xong thì có hai cách dùng tệp mới, tên là `<tên tệp đầu> (gộp N tệp).pdf`:
+- **Lưu tệp…**: lưu ngay. Trên Windows có thêm **Mở thư mục**.
+- **Mở trong ezPDF**: mở tệp gộp như một tài liệu mới để xem, đổi chỗ hay xóa trang trong Bộ công cụ, rồi Xuất PDF hoặc Chia sẻ. Tài liệu này chưa được lưu ở đâu, nên app hỏi lại nếu đóng mà chưa xuất.
+
+Các tệp gốc không đổi. Mỗi trang giữ góc xoay của nó. Tệp gộp được dựng mới từ các trang (giống Tách tệp), nên ô biểu mẫu vẫn hiện nhưng không điền tiếp được. Đang mở một tài liệu mà muốn nối thêm tệp khác vào, thì dùng Bộ công cụ → Thêm trang → Từ tệp PDF khác.
+
+Ảnh hộp thoại: `docs/bang-chung/m10-gop-pdf.png`.
 
 Khi Bộ công cụ hay màn quét đang mở, các phím tắt của trình xem (R xoay trang, Delete xóa chú thích, Ctrl Z…) tạm tắt, để không đổi tài liệu ở phía sau.
 
@@ -69,6 +85,7 @@ Bộ `e2e:pages` kiểm:
 - Thoát khi còn thay đổi thì app hỏi lại. Phím tắt của trình xem tắt khi màn đang mở.
 - Quét → **Thêm vào tài liệu này**: thành trang 9, app chuyển tới trang đó; ↶ gỡ ra. Quét ngay trong Bộ công cụ.
 - Đang bật công cụ sửa chữ mà sắp xếp trang, rồi sửa một dòng trên trang 1 mới: dòng được sửa, thứ tự mới vẫn giữ.
+- Gộp PDF (0.9.4): nút trên màn đầu chọn nhiều tệp một lúc; mỗi tệp được đọc (5 và 3 trang); một ảnh PNG và một tệp có mật khẩu bị từ chối kèm lý do; đổi thứ tự, bỏ, thêm tệp; gộp đúng thứ tự (trang B rồi A, 8 trang, trang A-3 vẫn xoay 90°, đọc lại bằng MuPDF, qpdf không báo lỗi), tên `pages-b (gộp 2 tệp).pdf`; Mở trong ezPDF ra tài liệu 8 trang; trên điện thoại nút và hộp thoại vừa màn hình.
 - Điện thoại: nút Bộ công cụ trên thanh trên cùng, cạnh Chia sẻ (bản 0.8.0; trước đó trong menu ⋮); chạm để chọn; mọi nút nằm trong màn hình; cây kéo và thanh Tách tệp vừa màn hình, chạm là đặt vết cắt; giữ rồi kéo bằng ngón tay đổi được chỗ, vuốt nhanh thì không; áp dụng xong A-5 thành trang 1.
 - Không gửi gì ra ngoài, không có lỗi trên trang.
 
@@ -123,8 +140,8 @@ CI đỏ ở `e2e:preview`, tức bộ `e2e` chạy trên bản build production
 - **Mục lục trỏ tới trang đã xóa** vẫn còn trong tệp nhưng không còn đúng chỗ (MuPDF đưa về trang 1). Mục lục trỏ tới các trang còn lại vẫn theo đúng trang sau khi đổi chỗ.
 - **Trích và tách** tạo tệp mới, nên ô điền biểu mẫu vẫn hiện nhưng không điền tiếp được trong tệp đó. Sắp xếp ngay trên tài liệu thì vẫn điền được.
 - Xóa trang ngay trên tài liệu có thể để lại trong tệp những phần chỉ trang đã xóa dùng (ví dụ ảnh), nên tệp có thể không nhỏ đi bao nhiêu. Muốn tệp gọn thì dùng Trích ra tệp mới.
-- Tệp có mật khẩu chưa thêm vào được.
-- Chưa kiểm trên máy thật: Windows, Android, iPhone. Trên Windows và Android, Thêm từ tệp PDF dùng hộp thoại của hệ điều hành và chọn được một tệp mỗi lần.
+- Tệp có mật khẩu chưa thêm vào được, cũng chưa gộp được.
+- Chưa kiểm trên máy thật: Windows, Android, iPhone. Từ 0.9.4, trên Windows và Android, Thêm từ tệp PDF và Gộp PDF dùng hộp thoại của hệ điều hành chọn nhiều tệp một lúc. Hộp thoại chọn nhiều tệp của Android chưa thử trên máy thật; một số ứng dụng quản lý tệp chỉ cho chọn một tệp.
 
 ## Tự kiểm
 
@@ -134,3 +151,4 @@ CI đỏ ở `e2e:preview`, tức bộ `e2e` chạy trên bản build production
 4. Tách tệp → bấm hai cây kéo giữa các trang → thanh trên ghi 3 tệp, nhãn “Phần 1/2/3” trên các trang → Tạo 3 tệp → Lưu tất cả. Thử thêm Nhập số trang… → Mỗi tệp 1 trang.
 5. Quét một trang → Tạo PDF. Bấm quét lần nữa → quét thêm một trang → **Thêm vào tài liệu này**.
 6. Trên điện thoại: giữ một trang chừng nửa giây rồi kéo.
+7. Màn đầu → **Gộp PDF** → chọn 3 tệp → đổi thứ tự → Gộp → Lưu tệp…, rồi mở tệp gộp bằng app khác xem thứ tự trang.

@@ -30,7 +30,7 @@ interface DocRef {
 
 interface EzFilesPlugin {
   clearCaptures(): Promise<{ removed: number }>;
-  openDocument(o?: { mimes?: string[]; initialUri?: string }): Promise<{ cancelled: boolean; file?: DocRef }>;
+  openDocument(o?: { mimes?: string[]; initialUri?: string; multiple?: boolean }): Promise<{ cancelled: boolean; file?: DocRef; files?: DocRef[] }>;
   createDocument(o: { name: string; mime: string }): Promise<{ cancelled: boolean; file?: DocRef }>;
   openWrite(o: { uri: string }): Promise<{ handle: string }>;
   write(o: { handle: string; data: string }): Promise<void>;
@@ -105,6 +105,11 @@ export async function createAndroidPlatform(): Promise<Platform> {
     async pickPdf() {
       const r = await EzFiles.openDocument();
       return r.cancelled || !r.file ? null : fileOf(r.file);
+    },
+    async pickPdfs() {
+      const r = await EzFiles.openDocument({ multiple: true });
+      const refs = r.files?.length ? r.files : r.file ? [r.file] : [];
+      return r.cancelled || !refs.length ? null : Promise.all(refs.map(fileOf));
     },
     async pickFile() {
       const r = await EzFiles.openDocument({ mimes: ['application/pdf', DOCX_MIME] });

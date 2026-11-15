@@ -133,6 +133,12 @@ export interface Platform {
    * page uses a file input).
    */
   readonly pickOcrFiles?: () => Promise<File[] | null>;
+  /**
+   * The system's picker for several PDFs at once (Gộp PDF, Thêm trang từ
+   * tệp PDF khác): desktop and Android. null when cancelled. Absent in the
+   * browser (the page uses a file input that takes several).
+   */
+  readonly pickPdfs?: () => Promise<File[] | null>;
 }
 
 /**

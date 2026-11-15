@@ -5,7 +5,10 @@
  *    touch: hold, then drag) or with the move buttons, turn, delete;
  *  - add pages: from another PDF (any number of files), from a scan, blank;
  *  - extract the selected pages to a new file, or split the whole document
- *    into several files, saved one by one.
+ *    into several files, saved one by one: "Tách tệp" puts a pair of
+ *    scissors between every two pages, a click sets or lifts a cut there
+ *    (two cuts, three files); "Nhập số trang…" places the cuts by number
+ *    for long documents, or makes files from page ranges directly.
  * Nothing changes the document until "Áp dụng": the result is then built in
  * the PDFium worker (engine/page-ops.ts) and becomes the document, one undo
  * step (↶). Extracting and splitting leave the document as it is.
@@ -19,6 +22,7 @@ import {
   ChevronDown,
   FilePlus2,
   FileOutput,
+  Hash,
   Loader2,
   RotateCcw,
   RotateCw,
@@ -44,7 +48,7 @@ import type { PlanPage } from '@/engine/page-ops';
 import type { DocumentSession } from '../use-document-session';
 import { ScanDialog } from '../scan/ScanDialog';
 import { closeSource, openSource, ThumbQueue, useThumb, type SourceDoc } from './thumbs';
-import { everyN, pagesLabel, parseRanges, partFileName, partLabel, type Part } from './ranges';
+import { cutsToParts, everyN, pagesLabel, parseCuts, parseRanges, partFileName, partLabel, partsToCuts, type Part, type RangeResult } from './ranges';
 import { ToolboxIcon } from './toolbox-icon';
 
 interface Card {
@@ -87,6 +91,9 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [scanning, setScanning] = useState(false);
+  /** "Tách tệp": scissors between the pages; a cut `k` is after page k (1-based) */
+  const [splitting, setSplitting] = useState(false);
+  const [cuts, setCuts] = useState<Set<number>>(new Set());
   const fileInput = useRef<HTMLInputElement>(null);
   /** false once the organizer is closed: late async work must not open anything */
   const alive = useRef(true);
@@ -133,6 +140,18 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
   }, []);
 
   const changed = cards.length > 0 && signature(cards) !== initial;
+
+  // fewer pages than before: cuts past the last page go
+  useEffect(() => {
+    setCuts((s) => ([...s].some((k) => k >= cards.length) ? new Set([...s].filter((k) => k < cards.length)) : s));
+  }, [cards.length]);
+  const toggleCut = (k: number) =>
+    setCuts((s) => {
+      const n = new Set(s);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
 
   // the list as it is right now, for changes made one after another in one event
   const cardsRef = useRef(cards);
@@ -332,10 +351,11 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
         e.preventDefault();
         if (busy) return; // applying or reading a file: wait for it
         if (dialog) setDialog(null);
+        else if (splitting) setSplitting(false);
         else leave();
         return;
       }
-      if (typing || dialog || busy) return;
+      if (typing || dialog || busy || splitting) return;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'z') return void (e.preventDefault(), undo());
       if (mod && e.key.toLowerCase() === 'a') return void (e.preventDefault(), setSelected(new Set(cards.map((c) => c.key))));
@@ -383,50 +403,71 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
             {changed ? ' · chưa áp dụng' : ''}
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={undo} disabled={!history.length || !!busy} data-testid="org-undo" aria-label="Hoàn tác trong màn này">
+        <Button variant="ghost" size="sm" onClick={undo} disabled={!history.length || !!busy || splitting} data-testid="org-undo" aria-label="Hoàn tác trong màn này">
           <Undo2 />
           <span className="hidden sm:inline">Hoàn tác</span>
         </Button>
-        <Button size="sm" onClick={() => void apply()} disabled={!!busy || !cards.length} data-testid="org-apply">
+        <Button size="sm" onClick={() => void apply()} disabled={!!busy || !cards.length || splitting} data-testid="org-apply">
           <Check /> Áp dụng
         </Button>
       </header>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-x-1 gap-y-0.5 border-b bg-background px-2 py-1.5" data-testid="org-actions">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" disabled={!!busy || !base} data-testid="org-add">
-              <FilePlus2 /> Thêm trang <ChevronDown className="size-3.5 text-muted-foreground" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-56">
-            <DropdownMenuItem data-testid="org-add-pdf" onSelect={() => void pickFiles()}>
-              <FilePlus2 /> Từ tệp PDF khác…
-            </DropdownMenuItem>
-            <DropdownMenuItem data-testid="org-add-scan" onSelect={() => setScanning(true)}>
-              <ScanLine /> Quét hoặc chụp ảnh…
-            </DropdownMenuItem>
-            <DropdownMenuItem data-testid="org-add-blank" onSelect={addBlank}>
-              <SquareDashed /> Trang trắng
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Divider />
-        <Action label="Lên trước" icon={<ArrowLeft />} onClick={() => step(-1)} disabled={!some || !!busy} testId="org-left" />
-        <Action label="Ra sau" icon={<ArrowRight />} onClick={() => step(1)} disabled={!some || !!busy} testId="org-right" />
-        <Action label="Xoay trái" icon={<RotateCcw />} onClick={() => rotate(-1)} disabled={!some || !!busy} testId="org-rotate-left" />
-        <Action label="Xoay phải" icon={<RotateCw />} onClick={() => rotate(1)} disabled={!some || !!busy} testId="org-rotate-right" />
-        <Action label="Xóa" icon={<Trash2 />} onClick={remove} disabled={!some || !!busy} testId="org-delete" />
-        <Divider />
-        <Action label="Trích ra tệp mới" icon={<FileOutput />} onClick={() => void extract()} disabled={!some || !!busy} testId="org-extract" />
-        <Action label="Tách tệp" icon={<Scissors />} onClick={() => setDialog({ kind: 'split' })} disabled={cards.length < 2 || !!busy} testId="org-split" />
-        <Divider />
-        {selected.size === cards.length && cards.length ? (
-          <Action label="Bỏ chọn" icon={<Square />} onClick={() => setSelected(new Set())} disabled={!!busy} testId="org-select-none" />
-        ) : (
-          <Action label="Chọn tất cả" icon={<CheckSquare />} onClick={() => setSelected(new Set(cards.map((c) => c.key)))} disabled={!!busy || !cards.length} testId="org-select-all" />
-        )}
-      </div>
+      {splitting ? (
+        <SplitBar
+          total={cards.length}
+          cuts={cuts}
+          disabled={!!busy}
+          onNumbers={() => setDialog({ kind: 'split' })}
+          onClear={() => setCuts(new Set())}
+          onCreate={() => void split(cutsToParts(cuts, cards.length))}
+          onDone={() => setSplitting(false)}
+        />
+      ) : (
+        <div className="flex shrink-0 flex-wrap items-center gap-x-1 gap-y-0.5 border-b bg-background px-2 py-1.5" data-testid="org-actions">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={!!busy || !base} data-testid="org-add">
+                <FilePlus2 /> Thêm trang <ChevronDown className="size-3.5 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-56">
+              <DropdownMenuItem data-testid="org-add-pdf" onSelect={() => void pickFiles()}>
+                <FilePlus2 /> Từ tệp PDF khác…
+              </DropdownMenuItem>
+              <DropdownMenuItem data-testid="org-add-scan" onSelect={() => setScanning(true)}>
+                <ScanLine /> Quét hoặc chụp ảnh…
+              </DropdownMenuItem>
+              <DropdownMenuItem data-testid="org-add-blank" onSelect={addBlank}>
+                <SquareDashed /> Trang trắng
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Divider />
+          <Action label="Lên trước" icon={<ArrowLeft />} onClick={() => step(-1)} disabled={!some || !!busy} testId="org-left" />
+          <Action label="Ra sau" icon={<ArrowRight />} onClick={() => step(1)} disabled={!some || !!busy} testId="org-right" />
+          <Action label="Xoay trái" icon={<RotateCcw />} onClick={() => rotate(-1)} disabled={!some || !!busy} testId="org-rotate-left" />
+          <Action label="Xoay phải" icon={<RotateCw />} onClick={() => rotate(1)} disabled={!some || !!busy} testId="org-rotate-right" />
+          <Action label="Xóa" icon={<Trash2 />} onClick={remove} disabled={!some || !!busy} testId="org-delete" />
+          <Divider />
+          <Action label="Trích ra tệp mới" icon={<FileOutput />} onClick={() => void extract()} disabled={!some || !!busy} testId="org-extract" />
+          <Action
+            label="Tách tệp"
+            icon={<Scissors />}
+            onClick={() => {
+              setSelected(new Set());
+              setSplitting(true);
+            }}
+            disabled={cards.length < 2 || !!busy}
+            testId="org-split"
+          />
+          <Divider />
+          {selected.size === cards.length && cards.length ? (
+            <Action label="Bỏ chọn" icon={<Square />} onClick={() => setSelected(new Set())} disabled={!!busy} testId="org-select-none" />
+          ) : (
+            <Action label="Chọn tất cả" icon={<CheckSquare />} onClick={() => setSelected(new Set(cards.map((c) => c.key)))} disabled={!!busy || !cards.length} testId="org-select-all" />
+          )}
+        </div>
+      )}
 
       {error && (
         <div role="alert" data-testid="org-error" className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-[13px] text-red-900">
@@ -437,10 +478,21 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
         </div>
       )}
 
-      <Grid cards={cards} sources={sources} selected={selected} queue={queue} onToggle={toggle} onMove={moveTo} disabled={!!busy} />
+      <Grid
+        cards={cards}
+        sources={sources}
+        selected={selected}
+        queue={queue}
+        onToggle={toggle}
+        onMove={moveTo}
+        disabled={!!busy}
+        split={splitting ? { cuts, onToggle: toggleCut } : undefined}
+      />
 
-      <p className="shrink-0 border-t bg-background px-4 py-1.5 text-center text-xs text-muted-foreground">
-        Chạm để chọn. Kéo để đổi chỗ (trên điện thoại: giữ một chút rồi kéo). Trang mới được thêm sau trang chọn cuối cùng.
+      <p className="shrink-0 border-t bg-background px-4 py-1.5 text-center text-xs text-muted-foreground" data-testid="org-footer">
+        {splitting
+          ? 'Bấm cây kéo giữa hai trang để cắt, bấm lần nữa để bỏ vết cắt. Mỗi phần thành một tệp PDF mới; tài liệu đang mở không đổi.'
+          : 'Chạm để chọn. Kéo để đổi chỗ (trên điện thoại: giữ một chút rồi kéo). Trang mới được thêm sau trang chọn cuối cùng.'}
       </p>
 
       {busy && (
@@ -451,7 +503,19 @@ export function PageOrganizer({ session, fileName, onClose }: { session: Documen
         </div>
       )}
 
-      {dialog?.kind === 'split' && <SplitDialog total={cards.length} onCancel={() => setDialog(null)} onSplit={(parts) => void split(parts)} />}
+      {dialog?.kind === 'split' && (
+        <SplitDialog
+          total={cards.length}
+          cuts={[...cuts].sort((a, b) => a - b)}
+          onCancel={() => setDialog(null)}
+          onCuts={(c) => {
+            setCuts(new Set(c));
+            setSplitting(true);
+            setDialog(null);
+          }}
+          onSplit={(parts) => void split(parts)}
+        />
+      )}
       {dialog?.kind === 'outputs' && (
         <OutputsDialog
           title={dialog.title}
@@ -535,6 +599,8 @@ function Grid(p: {
   onToggle: (key: string) => void;
   onMove: (keys: string[], at: number) => void;
   disabled: boolean;
+  /** "Tách tệp": scissors between the pages instead of selecting and moving */
+  split?: { cuts: Set<number>; onToggle: (after: number) => void };
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -604,7 +670,7 @@ function Grid(p: {
   }, [!!drag]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onPointerDown = (key: string) => (e: React.PointerEvent) => {
-    if (p.disabled || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    if (p.disabled || p.split || (e.pointerType === 'mouse' && e.button !== 0)) return;
     suppressClick.current = false;
     const touch = e.pointerType !== 'mouse';
     const pd = { key, x: e.clientX, y: e.clientY, id: e.pointerId, touch, armed: !touch, timer: undefined as number | undefined };
@@ -667,12 +733,21 @@ function Grid(p: {
 
   return (
     <div ref={box} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-canvas p-3 sm:p-4" data-testid="org-grid">
-      <ol className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-x-3 gap-y-4 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))] sm:gap-x-4">
+      <ol
+        className={cn(
+          'grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-x-3 gap-y-4 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))] sm:gap-x-4',
+          // room for the scissors between two pages, and after the last page of a row
+          p.split && 'gap-x-10 pr-10 sm:gap-x-10',
+        )}
+      >
         {p.cards.map((c, i) => (
           <li key={c.key} data-card-index={i} data-key={c.key} className="relative">
             {drag && drag.at === i && <DropMark side="left" />}
             {drag && drag.at === p.cards.length && i === p.cards.length - 1 && <DropMark side="right" />}
+            {p.split && <PartLabel index={i} part={partOf(p.split.cuts, i)} />}
+            {p.split && i < p.cards.length - 1 && <CutMark after={i + 1} on={p.split.cuts.has(i + 1)} onToggle={p.split.onToggle} />}
             <PageCard
+              tint={p.split ? PART_TINTS[partOf(p.split.cuts, i) % PART_TINTS.length].soft : undefined}
               card={c}
               index={i}
               selected={p.selected.has(c.key)}
@@ -686,7 +761,7 @@ function Grid(p: {
                   suppressClick.current = false;
                   return;
                 }
-                if (!p.disabled) p.onToggle(c.key);
+                if (!p.disabled && !p.split) p.onToggle(c.key);
               }}
             />
           </li>
@@ -705,6 +780,61 @@ function Grid(p: {
   );
 }
 
+/** Colours of the parts while cutting: a dark pill with white text, and a soft wash behind the page. */
+const PART_TINTS = [
+  { pill: '#0b6e69', soft: '#e3f3f1' },
+  { pill: '#8f5400', soft: '#fcf0db' },
+  { pill: '#6741c9', soft: '#efe9fd' },
+  { pill: '#b4233a', soft: '#fde8ea' },
+  { pill: '#1f6fb2', soft: '#e2f0fb' },
+  { pill: '#3f7a1d', soft: '#e9f5e1' },
+];
+
+/** Part of page `i` (0-based): how many cuts come before it. */
+const partOf = (cuts: Set<number>, i: number) => [...cuts].filter((k) => k <= i).length;
+
+function PartLabel({ index, part }: { index: number; part: number }) {
+  const t = PART_TINTS[part % PART_TINTS.length];
+  return (
+    <span
+      data-testid={`org-part-${index}`}
+      data-part={part + 1}
+      className="mb-1.5 flex h-5 items-center justify-center rounded-full text-[11px] font-bold text-white"
+      style={{ background: t.pill }}
+    >
+      Phần {part + 1}
+    </span>
+  );
+}
+
+/** The scissors between page `after` and the next one: a click sets the cut, another lifts it. */
+function CutMark({ after, on, onToggle }: { after: number; on: boolean; onToggle: (after: number) => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={on ? `Bỏ vết cắt sau trang ${after}` : `Cắt sau trang ${after}`}
+      title={on ? `Bỏ vết cắt sau trang ${after}` : `Cắt sau trang ${after}`}
+      data-testid={`org-cut-${after}`}
+      onClick={() => onToggle(after)}
+      className="group absolute top-7 bottom-8 left-full z-10 flex w-10 items-center justify-center outline-none"
+    >
+      <span
+        aria-hidden
+        className={cn('absolute inset-y-0 left-1/2 -translate-x-1/2 border-l-2 border-dashed', on ? 'border-primary' : 'border-muted-foreground/25 group-hover:border-muted-foreground/60')}
+      />
+      <span
+        className={cn(
+          'relative flex size-8 items-center justify-center rounded-full border shadow-sm transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring',
+          on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background text-muted-foreground group-hover:text-foreground',
+        )}
+      >
+        <Scissors className="size-4" />
+      </span>
+    </button>
+  );
+}
+
 function DropMark({ side }: { side: 'left' | 'right' }) {
   return (
     <span
@@ -718,6 +848,8 @@ function DropMark({ side }: { side: 'left' | 'right' }) {
 function PageCard(p: {
   card: Card;
   index: number;
+  /** while cutting: the part's colour behind the page */
+  tint?: string;
   selected: boolean;
   dragging: boolean;
   source?: SourceDoc;
@@ -747,8 +879,9 @@ function PageCard(p: {
         onContextMenu={(e) => e.preventDefault()}
         className={cn(
           'relative flex w-full touch-pan-y items-center justify-center rounded-md p-1.5 outline-none select-none [-webkit-touch-callout:none] focus-visible:ring-2 focus-visible:ring-ring',
-          p.selected ? 'bg-primary-soft ring-2 ring-primary' : 'hover:bg-black/5',
+          p.tint ? 'cursor-default' : p.selected ? 'bg-primary-soft ring-2 ring-primary' : 'hover:bg-black/5',
         )}
+        style={p.tint ? { background: p.tint } : undefined}
       >
         <div
           ref={ref}
@@ -798,17 +931,90 @@ function Modal({ title, children, testId }: { title: string; children: ReactNode
   );
 }
 
-function SplitDialog({ total, onCancel, onSplit }: { total: number; onCancel: () => void; onSplit: (parts: Part[]) => void }) {
-  const [mode, setMode] = useState<'every' | 'ranges'>('every');
-  const [n, setN] = useState(String(Math.min(total - 1, Math.max(1, Math.ceil(total / 2)))));
-  const [ranges, setRanges] = useState('');
-  const result = mode === 'every' ? ({ ok: true, parts: everyN(parseInt(n, 10) || 0, total) } as const) : parseRanges(ranges, total);
-  const valid = result.ok && (mode === 'ranges' || (parseInt(n, 10) || 0) >= 1);
-  const parts = result.ok ? result.parts : [];
+/** "trang 1–3 · 4–7 · 8–12": the parts in a short line. */
+function partsLine(parts: Part[], max = 6) {
+  const shown = parts.slice(0, max).map((p, i) => (i ? (p.from === p.to ? `${p.from}` : `${p.from}–${p.to}`) : partLabel(p)));
+  return shown.join(' · ') + (parts.length > max ? ' · …' : '');
+}
+
+/** While cutting, in place of the actions: what the cuts make, typing them instead, and making the files. */
+function SplitBar(p: {
+  total: number;
+  cuts: Set<number>;
+  disabled: boolean;
+  onNumbers: () => void;
+  onClear: () => void;
+  onCreate: () => void;
+  onDone: () => void;
+}) {
+  const n = p.cuts.size;
+  const parts = cutsToParts(p.cuts, p.total);
   return (
-    <Modal title="Tách thành nhiều tệp" testId="org-split-dialog">
+    <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b bg-background px-3 py-1.5" data-testid="split-bar">
+      <p className="flex min-w-0 flex-1 basis-72 items-center gap-2 text-[13px]">
+        <Scissors className="size-4 shrink-0 text-primary" aria-hidden />
+        <span className="shrink-0 font-bold">Tách tệp</span>
+        <span className="min-w-0 truncate text-muted-foreground tabular-nums" data-testid="split-summary" data-cuts={[...p.cuts].sort((a, b) => a - b).join(',')}>
+          {n ? `${n} vết cắt → ${n + 1} tệp: ${partsLine(parts)}` : 'Bấm cây kéo giữa hai trang để đặt vết cắt.'}
+        </span>
+      </p>
+      <div className="flex flex-wrap items-center gap-1 max-sm:w-full max-sm:justify-end">
+        <Button variant="ghost" size="sm" onClick={p.onNumbers} disabled={p.disabled} data-testid="split-numbers" className="px-2" aria-label="Nhập số trang để cắt">
+          <Hash /> <span className="sm:hidden">Nhập số</span>
+          <span className="max-sm:hidden">Nhập số trang…</span>
+        </Button>
+        <Button variant="ghost" size="sm" onClick={p.onClear} disabled={!n || p.disabled} data-testid="split-clear" className="px-2" aria-label="Bỏ hết vết cắt">
+          <span className="sm:hidden">Bỏ hết</span>
+          <span className="max-sm:hidden">Bỏ hết vết cắt</span>
+        </Button>
+        <Button variant="outline" size="sm" onClick={p.onDone} disabled={p.disabled} data-testid="split-exit">
+          Xong
+        </Button>
+        <Button size="sm" onClick={p.onCreate} disabled={!n || p.disabled} data-testid="split-create">
+          <Scissors /> {n ? `Tạo ${n + 1} tệp` : 'Tạo tệp'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The cuts by number, for long documents: every n pages, after given pages,
+ * or by page ranges. Parts that cover every page become cuts on the grid
+ * (to see before making the files); ranges that leave pages out make their
+ * files directly.
+ */
+function SplitDialog({
+  total,
+  cuts,
+  onCancel,
+  onCuts,
+  onSplit,
+}: {
+  total: number;
+  cuts: number[];
+  onCancel: () => void;
+  onCuts: (cuts: number[]) => void;
+  onSplit: (parts: Part[]) => void;
+}) {
+  const [mode, setMode] = useState<'every' | 'cuts' | 'ranges'>(cuts.length ? 'cuts' : 'every');
+  const [n, setN] = useState(String(Math.min(total - 1, Math.max(1, Math.ceil(total / 2)))));
+  const [cutText, setCutText] = useState(cuts.join(', '));
+  const [ranges, setRanges] = useState('');
+  let result: RangeResult;
+  if (mode === 'every') result = { ok: true, parts: everyN(parseInt(n, 10) || 0, total) };
+  else if (mode === 'cuts') {
+    const c = parseCuts(cutText, total);
+    result = c.ok ? { ok: true, parts: cutsToParts(c.cuts, total) } : c;
+  } else result = parseRanges(ranges, total);
+  const valid = result.ok && (mode !== 'every' || (parseInt(n, 10) || 0) >= 1);
+  const parts = result.ok ? result.parts : [];
+  const asCuts = valid ? partsToCuts(parts, total) : null;
+  const ready = valid && (asCuts ? asCuts.length > 0 : parts.length > 0);
+  return (
+    <Modal title="Cắt theo số trang" testId="org-split-dialog">
       <p className="text-[13px] text-muted-foreground">
-        Tài liệu có {total} trang, theo thứ tự đang thấy. Tài liệu đang mở không thay đổi; các tệp mới được lưu riêng.
+        Tài liệu có {total} trang, theo thứ tự đang thấy. Các vết cắt hiện ra giữa các trang để bạn xem lại trước khi tạo tệp. Tài liệu đang mở không thay đổi.
       </p>
       <fieldset className="mt-3 space-y-3 text-[13px]">
         <label className="flex items-center gap-2">
@@ -824,6 +1030,20 @@ function SplitDialog({ total, onCancel, onSplit }: { total: number; onCancel: ()
             className="h-8 w-14 rounded-md border bg-white text-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           trang
+        </label>
+        <label className="flex flex-wrap items-center gap-2">
+          <input type="radio" name="split" checked={mode === 'cuts'} onChange={() => setMode('cuts')} data-testid="split-mode-cuts" />
+          Cắt sau trang
+          <input
+            inputMode="numeric"
+            value={cutText}
+            placeholder="ví dụ 3, 7"
+            onChange={(e) => setCutText(e.target.value)}
+            onFocus={() => setMode('cuts')}
+            data-testid="split-cuts"
+            aria-label="Cắt sau các trang"
+            className="h-8 min-w-0 flex-1 rounded-md border bg-white px-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
         </label>
         <label className="flex flex-wrap items-center gap-2">
           <input type="radio" name="split" checked={mode === 'ranges'} onChange={() => setMode('ranges')} data-testid="split-mode-ranges" />
@@ -844,14 +1064,18 @@ function SplitDialog({ total, onCancel, onSplit }: { total: number; onCancel: ()
           ? result.error
           : !valid
             ? 'Hãy ghi số trang mỗi tệp.'
-            : `Sẽ tạo ${parts.length} tệp: ${parts.map(partLabel).join('; ')}.`}
+            : asCuts
+              ? asCuts.length
+                ? `${asCuts.length} vết cắt, ${parts.length} tệp: ${parts.map(partLabel).join('; ')}.`
+                : 'Cả tài liệu là một phần: chưa có vết cắt nào.'
+              : `Sẽ tạo ${parts.length} tệp: ${parts.map(partLabel).join('; ')}. Các trang khác không vào tệp nào.`}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel} data-testid="split-cancel">
           Hủy
         </Button>
-        <Button size="sm" disabled={!valid || parts.length < 1} onClick={() => onSplit(parts)} data-testid="split-go">
-          <Scissors /> Tạo {parts.length} tệp
+        <Button size="sm" disabled={!ready} onClick={() => (asCuts ? onCuts(asCuts) : onSplit(parts))} data-testid="split-go">
+          <Scissors /> {asCuts ? `Đặt ${asCuts.length} vết cắt` : `Tạo ${parts.length} tệp`}
         </Button>
       </div>
     </Modal>

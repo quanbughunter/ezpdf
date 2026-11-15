@@ -34,8 +34,8 @@
  *  7. the window closed (WM_DELETE_WINDOW, as the close button does) right
  *     after an edit: the draft is saved before the window goes
  *  2c. the page organizer in the shell's web view: thumbnails drawn, a split
- *     built in the PDFium worker, the rearranged document saved as the draft,
- *     and undone
+ *     with the scissors between the pages built in the PDFium worker, the
+ *     rearranged document saved as the draft, and undone
  *  8. OCR (0.9.0): "Nhận dạng chữ" on the start screen, a picture picked in
  *     the system dialog read in WebKitGTK from the app's own Tesseract files,
  *     the Word file and the searchable PDF saved through the save dialogs
@@ -301,19 +301,22 @@ const has = (sel, needle) => `return (document.querySelector('${sel}')?.textCont
       await s.js(`document.querySelector('${T('org-card-3')}').click()`);
       await s.js(`document.querySelector('${T('org-delete')}').click()`);
       await s.shot('2c-organizer.png');
-      // a split, built by the worker inside the shell
+      // a split with the scissors (one cut after page 2), built by the worker inside the shell
       await s.js(`document.querySelector('${T('org-split')}').click()`);
-      await s.waitFor(`return !!document.querySelector('${T('split-go')}')`, 'the split dialog');
-      await s.js(`document.querySelector('${T('split-go')}').click()`);
+      await s.waitFor(`return !!document.querySelector('${T('org-cut-2')}')`, 'the scissors between the pages');
+      await s.js(`document.querySelector('${T('org-cut-2')}').click()`);
+      await s.waitFor(`return document.querySelector('${T('split-summary')}').dataset.cuts === '2'`, 'the cut after page 2');
+      await s.js(`document.querySelector('${T('split-create')}').click()`);
       const parts = await s.waitFor(`return document.querySelectorAll('[data-testid^="org-output-save-"]').length`, 'the split files', 30000);
       await s.js(`document.querySelector('${T('org-outputs-close')}').click()`);
+      await s.js(`document.querySelector('${T('split-exit')}').click()`);
       await s.js(`document.querySelector('${T('org-apply')}').click()`);
       await s.waitFor(has(T('page-total'), '/ 3'), 'the rearranged document', 30000);
       for (let i = 0; i < 100 && draftMeta()?.pages !== 3; i++) await sleep(300);
       const rec = draftMeta();
       const got = order(draftPdf());
       check(
-        'the page organizer in the desktop shell: pages drawn, split built, the rearranged document saved as the draft (page 1 still turned)',
+        'the page organizer in the desktop shell: pages drawn, a cut set with the scissors and the split built, the rearranged document saved as the draft (page 1 still turned)',
         parts === 2 && rec?.pages === 3 && got === '2 1 3' && rec?.rotations?.join(',') === '1,1,0',
         `split ${parts} files · draft pages ${got} · rotations ${rec?.rotations?.join(',')}`,
       );

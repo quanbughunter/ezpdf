@@ -25,7 +25,7 @@ Màn này hiện mọi trang dưới dạng ảnh nhỏ, đúng chiều xoay nh�
 | Hoàn tác trong màn | Nút **Hoàn tác** hoặc Ctrl Z. |
 | Áp dụng | **Áp dụng**: tài liệu thành đúng như lưới đang thấy, rồi app chuyển tới trang đầu tiên có thay đổi. Cả lần sắp xếp là **một bước hoàn tác** (nút ↶ trên thanh công cụ). Bản nháp tự lưu thứ tự mới. |
 | Trích ra tệp mới | Các trang đã chọn, theo thứ tự đang thấy, thành một tệp riêng, ví dụ `Hop dong (trang 2, 4).pdf`. Bấm **Lưu** để lưu tệp. Tài liệu đang mở không đổi. |
-| Tách tệp | Tách cả tài liệu, theo thứ tự đang thấy, thành nhiều tệp: **Mỗi tệp n trang**, hoặc **Theo khoảng trang** (ví dụ `1-3, 4-6, 7-`; `7-` nghĩa là tới hết). App báo trước sẽ tạo bao nhiêu tệp và từ chối khoảng trang nằm ngoài tài liệu hoặc chồng lên nhau. Lưu từng tệp, hoặc **Lưu tất cả**. Tài liệu đang mở không đổi. |
+| Tách tệp | Tách cả tài liệu, theo thứ tự đang thấy, thành nhiều tệp. Từ bản 0.9.3: bấm **Tách tệp** thì **giữa mỗi hai trang có một cây kéo**. Bấm cây kéo là đặt vết cắt ở đó, bấm lần nữa là bỏ; hai vết cắt thành 3 tệp, ba vết thành 4 tệp. Mỗi phần có nhãn màu “Phần 1”, “Phần 2”… trên từng trang, thanh trên ghi “2 vết cắt → 3 tệp: trang 1–3 · 4–6 · 7–8”, rồi **Tạo 3 tệp**. Tài liệu dài thì **Nhập số trang…**: **Mỗi tệp n trang**, **Cắt sau trang** (ví dụ `3, 7`) hoặc **Theo khoảng trang** (ví dụ `1-3, 4-6, 7-`; `7-` nghĩa là tới hết). Kết quả phủ hết các trang thì hiện thành vết cắt trên các trang để xem lại; khoảng trang bỏ sót trang (ví dụ `2, 4-`) thì tạo tệp ngay như trước. App từ chối số trang nằm ngoài tài liệu hoặc khoảng chồng nhau. Lưu từng tệp, hoặc **Lưu tất cả**. Tài liệu đang mở không đổi. |
 
 **Lưu tất cả** lưu lần lượt từng tệp theo cách lưu của mỗi nền tảng:
 - trình duyệt: tải về từng tệp; Chrome có thể hỏi một lần có cho tải nhiều tệp không;
@@ -65,11 +65,11 @@ Bộ `e2e:pages` kiểm:
 - Xóa; Lên trước; xoay; thêm từ tệp khác (đúng chỗ, ghi tên tệp); trang trắng (cùng khổ ngang với trang trước); kéo bằng chuột (có vạch chỉ chỗ thả); phím Delete; Hoàn tác trong màn.
 - Áp dụng: thứ tự mới, góc xoay đã đặt trong trình xem vẫn đúng trang, ghi chú đi theo A-2. Tệp xuất đọc bằng MuPDF đúng thứ tự, `/Rotate` và khổ trang.
 - ↶ trả 5 trang gốc, ↷ lại thứ tự mới. Tải lại trang rồi mở bản nháp: vẫn thứ tự mới.
-- Trích (tên tệp theo số trang); tách mỗi 3 trang và **Lưu tất cả** (3 tệp đúng trang); tách theo khoảng (từ chối `9-`, nhận `2, 4-`). Tài liệu đang mở không đổi.
+- Trích (tên tệp theo số trang). Tách bằng cây kéo (0.9.3): 7 cây kéo cho 8 trang, bấm đặt và bỏ vết cắt, nhãn phần đúng, hai vết cắt thành 3 tệp, **Lưu tất cả** (3 tệp đúng trang, đọc lại bằng MuPDF). Nhập số trang: mở ra với các vết cắt đang có, từ chối cắt sau trang cuối, mỗi 3 hay 4 trang hoặc cắt sau trang 2 và 5 thì hiện thành vết cắt. Tách theo khoảng (từ chối `9-`; `2, 4-` bỏ sót trang nên tạo tệp ngay). Esc rời chế độ cắt, vết cắt còn giữ cho lần sau, **Bỏ hết vết cắt**. Tài liệu đang mở không đổi. Ảnh màn tách bằng cây kéo: `docs/bang-chung/m10-tach-bang-keo.png`.
 - Thoát khi còn thay đổi thì app hỏi lại. Phím tắt của trình xem tắt khi màn đang mở.
 - Quét → **Thêm vào tài liệu này**: thành trang 9, app chuyển tới trang đó; ↶ gỡ ra. Quét ngay trong Bộ công cụ.
 - Đang bật công cụ sửa chữ mà sắp xếp trang, rồi sửa một dòng trên trang 1 mới: dòng được sửa, thứ tự mới vẫn giữ.
-- Điện thoại: nút Bộ công cụ trên thanh trên cùng, cạnh Chia sẻ (bản 0.8.0; trước đó trong menu ⋮); chạm để chọn; mọi nút nằm trong màn hình; giữ rồi kéo bằng ngón tay đổi được chỗ, vuốt nhanh thì không; áp dụng xong A-5 thành trang 1.
+- Điện thoại: nút Bộ công cụ trên thanh trên cùng, cạnh Chia sẻ (bản 0.8.0; trước đó trong menu ⋮); chạm để chọn; mọi nút nằm trong màn hình; cây kéo và thanh Tách tệp vừa màn hình, chạm là đặt vết cắt; giữ rồi kéo bằng ngón tay đổi được chỗ, vuốt nhanh thì không; áp dụng xong A-5 thành trang 1.
 - Không gửi gì ra ngoài, không có lỗi trên trang.
 
 Thêm `scripts/smoke-desktop.cjs` (bản desktop thật, WebView WebKitGTK trên Linux, **22/22**). Bước mới chạy màn Sắp xếp trang trong vỏ desktop:
@@ -131,6 +131,6 @@ CI đỏ ở `e2e:preview`, tức bộ `e2e` chạy trên bản build production
 1. Mở một PDF nhiều trang → Bộ công cụ. Kéo một trang sang chỗ khác, xoay một trang, xóa một trang, rồi Áp dụng. Thử ↶ rồi ↷.
 2. Thêm trang → Từ tệp PDF khác, rồi Áp dụng và Xuất PDF. Mở tệp xuất bằng một app khác để xem thứ tự.
 3. Chọn 2 trang → Trích ra tệp mới → Lưu.
-4. Tách tệp → Mỗi tệp 1 trang → Lưu tất cả.
+4. Tách tệp → bấm hai cây kéo giữa các trang → thanh trên ghi 3 tệp, nhãn “Phần 1/2/3” trên các trang → Tạo 3 tệp → Lưu tất cả. Thử thêm Nhập số trang… → Mỗi tệp 1 trang.
 5. Quét một trang → Tạo PDF. Bấm quét lần nữa → quét thêm một trang → **Thêm vào tài liệu này**.
 6. Trên điện thoại: giữ một trang chừng nửa giây rồi kéo.

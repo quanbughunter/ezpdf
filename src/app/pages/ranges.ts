@@ -44,6 +44,51 @@ export function everyN(n: number, total: number): Part[] {
   return parts;
 }
 
+/**
+ * Cuts, as set with the scissors between two pages: `k` cuts after page k
+ * (1 ≤ k < total). The parts they make cover every page, in order.
+ */
+export function cutsToParts(cuts: Iterable<number>, total: number): Part[] {
+  const at = [...new Set(cuts)].filter((k) => k >= 1 && k < total).sort((a, b) => a - b);
+  const parts: Part[] = [];
+  let from = 1;
+  for (const k of at) {
+    parts.push({ from, to: k });
+    from = k + 1;
+  }
+  if (total >= 1) parts.push({ from, to: total });
+  return parts;
+}
+
+/** Parts that cover every page in order, as cuts; null when a page is left out or they are out of order. */
+export function partsToCuts(parts: Part[], total: number): number[] | null {
+  let next = 1;
+  const cuts: number[] = [];
+  for (const p of parts) {
+    if (p.from !== next || p.to < p.from) return null;
+    if (p.to < total) cuts.push(p.to);
+    next = p.to + 1;
+  }
+  return next === total + 1 ? cuts : null;
+}
+
+/** "3, 7" → cuts after pages 3 and 7. Each must lie between the first and the last page. */
+export function parseCuts(text: string, total: number): { ok: true; cuts: number[] } | { ok: false; error: string } {
+  const items = text
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!items.length) return { ok: false, error: 'Hãy ghi số trang cần cắt sau, ví dụ 3, 7.' };
+  const cuts = new Set<number>();
+  for (const item of items) {
+    if (!/^\d+$/.test(item)) return { ok: false, error: `“${item}” không phải số trang.` };
+    const k = +item;
+    if (k < 1 || k >= total) return { ok: false, error: `Cắt sau trang ${k} không được: tài liệu có ${total} trang, chỉ cắt được sau trang 1–${total - 1}.` };
+    cuts.add(k);
+  }
+  return { ok: true, cuts: [...cuts].sort((a, b) => a - b) };
+}
+
 /** "trang 3", "trang 1–4", for names and lists. */
 export const partLabel = (p: Part) => (p.from === p.to ? `trang ${p.from}` : `trang ${p.from}–${p.to}`);
 

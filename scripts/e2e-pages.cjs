@@ -13,8 +13,11 @@
  *    "Áp dụng" makes it the document (rotation done in the viewer kept,
  *    sticky note moved with its page); export; ↶ / ↷ of the whole change;
  *    the draft keeps the new order after a reload
- *  - extract the selected pages; split every n pages and by ranges, saving
- *    each file and all of them
+ *  - extract the selected pages; split by setting cuts with the scissors
+ *    between the pages (a click sets, another lifts; parts coloured), by
+ *    number (every n pages, after given pages: the cuts appear on the grid)
+ *    and by ranges that leave pages out (files made directly), saving each
+ *    file and all of them
  *  - leaving with changes asks first; the viewer's shortcuts are off meanwhile
  *  - a scan onto the end of the open document, and a scan as pages inside
  *    the organizer
@@ -292,10 +295,36 @@ let onCrash = async () => {};
   check('“Trích ra tệp mới”: a file with the selected pages only, named after them', marks(r2) === 'A-2 B-2' && r2[0].notes.join() === 'Ghi chu tren A-2' && /\(trang 2, 4\)\.pdf$/.test(ex.suggested) && qpdfClean(ex.file), `${marks(r2)} · ${ex.suggested}`);
   await page.click(tid('org-outputs-close'));
 
+  // scissors between the pages
   await page.click(tid('org-split'));
-  await page.fill(tid('split-every'), '3');
-  const preview = await page.textContent(tid('split-preview'));
-  await page.click(tid('split-go'));
+  await page.waitForSelector(tid('split-bar'));
+  const cutState = () =>
+    page.evaluate(() => ({
+      cuts: document.querySelector('[data-testid="split-summary"]').dataset.cuts,
+      parts: Array.from(document.querySelectorAll('[data-testid^="org-part-"]')).map((e) => e.dataset.part).join(''),
+      summary: document.querySelector('[data-testid="split-summary"]').textContent,
+    }));
+  const none = await cutState();
+  const actionsHidden = !(await page.isVisible(tid('org-actions')));
+  const createOff = await page.isDisabled(tid('split-create'));
+  const scissors = await page.locator('[data-testid^="org-cut-"]').count();
+  await page.click(tid('org-cut-3'));
+  await page.click(tid('org-cut-6'));
+  await page.click(tid('org-cut-1'));
+  await page.click(tid('org-cut-1')); // lifted again
+  const two = await cutState();
+  const pressed = [1, 3, 6].map(async (k) => page.getAttribute(tid(`org-cut-${k}`), 'aria-pressed'));
+  const pr = await Promise.all(pressed);
+  const create = await page.textContent(tid('split-create'));
+  await page.screenshot({ path: path.join(OUT, 'split-cuts.png') });
+  check(
+    '“Tách tệp” shows a pair of scissors between every two pages (7 for 8 pages); a click sets a cut, another lifts it; the parts are labelled and the bar says what the cuts make',
+    actionsHidden && createOff && scissors === 7 && none.cuts === '' && none.parts === '11111111' &&
+      two.cuts === '3,6' && two.parts === '11122233' && pr.join() === 'false,true,true' &&
+      two.summary.includes('2 vết cắt → 3 tệp: trang 1–3 · 4–6 · 7–8') && create.includes('Tạo 3 tệp'),
+    `${JSON.stringify(none)} → ${JSON.stringify(two)} · ${pr.join()} · ${create}`,
+  );
+  await page.click(tid('split-create'));
   await page.waitForSelector(tid('org-output-2'), { timeout: 60000 });
   const files = [];
   page.on('download', async (d) => files.push(d));
@@ -309,29 +338,69 @@ let onCrash = async () => {};
     parts.push({ name: d.suggestedFilename(), marks: marks(read(f)) });
   }
   check(
-    '“Tách tệp”, every 3 pages: 3 files, “Lưu tất cả” saves each with its pages',
-    preview.includes('Sẽ tạo 3 tệp') && parts.map((p) => p.marks).join(' | ') === 'A-3 A-2 B-1 | B-2 B-3 A-1 | A-5 □' && /\(trang 1-3\)\.pdf$/.test(parts[0]?.name ?? ''),
+    'two cuts make 3 files, “Lưu tất cả” saves each with its pages (read back with MuPDF)',
+    parts.map((p) => p.marks).join(' | ') === 'A-3 A-2 B-1 | B-2 B-3 A-1 | A-5 □' && /\(trang 1-3\)\.pdf$/.test(parts[0]?.name ?? '') && /\(trang 7-8\)\.pdf$/.test(parts[2]?.name ?? ''),
     parts.map((p) => `${p.name}: ${p.marks}`).join(' | '),
   );
   page.removeAllListeners('download');
   await page.click(tid('org-outputs-close'));
 
-  await page.click(tid('org-split'));
+  // by number: the cuts appear on the grid
+  await page.click(tid('split-numbers'));
+  const typed = await page.inputValue(tid('split-cuts'));
+  await page.fill(tid('split-cuts'), '8');
+  const outside = await page.textContent(tid('split-preview'));
+  const outsideOff = await page.isDisabled(tid('split-go'));
+  await page.fill(tid('split-every'), '3');
+  const every = await page.textContent(tid('split-preview'));
+  const everyGo = await page.textContent(tid('split-go'));
+  await page.fill(tid('split-every'), '4');
+  await page.click(tid('split-go'));
+  await page.waitForSelector(tid('org-split-dialog'), { state: 'detached' });
+  const four = await cutState();
+  await page.click(tid('split-numbers'));
+  await page.fill(tid('split-cuts'), '2 5');
+  await page.click(tid('split-go'));
+  const twoFive = await cutState();
+  check(
+    '“Nhập số trang…”: opens on the cuts as set (3, 6); a cut after the last page is refused; every 3 or 4 pages, or after pages 2 and 5, places the cuts on the grid',
+    typed === '3, 6' && /chỉ cắt được sau trang 1–7/.test(outside) && outsideOff &&
+      every.includes('2 vết cắt, 3 tệp') && everyGo.includes('Đặt 2 vết cắt') &&
+      four.cuts === '4' && four.parts === '11112222' && twoFive.cuts === '2,5' && twoFive.parts === '11222333',
+    `${typed} · ${outside} · ${every} · ${JSON.stringify(four)} · ${JSON.stringify(twoFive)}`,
+  );
+
+  // ranges that leave pages out: files made directly
+  await page.click(tid('split-numbers'));
   await page.click(tid('split-mode-ranges'));
   await page.fill(tid('split-ranges'), '1-2, 9-');
   const bad = await page.textContent(tid('split-preview'));
   const badDisabled = await page.isDisabled(tid('split-go'));
   await page.fill(tid('split-ranges'), '2, 4-');
   const good = await page.textContent(tid('split-preview'));
+  const goodGo = await page.textContent(tid('split-go'));
   await page.click(tid('split-go'));
   await page.waitForSelector(tid('org-output-1'), { timeout: 60000 });
   const rp = await saveDownload(() => page.click(tid('org-output-save-1')), 'range-2.pdf');
   check(
-    'split by ranges: a range outside the document is refused; “2, 4-” gives page 2 and pages 4–8',
-    /nằm ngoài/.test(bad) && badDisabled && good.includes('Sẽ tạo 2 tệp') && marks(read(rp.file)) === 'B-2 B-3 A-1 A-5 □',
+    'split by ranges: a range outside the document is refused; “2, 4-” leaves pages out, so it makes page 2 and pages 4–8 directly',
+    /nằm ngoài/.test(bad) && badDisabled && good.includes('Sẽ tạo 2 tệp') && goodGo.includes('Tạo 2 tệp') && marks(read(rp.file)) === 'B-2 B-3 A-1 A-5 □',
     `${bad} · ${good}`,
   );
   await page.click(tid('org-outputs-close'));
+  // Esc leaves the scissors; the cuts wait for the next time
+  await page.keyboard.press('Escape');
+  const back = await page.isVisible(tid('org-actions'));
+  await page.click(tid('org-split'));
+  const kept = await cutState();
+  await page.click(tid('split-clear'));
+  const cleared = await cutState();
+  await page.click(tid('split-exit'));
+  check(
+    'Esc leaves the scissors (the actions come back); the cuts are still there next time; “Bỏ hết vết cắt” lifts them all',
+    back && kept.cuts === '2,5' && cleared.cuts === '' && (await page.isVisible(tid('org-actions'))),
+    `${JSON.stringify(kept)} → ${JSON.stringify(cleared)}`,
+  );
   // nothing applied: the document is as it was
   await page.click(tid('org-close'));
   await page.waitForSelector(tid('organizer'), { state: 'detached' });
@@ -481,6 +550,22 @@ let onCrash = async () => {};
       JSON.stringify(phoneBar),
     );
     await ph.tap(tid('org-card-0')); // unselect
+    await ph.tap(tid('org-split'));
+    await ph.waitForSelector(tid('split-bar'));
+    await ph.tap(tid('org-cut-2'));
+    const phoneCut = await ph.evaluate(() => {
+      const fits = ['split-numbers', 'split-clear', 'split-exit', 'split-create', 'org-cut-2'].every((id) => {
+        const r = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
+        return r && r.left >= 0 && r.right <= innerWidth && r.width > 0;
+      });
+      const cut = document.querySelector('[data-testid="org-cut-2"]');
+      const r = cut.getBoundingClientRect();
+      return { fits, pressed: cut.getAttribute('aria-pressed'), wide: Math.round(r.width), cuts: document.querySelector('[data-testid="split-summary"]').dataset.cuts };
+    });
+    await ph.screenshot({ path: path.join(OUT, 'phone-split.png') });
+    await ph.tap(tid('split-clear'));
+    await ph.tap(tid('split-exit'));
+    check('phone: the scissors and the split bar fit the screen; a tap sets a cut', phoneCut.fits && phoneCut.pressed === 'true' && phoneCut.cuts === '2' && phoneCut.wide >= 32, JSON.stringify(phoneCut));
     // hold A-5 for a moment, then drag it before A-1 (touch events through the DevTools protocol)
     const cdp = await pctx.newCDPSession(ph);
     const from = await ph.locator(tid('org-card-4')).boundingBox();

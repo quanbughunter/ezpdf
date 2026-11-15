@@ -1,6 +1,6 @@
 /** Unit checks for page ranges used by "Tách tệp" (run: npx tsx tests/ranges.test.ts). */
 import assert from 'node:assert/strict';
-import { everyN, pagesLabel, parseRanges, partFileName } from '../src/app/pages/ranges';
+import { cutsToParts, everyN, pagesLabel, parseCuts, parseRanges, partFileName, partsToCuts } from '../src/app/pages/ranges';
 
 let n = 0;
 const t = (name: string, fn: () => void) => {
@@ -28,5 +28,30 @@ t('labels', () => {
   assert.equal(pagesLabel([1, 3, 5]), 'trang 1, 3, 5');
   assert.equal(pagesLabel([1, 3, 5, 7, 9]), '5 trang');
   assert.equal(partFileName('Hop dong', 'trang 1–3'), 'Hop dong (trang 1-3).pdf');
+});
+const cut = (cuts: number[], total: number) => cutsToParts(cuts, total).map((p) => `${p.from}-${p.to}`).join(',');
+t('no cut: one part, the whole document', () => assert.equal(cut([], 5), '1-5'));
+t('two cuts make three parts, in page order whatever the order of the cuts', () => assert.equal(cut([7, 3], 12), '1-3,4-7,8-12'));
+t('cuts outside 1…total-1 and repeated cuts are ignored', () => assert.equal(cut([0, 3, 3, 12, 15], 12), '1-3,4-12'));
+t('a cut after every page', () => assert.equal(cut([1, 2, 3], 4), '1-1,2-2,3-3,4-4'));
+t('parts covering every page back to cuts', () => {
+  assert.deepEqual(partsToCuts(cutsToParts([3, 7], 12), 12), [3, 7]);
+  assert.deepEqual(partsToCuts(everyN(4, 10), 10), [4, 8]);
+  assert.deepEqual(partsToCuts([{ from: 1, to: 6 }], 6), []);
+});
+t('parts that leave a page out are not cuts', () => {
+  assert.equal(partsToCuts([{ from: 2, to: 2 }, { from: 4, to: 8 }], 8), null);
+  assert.equal(partsToCuts([{ from: 1, to: 3 }, { from: 5, to: 8 }], 8), null);
+  assert.equal(partsToCuts([{ from: 1, to: 3 }], 8), null);
+});
+t('typed cuts', () => {
+  const c = parseCuts('7, 3 3;10', 12);
+  assert.ok(c.ok && c.cuts.join() === '3,7,10');
+  const last = parseCuts('12', 12);
+  assert.ok(!last.ok && /chỉ cắt được sau trang 1–11/.test(last.error));
+  const word = parseCuts('3, hai', 12);
+  assert.ok(!word.ok && /không phải số trang/.test(word.error));
+  const empty = parseCuts(' ', 12);
+  assert.ok(!empty.ok && /Hãy ghi/.test(empty.error));
 });
 console.log(`\n${n} range checks passed`);

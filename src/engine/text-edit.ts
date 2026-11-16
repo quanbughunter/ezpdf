@@ -48,6 +48,7 @@
 import type { WrappedPdfiumModule } from '@embedpdf/pdfium';
 import { Wasm, wideString } from './wasm';
 import { readFontMetrics, type FontMetrics } from './font-metrics';
+import { isWordPictures } from './word-pictures';
 import { annotLines, classifyPath, findMarks, passage, passages, ruleSplits, shapeOf, type AnnotMark, type Fill, type MarkText, type Rule } from './marks';
 
 const FPDF_PAGEOBJ_TEXT = 1;
@@ -175,6 +176,13 @@ export interface EditReport {
   readback: string;
 }
 
+export interface MoveReport {
+  /** objects moved (the whole line) */
+  moved: number;
+  /** where the line now is, PDF user space */
+  box: Box;
+}
+
 export class TextEditError extends Error {}
 
 type Matrix = [number, number, number, number, number, number];
@@ -265,7 +273,8 @@ export class TextEditor {
       {
         // a part that must change font takes its whole run in that font
         const m0 = mainObject(line.slice(plan.from, plan.to));
-        if (plan.middle && this.cannotKeep(m0.font, plan.middle, fontChars.get(m0.font) ?? new Set())) {
+        // (a font of whole words, OCR's: each word is a part of its own)
+        if (plan.middle && this.cannotKeep(m0.font, plan.middle, fontChars.get(m0.font) ?? new Set()) && !isWordPictures(this.fontInfo(m0.font).name)) {
           plan = widenToRun(plan, line.map((o) => o.font), m0.font, layout.text, layout.spans, wanted);
         }
       }
@@ -359,6 +368,39 @@ export class TextEditor {
         restore();
         throw e;
       }
+    });
+  }
+
+  /**
+   * Move the line `key` by (dx, dy) points of PDF user space ("Kéo chữ"):
+   * its text objects are moved, nothing else (a highlight under it stays
+   * where it was). The place it left is whatever was drawn under the text:
+   * on a page of "PDF sửa được chữ", the scan without the words, so empty.
+   * Checked after: every object of the line stands where it was asked to.
+   */
+  moveLine(pageIndex: number, key: string, dx: number, dy: number): MoveReport {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new TextEditError('Chỗ thả dòng không hợp lệ.');
+    return this.withPage(pageIndex, (page) => {
+      const tp = this.m.FPDFText_LoadPage(page);
+      let line: Obj[];
+      try {
+        const objs = this.textObjects(page, tp);
+        const idx = key.split(',').map(Number);
+        line = idx.map((i) => objs.find((o) => o.index === i)).filter((o): o is Obj => !!o);
+        if (line.length !== idx.length) throw new TextEditError('Trang đã thay đổi, hãy chọn lại dòng cần dời.');
+        const d = this.describe(line);
+        if (!d.editable) throw new TextEditError(d.reason ?? 'Dòng này không dời được.');
+      } finally {
+        this.m.FPDFText_ClosePage(tp);
+      }
+      const before = line.map((o) => this.bounds(o.handle));
+      for (const o of line) this.m.FPDFPageObj_Transform(o.handle, 1, 0, 0, 1, dx, dy);
+      this.generate(page);
+      const after = line.map((o) => this.bounds(o.handle));
+      const off = after.some((b, i) => Math.abs(b.left - before[i].left - dx) > 0.05 || Math.abs(b.bottom - before[i].bottom - dy) > 0.05);
+      if (off) throw new Error('the line did not move as asked');
+      const box = after.reduce((b, o) => ({ left: Math.min(b.left, o.left), bottom: Math.min(b.bottom, o.bottom), right: Math.max(b.right, o.right), top: Math.max(b.top, o.top) }), { ...after[0] });
+      return { moved: line.length, box };
     });
   }
 
@@ -778,6 +820,7 @@ export class TextEditor {
       ),
     ];
     if (!absent.length) return null;
+    if (isWordPictures(this.fontInfo(font).name)) return 'chữ nhận dạng từ ảnh quét là hình của từng từ, không có phông để viết chữ mới';
     return embedded
       ? `phông gốc chỉ nhúng những ký tự đã dùng, thiếu: ${absent.join(' ')}`
       : `phông gốc (không nhúng trong tệp) chỉ có bảng chữ Latin, thiếu: ${absent.join(' ')}`;
@@ -966,7 +1009,7 @@ export function describeEdit(line: Pick<TextLine, 'text' | 'parts' | 'fonts'>, n
   const main = mainOf(plan);
   const font = line.fonts[main.font];
   const missing = plan.middle ? missingForFont(font, plan.middle) : [];
-  if (missing.length) plan = widenToRun(plan, line.parts.map((q) => q.font), main.font, line.text, line.parts, wanted);
+  if (missing.length && !isWordPictures(font.name)) plan = widenToRun(plan, line.parts.map((q) => q.font), main.font, line.text, line.parts, wanted);
   return {
     plan,
     font,

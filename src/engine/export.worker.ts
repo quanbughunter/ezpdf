@@ -17,7 +17,7 @@
  */
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium';
 import { finalizeExport, type FinalizeReport } from './vn-freetext-export';
-import { TextEditor, TextEditError, type EditReport, type MarkReport, type PageMark, type TextLine } from './text-edit';
+import { TextEditor, TextEditError, type EditReport, type MarkReport, type MoveReport, type PageMark, type TextLine } from './text-edit';
 import { assembleInPlace, assembleNew, pageInfos, PageOpsError, type PageInfo, type PlanPage } from './page-ops';
 import { Wasm } from './wasm';
 import { jpegWithDpi, pngWithDpi } from './image-meta';
@@ -40,6 +40,8 @@ export type EditRequest =
   | { id: number; kind: 'edit-replace'; session: number; pageIndex: number; key: string; text: string }
   /** "Bỏ tô sáng": the highlight under the line `key` and its passage */
   | { id: number; kind: 'edit-unmark'; session: number; pageIndex: number; key: string }
+  /** "Kéo chữ": the line `key` moved by (dx, dy) points */
+  | { id: number; kind: 'edit-move'; session: number; pageIndex: number; key: string; dx: number; dy: number }
   /** "Bỏ tô sáng hàng loạt": every highlight of a page */
   | { id: number; kind: 'edit-marks'; session: number; pageIndex: number }
   /** take off the highlights of these colours on a page, without saving */
@@ -106,6 +108,7 @@ export type EditResponse =
   | { id: number; ok: true; lines: TextLine[] }
   | { id: number; ok: true; bytes: ArrayBuffer; report: EditReport; ms: number }
   | { id: number; ok: true; bytes: ArrayBuffer; marks: MarkReport; ms: number }
+  | { id: number; ok: true; bytes: ArrayBuffer; move: MoveReport; ms: number }
   | { id: number; ok: true; pageMarks: PageMark[] }
   | { id: number; ok: true; report: MarkReport }
   | { id: number; ok: true; bytes: ArrayBuffer }
@@ -224,6 +227,11 @@ async function handleEdit(req: EditRequest) {
     return post({ id: req.id, ok: true, bytes }, [bytes]);
   }
   const t0 = performance.now();
+  if (req.kind === 'edit-move') {
+    const move = s.editor.moveLine(req.pageIndex, req.key, req.dx, req.dy);
+    const bytes = save(s.m, s.doc);
+    return post({ id: req.id, ok: true, bytes, move, ms: performance.now() - t0 }, [bytes]);
+  }
   if (req.kind === 'edit-unmark') {
     const marks = s.editor.removeMarks(req.pageIndex, req.key);
     const bytes = save(s.m, s.doc);

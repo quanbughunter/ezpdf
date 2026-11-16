@@ -1,18 +1,23 @@
 /**
  * OCR from the page's side: renders each page (ezPDF's PDFium worker),
  * hands its pixels to the OCR worker, relays the worker's reading requests
- * to Tesseract, then has the Word file and the searchable PDF written.
+ * to Tesseract, then has the Word file, the searchable PDF and the editable
+ * PDF written. For the editable PDF each page is drawn again at its scan's
+ * own resolution and handed over with what OCR read; the pages the worker
+ * writes then take the scanned pages' places (the others stay as they
+ * were) in a new file, so nothing of the old pictures stays in it.
  *
  * Resolution: a scan is read at twice its own resolution up to 300 dpi, at
  * least 200 dpi (tests on scans of about 130 dpi read best at 200 to 250
  * dpi, docs/13-ocr.md); a page with no scan on it at 250 dpi.
  */
-import { closeRenderSession, openRenderSession, pageScanInfo, renderPageRgba, writeTextLayer } from '@/engine/export-client';
+import { buildPages, closeRenderSession, openRenderSession, pageScanInfo, renderPageRgba, writeTextLayer } from '@/engine/export-client';
 import type { OcrTextPage } from '@/engine/ocr-pdf';
 import type { PageLayout } from './model';
 import type { OcrWorkerMessage, OcrWorkerRequest } from './ocr.worker';
 import { readImage, warmUp } from './tesseract';
 import { textPage } from './text-layer';
+import { editableDpi, ocrDpi } from './dpi';
 
 export type OcrInput =
   /** a PDF (the open document as it would be exported, or a file picked) */
@@ -25,6 +30,8 @@ export interface OcrOptions {
   pages: number[] | null;
   word: boolean;
   pdf: boolean;
+  /** "PDF sửa được chữ": the words cut out of the scan and drawn back as text */
+  editable?: boolean;
 }
 
 export interface OcrProgress {
@@ -37,6 +44,10 @@ export interface OcrResult {
   base: string;
   docx?: Uint8Array;
   pdf?: Uint8Array;
+  /** the editable PDF, and how many pages and words were made editable in it */
+  editable?: Uint8Array;
+  editablePages?: number;
+  editableWords?: number;
   /** pages read */
   pages: number;
   /** pages that already had text: the searchable PDF leaves them as they are */
@@ -50,13 +61,7 @@ export interface OcrResult {
 /** a page with at least this many characters already has its text */
 const HAS_TEXT = 40;
 
-export function ocrDpi(scanDpi: number, size: { w: number; h: number }): number {
-  let dpi = scanDpi >= 200 ? Math.min(scanDpi, 300) : scanDpi > 0 ? Math.min(300, Math.max(200, scanDpi * 2)) : 250;
-  // a big sheet: at most about 16 million pixels
-  const px = ((size.w / 72) * dpi) * ((size.h / 72) * dpi);
-  if (px > 16e6) dpi = Math.floor(dpi * Math.sqrt(16e6 / px));
-  return Math.max(100, Math.round(dpi));
-}
+export { ocrDpi } from './dpi';
 
 const aborted = () => new DOMException('Đã dừng.', 'AbortError');
 
@@ -119,7 +124,7 @@ class OcrWorker {
 }
 
 export async function runOcr(input: OcrInput, opts: OcrOptions, hooks: { signal?: AbortSignal; onProgress?: (p: OcrProgress) => void } = {}): Promise<OcrResult> {
-  if (!opts.word && !opts.pdf) throw new OcrUserError('Chọn ít nhất một kết quả: Word hoặc PDF.');
+  if (!opts.word && !opts.pdf && !opts.editable) throw new OcrUserError('Chọn ít nhất một kết quả: Word hoặc PDF.');
   const { signal } = hooks;
   const worker = new OcrWorker();
   const onAbort = () => worker.stop();
@@ -146,6 +151,8 @@ export async function runOcr(input: OcrInput, opts: OcrOptions, hooks: { signal?
     const layouts: PageLayout[] = [];
     const textPages: OcrTextPage[] = [];
     const hadText: number[] = [];
+    const editablePages: number[] = [];
+    let editableWords = 0;
     hooks.onProgress?.({ stage: 'read', done: 0, total: list.length });
     for (let k = 0; k < list.length; k++) {
       if (signal?.aborted) throw aborted();
@@ -166,6 +173,17 @@ export async function runOcr(input: OcrInput, opts: OcrOptions, hooks: { signal?
       );
       layouts.push(r.layout);
       if (opts.pdf && !texty) textPages.push(textPage(index, r.layout));
+      if (opts.editable && !texty) {
+        const edpi = editableDpi(scan.scanDpi, sizes[index]);
+        const pic = await renderPageRgba(session, index, edpi);
+        if (signal?.aborted) throw aborted();
+        const e = await worker.ask<'editable-page-done'>(
+          { kind: 'editable-page', rgba: pic.rgba.buffer as ArrayBuffer, w: pic.width, h: pic.height, dpi: edpi, layout: r.layout },
+          [pic.rgba.buffer as ArrayBuffer],
+        );
+        editablePages.push(index);
+        editableWords += e.words;
+      }
       hooks.onProgress?.({ stage: 'read', done: k + 1, total: list.length });
     }
     hooks.onProgress?.({ stage: 'write', done: list.length, total: list.length });
@@ -181,6 +199,20 @@ export async function runOcr(input: OcrInput, opts: OcrOptions, hooks: { signal?
       result.pdf = new Uint8Array(out.bytes);
       result.words = out.words;
     }
+    if (signal?.aborted) throw aborted();
+    if (opts.editable && editablePages.length) {
+      const d = await worker.ask<'editable-pdf-done'>({ kind: 'editable-pdf', title: input.base });
+      if (signal?.aborted) throw aborted();
+      // the scanned pages replaced, the others as they were, in a new file
+      const plan = opened.infos.map((info, i) => {
+        const k = editablePages.indexOf(i);
+        return k >= 0 ? { src: 1, page: k, rotation: 0 } : { src: 0, page: i, rotation: info.rotation };
+      });
+      const made = await buildPages(pdf, [d.bytes.buffer.slice(d.bytes.byteOffset, d.bytes.byteOffset + d.bytes.byteLength) as ArrayBuffer], plan, 'new');
+      result.editable = new Uint8Array(made.bytes);
+      result.editablePages = editablePages.length;
+      result.editableWords = editableWords;
+    } else if (opts.editable && !opts.word && !opts.pdf) throw new OcrUserError('Các trang đã chọn đều đã có chữ, không có gì để nhận dạng.');
     if (signal?.aborted) throw aborted();
     return result;
   } finally {

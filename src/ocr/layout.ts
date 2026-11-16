@@ -926,7 +926,8 @@ export function layoutPage(input: PageInput): PageLayout {
     ? { x0: ruling.frame.x0, y0: ruling.frame.y0, x1: ruling.frame.x1, y1: ruling.frame.y1, thick: Math.max(1, median(ruling.frame.rules.map((r) => r.thick))), double: ruling.frame.rules.some((a) => ruling.frame!.rules.some((b) => a !== b && a.dir === b.dir && Math.abs(a.at - b.at) > 2 && Math.abs(a.at - b.at) < dpi / 20)) }
     : null;
 
-  return { w, h, dpi, widthPt: input.widthPt, heightPt: input.heightPt, body: { x0: left, x1: right, y0: top, y1: bottom }, blocks, header, footer, frame, angle: prep.angle };
+  const rules = [...prep.ruling.tables.flatMap((t) => t.rules), ...(prep.ruling.frame?.rules ?? []), ...prep.ruling.loose].map((r) => ({ dir: r.dir, a0: r.a0, a1: r.a1, at: r.at, thick: r.thick }));
+  return { w, h, dpi, widthPt: input.widthPt, heightPt: input.heightPt, body: { x0: left, x1: right, y0: top, y1: bottom }, blocks, header, footer, frame, angle: prep.angle, rules };
 }
 
 const spaced = (paras: Para[], dpi: number) => {

@@ -60,6 +60,7 @@ export function OcrDialog({ source, onClose, onOpenFile }: { source: OcrSource; 
   const [list, setList] = useState('');
   const [word, setWord] = useState(true);
   const [pdf, setPdf] = useState(true);
+  const [editable, setEditable] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'options' });
   const [files, setFiles] = useState<{ pdf: boolean; pages: number; error?: string } | null>(source.kind === 'files' ? null : { pdf: true, pages: source.total });
   const abort = useRef<AbortController | null>(null);
@@ -89,7 +90,7 @@ export function OcrDialog({ source, onClose, onOpenFile }: { source: OcrSource; 
           ? parsed.parts.flatMap((p) => Array.from({ length: p.to - p.from + 1 }, (_, i) => p.from - 1 + i))
           : [];
   const count = pages ? pages.length : total;
-  const valid = !!files && !files.error && total > 0 && count > 0 && (word || pdf);
+  const valid = !!files && !files.error && total > 0 && count > 0 && (word || pdf || editable);
   const working = phase.kind === 'working';
 
   const start = async () => {
@@ -109,7 +110,7 @@ export function OcrDialog({ source, onClose, onOpenFile }: { source: OcrSource; 
         input = { kind: 'pictures', files: await Promise.all(source.files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))), base: stem(source.files[0].name) };
       }
       if (ctl.signal.aborted) return;
-      const result = await runOcr(input, { pages, word, pdf }, { signal: ctl.signal, onProgress: (progress) => !ctl.signal.aborted && setPhase({ kind: 'working', progress }) });
+      const result = await runOcr(input, { pages, word, pdf, editable }, { signal: ctl.signal, onProgress: (progress) => !ctl.signal.aborted && setPhase({ kind: 'working', progress }) });
       if (ctl.signal.aborted) return;
       setPhase({ kind: 'done', result, seconds: Math.round((performance.now() - t0) / 1000) });
     } catch (e) {
@@ -209,7 +210,14 @@ export function OcrDialog({ source, onClose, onOpenFile }: { source: OcrSource; 
                   <span className="block text-muted-foreground">Giữ nguyên trang quét, thêm lớp chữ ẩn đúng chỗ từng từ để tìm, chọn và chép. Trang đã có chữ được để nguyên.</span>
                 </span>
               </label>
-              {!word && !pdf && <p className="text-destructive">Chọn ít nhất một kết quả.</p>}
+              <label className="flex items-start gap-2">
+                <input type="checkbox" className="mt-0.5 accent-primary" checked={editable} onChange={(e) => setEditable(e.target.checked)} data-testid="ocr-editable" />
+                <span>
+                  <span className="font-medium">PDF sửa được chữ</span>
+                  <span className="block text-muted-foreground">Chữ trên trang quét thành chữ thật mà trang vẫn trông như bản gốc. Mở bằng ezPDF rồi dùng Sửa chữ để đổi, xóa từng từ; chỗ cũ không còn vết.</span>
+                </span>
+              </label>
+              {!word && !pdf && !editable && <p className="text-destructive">Chọn ít nhất một kết quả.</p>}
             </fieldset>
 
             <p className="text-muted-foreground">Mỗi trang mất vài giây. Chữ in rõ đọc tốt nhất; chữ viết tay, con dấu và chữ ký được giữ như hình.</p>
@@ -236,7 +244,7 @@ export function OcrDialog({ source, onClose, onOpenFile }: { source: OcrSource; 
               {phase.progress.stage === 'prepare' ? 'Chuẩn bị (nạp mô hình tiếng Việt)…' : phase.progress.stage === 'write' ? 'Đang tạo tệp kết quả…' : 'Đang nhận dạng chữ…'}
             </p>
             <p className="text-muted-foreground tabular-nums" data-testid="ocr-progress">
-              {phase.progress.stage === 'read' ? `Trang ${phase.progress.done}/${phase.progress.total}` : phase.progress.stage === 'write' ? 'Word và PDF' : 'Một lát'}
+              {phase.progress.stage === 'read' ? `Trang ${phase.progress.done}/${phase.progress.total}` : phase.progress.stage === 'write' ? 'Ghi các tệp đã chọn' : 'Một lát'}
             </p>
             <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
               <div className="h-full bg-primary transition-[width]" style={{ width: `${phase.progress.total ? Math.round((phase.progress.done / phase.progress.total) * 100) : 0}%` }} />
@@ -256,20 +264,23 @@ export function OcrDialog({ source, onClose, onOpenFile }: { source: OcrSource; 
 }
 
 type Saved = { name: string; path?: string; folder?: string };
+type Kind = 'docx' | 'pdf' | 'editable';
 
 function Done({ result, seconds, onClose, onOpenFile }: { result: OcrResult; seconds: number; onClose: () => void; onOpenFile: (f: File) => void }) {
   const platform = usePlatform();
-  const [saved, setSaved] = useState<{ docx?: Saved; pdf?: Saved }>({});
+  const [saved, setSaved] = useState<{ docx?: Saved; pdf?: Saved; editable?: Saved }>({});
   const [note, setNote] = useState<string | null>(null);
   const docxName = `${result.base} (OCR).docx`;
   const pdfName = `${result.base} (OCR).pdf`;
+  const editableName = `${result.base} (OCR, sửa được).pdf`;
   const words = result.layouts.reduce((a, p) => a + countWords(p), 0);
   const tables = result.layouts.reduce((a, p) => a + p.blocks.filter((b) => b.kind === 'table' && !b.borderless).length, 0);
 
-  const keep = async (kind: 'docx' | 'pdf') => {
+  const keep = async (kind: Kind) => {
     setNote(null);
     try {
-      const r: SaveResult | null = kind === 'docx' ? await platform.saveWord(result.docx!, docxName) : await platform.savePdf(result.pdf!, pdfName);
+      const r: SaveResult | null =
+        kind === 'docx' ? await platform.saveWord(result.docx!, docxName) : kind === 'pdf' ? await platform.savePdf(result.pdf!, pdfName) : await platform.savePdf(result.editable!, editableName);
       if (!r) return;
       const folder = r.how === 'file' ? r.folder : undefined;
       const path = folder ? `${folder}${folder.includes('\\') ? '\\' : '/'}${r.name}` : undefined;
@@ -278,20 +289,27 @@ function Done({ result, seconds, onClose, onOpenFile }: { result: OcrResult; sec
       setNote(`Không lưu được: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
-  const open = (kind: 'docx' | 'pdf') => {
+  const open = (kind: Kind) => {
     const f =
       kind === 'docx'
         ? new File([result.docx! as BlobPart], saved.docx?.name ?? docxName, { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-        : new File([result.pdf! as BlobPart], saved.pdf?.name ?? pdfName, { type: 'application/pdf' });
+        : kind === 'pdf'
+          ? new File([result.pdf! as BlobPart], saved.pdf?.name ?? pdfName, { type: 'application/pdf' })
+          : new File([result.editable! as BlobPart], saved.editable?.name ?? editableName, { type: 'application/pdf' });
     onClose();
     onOpenFile(f);
   };
 
-  const row = (kind: 'docx' | 'pdf', label: string) => {
+  const row = (kind: Kind, label: string, hint?: string) => {
     const s = saved[kind];
     return (
       <div className="space-y-1.5 rounded-md border px-3 py-2" data-testid={`ocr-result-${kind}`}>
         <p className="font-medium">{label}</p>
+        {hint && (
+          <p className="text-muted-foreground" data-testid={`ocr-hint-${kind}`}>
+            {hint}
+          </p>
+        )}
         {s && (
           <p className="text-muted-foreground [overflow-wrap:anywhere]" data-testid={`ocr-saved-${kind}`}>
             Đã lưu: {s.path ?? s.name}
@@ -320,11 +338,17 @@ function Done({ result, seconds, onClose, onOpenFile }: { result: OcrResult; sec
         <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
         <span data-testid="ocr-done-text">
           Đã nhận dạng {result.pages} trang trong {seconds} giây: {words} từ{tables ? `, ${tables} bảng` : ''}.
-          {result.hadText.length > 0 && ` Trang ${result.hadText.slice(0, 8).map((p) => p + 1).join(', ')}${result.hadText.length > 8 ? '…' : ''} đã có chữ sẵn${result.pdf ? ', được để nguyên trong bản PDF' : ''}.`}
+          {result.hadText.length > 0 && ` Trang ${result.hadText.slice(0, 8).map((p) => p + 1).join(', ')}${result.hadText.length > 8 ? '…' : ''} đã có chữ sẵn${result.pdf || result.editable ? ', được để nguyên trong bản PDF' : ''}.`}
         </span>
       </p>
       {result.docx && row('docx', 'Tệp Word')}
       {result.pdf && row('pdf', 'PDF tìm được chữ')}
+      {result.editable &&
+        row(
+          'editable',
+          'PDF sửa được chữ',
+          `${result.editableWords ?? 0} từ trên ${result.editablePages ?? 0} trang đã thành chữ thật. Từ máy đọc không chắc được giữ nguyên trong ảnh. Từ sửa mới đặt bằng phông ezSans.`,
+        )}
       <p className="text-muted-foreground">Máy đọc vẫn có thể nhầm vài chữ: hãy soát lại những chỗ quan trọng (số liệu, tên riêng) với bản gốc.</p>
       {note && (
         <p role="alert" className="text-destructive">

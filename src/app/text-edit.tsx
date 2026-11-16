@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   closeTextEditSession,
+  moveTextLine,
   openTextEditSession,
   pageMarks,
   replaceTextLine,
@@ -38,6 +39,7 @@ import {
   UserFacingError,
 } from '@/engine/export-client';
 import { describeEdit, normalizeLineText, type PageMark, type TextLine } from '@/engine/text-edit';
+import { isWordPictures } from '@/engine/word-pictures';
 import { UnmarkAllDialog } from './unmark-all';
 import type { DocumentSession } from './use-document-session';
 import { usePlacement } from './images/placement';
@@ -49,8 +51,8 @@ type Status = 'off' | 'opening' | 'ready' | 'saving';
 export interface TextEditApi {
   active: boolean;
   status: Status;
-  /** while saving: a line's text, a highlight taken off, or highlights throughout */
-  saving: 'line' | 'marks' | 'all' | null;
+  /** while saving: a line's text, a highlight taken off, highlights throughout, a line moved */
+  saving: 'line' | 'marks' | 'all' | 'move' | null;
   /** result of the last action, or why it failed */
   message: { text: string; tone: 'ok' | 'warn' | 'error' } | null;
   selected: { pageIndex: number; line: TextLine } | null;
@@ -61,6 +63,8 @@ export interface TextEditApi {
   explain(line: TextLine): void;
   cancel(): void;
   commit(text: string): Promise<void>;
+  /** "Kéo chữ": move a line by (dx, dy) points of PDF user space (y up), one undo step */
+  move(pageIndex: number, line: TextLine, dx: number, dy: number): Promise<void>;
   /** take the highlight off the selected line's passage */
   unmark(): Promise<void>;
   /** the "Bỏ tô sáng hàng loạt" dialog */
@@ -250,6 +254,36 @@ export function TextEditProvider({
     [selected, status, ensureSession, session, dropSession],
   );
 
+  const move = useCallback(
+    async (pageIndex: number, line: TextLine, dx: number, dy: number) => {
+      if (status !== 'ready' || (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5)) return;
+      setStatus('saving');
+      setSaving('move');
+      setMessage(null);
+      setSelected(null);
+      try {
+        const id = await ensureSession();
+        const previous = base.current;
+        const r = await moveTextLine(id, pageIndex, line.key, dx, dy);
+        base.current = r.bytes.slice(0);
+        cache.current.delete(pageIndex);
+        setMessage({ text: 'Đã dời dòng, chỗ cũ để trống như phần nằm dưới chữ. Bấm Hoàn tác nếu muốn trả về chỗ cũ.', tone: 'ok' });
+        if (previous) await session.replaceContent(r.bytes, previous);
+        setStatus((s) => (s === 'saving' ? 'ready' : s));
+      } catch (e) {
+        setStatus((s) => (s === 'saving' ? 'ready' : s));
+        if (e instanceof UserFacingError) setMessage({ text: e.message, tone: 'error' });
+        else {
+          dropSession();
+          setMessage({ text: `Không dời được dòng: ${e instanceof Error ? e.message : String(e)}`, tone: 'error' });
+        }
+      } finally {
+        setSaving(null);
+      }
+    },
+    [status, ensureSession, session, dropSession],
+  );
+
   const unmark = useCallback(async () => {
     const sel = selected;
     if (!sel || !sel.line.marks || status !== 'ready') return;
@@ -365,6 +399,7 @@ export function TextEditProvider({
       explain: (line) => setMessage({ text: line.reason ?? 'Dòng này không sửa được.', tone: 'warn' }),
       cancel: () => setSelected(null),
       commit,
+      move,
       unmark,
       bulk,
       openBulk,
@@ -374,7 +409,7 @@ export function TextEditProvider({
     }),
     // `tick` changes when a page's lines arrive, so pages asking for them re-render
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [active, status, saving, message, selected, setActive, lines, commit, unmark, bulk, openBulk, scanMarks, unmarkAll, session.contentUndo, tick],
+    [active, status, saving, message, selected, setActive, lines, commit, move, unmark, bulk, openBulk, scanMarks, unmarkAll, session.contentUndo, tick],
   );
   return (
     <Ctx.Provider value={api}>
@@ -406,6 +441,20 @@ function toPageRect(page: PdfPageObject, b: TextLine['box']) {
   return { x: b.left - ox, y: page.size.height - (b.top - oy), w: b.right - b.left, h: b.top - b.bottom };
 }
 
+/** a line being dragged ("Kéo chữ"): how far, in page space (points, y down) */
+interface Drag {
+  key: string;
+  dx: number;
+  dy: number;
+}
+
+/**
+ * The lines of a page as boxes over it. A tap or click on a line selects it
+ * for the edit bar. Dragging a line moves it ("Kéo chữ"): with a mouse any
+ * editable line, by touch the selected one (its box takes the finger instead
+ * of the page's scrolling); the line follows as a box, dropped it is moved
+ * in the file, kept on the page.
+ */
 export function TextEditLayer({ documentId, pageIndex }: { documentId: string; pageIndex: number }) {
   const api = useTextEdit();
   const docState = useDocumentState(documentId);
@@ -414,6 +463,11 @@ export function TextEditLayer({ documentId, pageIndex }: { documentId: string; p
   const scale = docState?.scale ?? 1;
   const r = page ? ((page.rotation ?? 0) + (docState?.rotation ?? 0)) % 4 : 0;
   const lines = api?.active ? api.lines(pageIndex) : null;
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const selectedKey = api?.selected?.pageIndex === pageIndex ? api.selected.line.key : null;
+  // the pointer pressed on the layer (kept across re-renders: lines of other pages arriving
+  // mid-drag must not lose it)
+  const down = useRef<{ x: number; y: number; id: number; at: { x: number; y: number }; line: TextLine | null; draggable: boolean; dragging: boolean; dx: number; dy: number } | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -426,19 +480,7 @@ export function TextEditLayer({ documentId, pageIndex }: { documentId: string; p
       const [x, y] = r === 0 ? [u * W, v * H] : r === 1 ? [v * W, (1 - u) * H] : r === 2 ? [(1 - u) * W, (1 - v) * H] : [(1 - v) * W, u * H];
       return { x, y };
     };
-    let down: { x: number; y: number; id: number } | null = null;
-    const onDown = (e: PointerEvent) => {
-      e.stopPropagation();
-      if (e.button !== 0) return;
-      down = { x: e.clientX, y: e.clientY, id: e.pointerId };
-    };
-    const onUp = (e: PointerEvent) => {
-      e.stopPropagation();
-      if (!down || down.id !== e.pointerId) return;
-      const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
-      down = null;
-      if (moved > 8) return; // a scroll, not a tap
-      const p = toPage(e);
+    const lineAt = (p: { x: number; y: number }) => {
       let best: { line: TextLine; d: number } | null = null;
       for (const line of lines) {
         const q = toPageRect(page, line.box);
@@ -447,20 +489,91 @@ export function TextEditLayer({ documentId, pageIndex }: { documentId: string; p
         const d = Math.abs(p.y - (q.y + q.h / 2));
         if (!best || d < best.d) best = { line, d };
       }
-      if (!best) return void api.cancel();
-      if (best.line.editable) api.select(pageIndex, best.line);
-      else api.explain(best.line);
+      return best?.line ?? null;
+    };
+    const ready = () => api.status === 'ready';
+    const onDown = (e: PointerEvent) => {
+      e.stopPropagation();
+      if (e.button !== 0) return;
+      const at = toPage(e);
+      const line = lineAt(at);
+      // a mouse drags any editable line; a finger only the selected one (the others scroll the page)
+      const draggable = !!line && line.editable && ready() && (e.pointerType !== 'touch' || line.key === selectedKey);
+      down.current = { x: e.clientX, y: e.clientY, id: e.pointerId, at, line, draggable, dragging: false, dx: 0, dy: 0 };
+    };
+    const onMove = (e: PointerEvent) => {
+      const d = down.current;
+      if (!d || d.id !== e.pointerId || !d.draggable || !d.line) return;
+      if (!d.dragging) {
+        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) <= 5) return;
+        d.dragging = true;
+        try {
+          el.setPointerCapture(e.pointerId);
+        } catch {
+          // the pointer is gone
+        }
+      }
+      e.preventDefault();
+      follow(d, e);
+      setDrag({ key: d.line.key, dx: d.dx, dy: d.dy });
+    };
+    /** the drag's offset at the pointer, kept on the page */
+    const follow = (d: NonNullable<typeof down.current>, e: PointerEvent) => {
+      if (!d.line) return;
+      const p = toPage(e);
+      const q = toPageRect(page, d.line.box);
+      const { width: W, height: H } = page.size;
+      d.dx = Math.max(-q.x, Math.min(W - q.x - q.w, p.x - d.at.x));
+      d.dy = Math.max(-q.y, Math.min(H - q.y - q.h, p.y - d.at.y));
+    };
+    const onUp = (e: PointerEvent) => {
+      e.stopPropagation();
+      const d = down.current;
+      if (!d || d.id !== e.pointerId) return;
+      down.current = null;
+      if (d.dragging) {
+        // where the pointer was let go (moves may have been merged on the way)
+        follow(d, e);
+        setDrag(null);
+        // page space is y down, PDF user space y up
+        if (d.line) void api.move(pageIndex, d.line, d.dx, -d.dy);
+        return;
+      }
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) return; // a scroll, not a tap
+      const line = lineAt(toPage(e));
+      if (!line) return void api.cancel();
+      if (line.editable) api.select(pageIndex, line);
+      else api.explain(line);
+    };
+    const onCancel = (e: PointerEvent) => {
+      if (!down.current || down.current.id !== e.pointerId) return;
+      down.current = null;
+      setDrag(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !down.current?.dragging) return;
+      e.preventDefault();
+      e.stopPropagation();
+      down.current = null;
+      setDrag(null);
     };
     el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
     el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onKey, true);
     return () => {
       el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
       el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onKey, true);
     };
-  }, [api, page, r, lines, pageIndex]);
+  }, [api, page, r, lines, pageIndex, selectedKey]);
 
   if (!api?.active || !page) return null;
-  const sel = api.selected?.pageIndex === pageIndex ? api.selected.line.key : null;
+  const sel = selectedKey;
+  const ready = api.status === 'ready';
   return (
     <div
       ref={ref}
@@ -468,12 +581,14 @@ export function TextEditLayer({ documentId, pageIndex }: { documentId: string; p
       // its own pointer handling: EmbedPDF's handlers and the hand keep out
       data-no-interaction=""
       data-ready={lines ? 'true' : 'false'}
-      style={{ position: 'absolute', inset: 0, zIndex: 20, cursor: 'text', touchAction: 'pan-x pan-y pinch-zoom' }}
+      data-dragging={drag ? 'true' : undefined}
+      style={{ position: 'absolute', inset: 0, zIndex: 20, cursor: drag ? 'grabbing' : 'text', touchAction: 'pan-x pan-y pinch-zoom' }}
     >
       {lines?.map((line) => {
         const q = toPageRect(page, line.box);
         const pad = 1.5;
         const on = line.key === sel;
+        const moving = drag?.key === line.key;
         return (
           <div
             key={line.key}
@@ -488,12 +603,41 @@ export function TextEditLayer({ documentId, pageIndex }: { documentId: string; p
               top: (q.y - pad) * scale,
               width: (q.w + pad * 2) * scale,
               height: (q.h + pad * 2) * scale,
-              outline: on ? `2px solid ${ACCENT}` : line.editable ? `1px dashed ${ACCENT}80` : '1px dotted #9ca3af',
+              outline: on || moving ? `2px solid ${ACCENT}` : line.editable ? `1px dashed ${ACCENT}80` : '1px dotted #9ca3af',
               background: on ? `${ACCENT}22` : undefined,
+              // the selected line takes a finger (to drag it) instead of the page's scrolling
+              touchAction: on && ready ? 'none' : undefined,
+              cursor: line.editable && ready && !drag ? (on ? 'move' : 'text') : undefined,
             }}
           />
         );
       })}
+      {drag &&
+        (() => {
+          const line = lines?.find((l) => l.key === drag.key);
+          if (!line) return null;
+          const q = toPageRect(page, line.box);
+          const pad = 1.5;
+          return (
+            <div
+              data-testid="textedit-drag"
+              data-dx={drag.dx.toFixed(2)}
+              data-dy={drag.dy.toFixed(2)}
+              className="pointer-events-none absolute rounded-[2px]"
+              style={{
+                left: (q.x + drag.dx - pad) * scale,
+                top: (q.y + drag.dy - pad) * scale,
+                width: (q.w + pad * 2) * scale,
+                height: (q.h + pad * 2) * scale,
+                outline: `2px solid ${ACCENT}`,
+                background: `${ACCENT}33`,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+              }}
+            >
+              <span className="absolute -top-6 left-0 whitespace-nowrap rounded bg-[#0b6e69] px-1.5 py-0.5 text-[11px] text-white">Thả để dời dòng tới đây</span>
+            </div>
+          );
+        })()}
     </div>
   );
 }
@@ -598,10 +742,18 @@ function EditBar({ api, pageIndex, line }: { api: TextEditApi; pageIndex: number
         <p
           data-testid="textedit-font"
           data-keep={missing.length ? 'false' : 'true'}
+          data-ocr={isWordPictures(font.name) ? 'true' : undefined}
           data-scope={edit ? (edit.whole ? 'line' : 'part') : 'none'}
-          className={cn('flex items-start gap-1.5 px-0.5 text-xs leading-snug', missing.length ? 'text-amber-800' : 'text-muted-foreground')}
+          className={cn('flex items-start gap-1.5 px-0.5 text-xs leading-snug', missing.length && !isWordPictures(font.name) ? 'text-amber-800' : 'text-muted-foreground')}
         >
-          {missing.length ? (
+          {missing.length && isWordPictures(font.name) ? (
+            <>
+              <Check className="mt-px size-3.5 shrink-0" />
+              <span data-testid="textedit-ocr-words">
+                Chữ nhận dạng từ ảnh quét: {what} được đặt lại bằng phông ezSans, các từ khác giữ nguyên hình như bản gốc. Chỗ chữ cũ không còn vết.
+              </span>
+            </>
+          ) : missing.length ? (
             <>
               <TriangleAlert className="mt-px size-3.5 shrink-0" />
               <span>

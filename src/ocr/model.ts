@@ -118,6 +118,12 @@ export interface PageLayout {
   frame: (Box & { thick: number; double: boolean }) | null;
   /** the angle the page was straightened by, degrees */
   angle: number;
+  /**
+   * every line drawn on the page that OCR found (tables' rules, the frame,
+   * loose lines): `at` across, `a0`–`a1` along, px of the page as read. The
+   * editable PDF keeps them in the picture, out of the words it cuts.
+   */
+  rules?: { dir: 'h' | 'v'; a0: number; a1: number; at: number; thick: number }[];
 }
 
 /** the lines of a page in reading order: header, the text and tables (cell by cell, row by row), footer */

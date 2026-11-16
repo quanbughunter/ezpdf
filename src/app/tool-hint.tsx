@@ -83,16 +83,18 @@ export function ToolHint({ documentId }: { documentId: string }) {
         : textEdit.status === 'saving'
           ? textEdit.saving === 'marks' || textEdit.saving === 'all'
             ? 'Đang bỏ tô sáng…'
-            : 'Đang sửa dòng trong tệp…'
+            : textEdit.saving === 'move'
+              ? 'Đang dời dòng trong tệp…'
+              : 'Đang sửa dòng trong tệp…'
           : m
             ? m.text
             : textEdit.selected
               ? isTouchFirst()
-                ? 'Sửa trong ô ở trên rồi chạm Lưu dòng.'
-                : 'Sửa trong ô ở trên. Enter để lưu, Esc để hủy.'
+                ? 'Sửa trong ô ở trên rồi chạm Lưu dòng, hoặc kéo khung dòng để dời nó.'
+                : 'Sửa trong ô ở trên. Enter để lưu, Esc để hủy. Kéo khung dòng để dời nó.'
               : isTouchFirst()
-                ? 'Chạm vào một dòng có khung nét đứt để sửa chữ. Chạm lại nút Sửa chữ để thoát.'
-                : 'Bấm vào một dòng có khung nét đứt để sửa chữ. Esc để thoát.';
+                ? 'Chạm vào một dòng có khung nét đứt để sửa chữ, rồi kéo khung để dời dòng. Chạm lại nút Sửa chữ để thoát.'
+                : 'Bấm vào một dòng có khung nét đứt để sửa chữ, kéo dòng để dời nó. Esc để thoát.';
     return (
       <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex flex-col items-center gap-2 px-4">
         {textEdit.status === 'ready' && !textEdit.selected && (

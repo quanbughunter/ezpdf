@@ -116,6 +116,20 @@ Có thêm 2 tệp mã hóa: AES-256 và RC4, chỉ có mật khẩu chủ. Sau k
 
 Trang 7 của tệp mẫu dựng lại đúng trường hợp này. Trước khi sửa: app từ chối. Sau khi sửa: đạt cả ở bộ kiểm engine, bộ kiểm độc lập và `e2e:edit`. Ảnh trước/sau: `docs/bang-chung/m5-sua-chu-tieng-nga.png`.
 
+### Bản 0.9.5: kéo chữ (dời dòng)
+
+Theo yêu cầu, sau khi có PDF sửa được chữ: WPS “kéo chữ sang được chỗ khác, chỗ cũ trống trơn luôn”, “có tôi muốn làm luôn”.
+
+**Cách dùng.** Bật **Sửa chữ** (phím E). Máy có chuột: kéo một dòng có khung nét đứt tới chỗ mới rồi thả; bấm (không kéo) thì vẫn là sửa chữ như trước. Điện thoại: chạm dòng để chọn, rồi kéo chính khung đang chọn; ngón tay đặt trên dòng chưa chọn vẫn cuộn trang như cũ. Trong lúc kéo, một khung màu đi theo ngón tay hay chuột, kèm chữ “Thả để dời dòng tới đây”; dòng không ra được ngoài trang. Esc giữa chừng thì thôi. Thả ra thì dòng được dời trong tệp, một bước hoàn tác.
+
+**Cách làm.** `TextEditor.moveLine(trang, dòng, dx, dy)` (`src/engine/text-edit.ts`) dời mọi đối tượng chữ của dòng bằng `FPDFPageObj_Transform`, dựng lại nội dung trang, rồi đọc lại khung từng đối tượng: phải đúng chỗ đã thả (lệch quá 0,05 pt thì báo lỗi). Chỉ chữ được dời; dải tô sáng dưới dòng ở nguyên chỗ. Chỗ cũ là thứ nằm dưới chữ: với PDF sửa được chữ là ảnh quét đã lấy chữ ra, nên trống; với PDF thường là nền trang. Lớp sửa chữ (`TextEditLayer`) tính độ dời theo toạ độ trang (đúng cả khi trang xoay), lấy chỗ nhả tay làm chỗ thả (trình duyệt có thể gộp các lần di chuyển).
+
+**Kiểm chứng.** `test:editable`: dời một dòng 21 từ của PDF sửa được chữ xuống chân trang: đủ 21 từ tới đúng chỗ, chỗ cũ trống (0,01 % điểm tối, trước đó 13,5 %), dòng vẽ ở chỗ mới như ở chỗ cũ, chữ vẫn đọc được; một dòng của PDF thường (`edit-text.pdf`) dời đúng 40 pt, −30 pt. `verify_editable.py`: MuPDF thấy từ đầu dòng ở chỗ thả, chỗ cũ trống, trang vẫn một ảnh và chữ. `e2e:ocr`: kéo dòng bằng chuột trong Chromium, khung đi theo, thả xong dòng xuống 380 pt, thanh báo “Đã dời dòng”, tệp xuất ra đúng chỗ, chỗ cũ trống. `e2e:edit`: trên điện thoại (cảm ứng giả lập), ngón tay trên dòng chưa chọn cuộn trang, dòng đã chọn đi theo ngón tay và được dời.
+
+Ảnh lúc đang kéo (trang thử OCR, Chromium): `docs/bang-chung/m7-keo-chu.png`.
+
+**Giới hạn.** Dời cả dòng, chưa dời riêng một từ hay cả đoạn. Kéo trên điện thoại cần chọn dòng trước. Dải tô sáng không đi theo dòng.
+
 ## 3. Quét tài liệu
 
 ### Cách dùng

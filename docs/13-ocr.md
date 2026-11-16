@@ -1,4 +1,4 @@
-# 13 · Nhận dạng chữ (OCR): Word dựng lại như bản giấy, PDF tìm được chữ (bản 0.9.0)
+# 13 · Nhận dạng chữ (OCR): Word dựng lại như bản giấy, PDF tìm được chữ (bản 0.9.0), PDF sửa được chữ (bản 0.9.5)
 
 Theo yêu cầu: “thêm tính năng quét orc cho ứng dụng này. làm trên bản cho windows trước. giả sử đưa một ảnh jpeg, png, tiff,.. một file pdf chứa hình… và cho phép quét orc, cho ra kết quả pdf hoặc word”. Sau khi xem bản đánh giá, người dùng xác nhận: kèm sẵn mô hình tiếng Việt trong app, và Word phải dựng lại bảng: “trên hình trong bản pdf là một bảng với các cột thì orc xong cũng phải thành bảng luôn trong word, chứ không phải lấy mỗi text trong bảng”. Tệp báo cáo mẫu chỉ dùng để thử công cụ. Nó nằm trong `mau de test/` (không đưa lên repo).
 
@@ -12,6 +12,7 @@ Theo yêu cầu: “thêm tính năng quét orc cho ứng dụng này. làm trê
 | PDF tìm được chữ | **Đạt.** Trang giữ nguyên, ảnh quét giữ nguyên từng byte. Từng từ được đặt dưới dạng chữ ẩn (chế độ vẽ 3) đúng chỗ của nó trên ảnh. pdf.js, Poppler và MuPDF đều đọc ra cùng một chữ, và vị trí từ lệch dưới 3 pt so với ảnh (đo được khoảng 1,3 pt). Trang đã có chữ được để nguyên. |
 | Độ chính xác chữ | Trang thử in sạch (200 dpi, quét giả): **0 % lỗi ký tự**. Báo cáo mẫu (scan khoảng 130 dpi): 0,1 % đến 1,5 % lỗi ký tự trên ba đoạn đã gõ lại để so (bảng dưới). Máy vẫn có thể đọc nhầm: chữ nghiêng nhỏ, chữ quá to trên bìa, chữ bị con dấu đè. |
 | Windows | **Đạt trên bản desktop thật chạy Linux** (cùng mã Tauri, WebKitGTK): chọn ảnh qua hộp thoại hệ thống, nhận dạng xong, lưu Word và PDF qua hộp thoại lưu, python-docx và pdf.js đọc đúng, “Mở thư mục” mở đúng chỗ (`smoke-desktop.cjs`, bước 8). Bộ cài Windows mang đủ tệp OCR (CI kiểm). **Chưa chạy trên WebView2 của Windows thật**: xem danh sách tự kiểm ở cuối. |
+| PDF sửa được chữ (bản 0.9.5) | **Đạt** (thử tự động, trang thử và 4 trang báo cáo mẫu). Chữ được lấy hẳn ra khỏi ảnh quét và vẽ lại thành chữ thật bằng chính hình của từng từ: trang trông như bản quét, sửa, xóa từng từ bằng Sửa chữ của ezPDF, chỗ cũ trống. Không phủ nền: ảnh trong tệp không còn mực ở chỗ các từ (kiểm bằng cách đọc thẳng ảnh), có thử ngược với bản phủ trắng. Xem mục “PDF sửa được chữ”. |
 | Web app, Android | Chưa có (đúng yêu cầu “làm trên bản cho windows trước”). Các bản này không có nút OCR và không mang tệp OCR. |
 
 ## Cách dùng (bản Windows)
@@ -22,7 +23,7 @@ Theo yêu cầu: “thêm tính năng quét orc cho ứng dụng này. làm trê
 Trong hộp thoại:
 
 - **Trang** (với PDF): tất cả, trang đang xem, hay các trang như `1-3, 5`.
-- **Kết quả:** **Tệp Word (.docx)**, **PDF tìm được chữ**, hoặc cả hai (mặc định).
+- **Kết quả:** **Tệp Word (.docx)**, **PDF tìm được chữ** (hai thứ này chọn sẵn), và từ bản 0.9.5 **PDF sửa được chữ** (chọn khi cần, xem mục riêng dưới).
 - Bấm **Nhận dạng**. Thanh tiến độ báo trang đang đọc, bấm **Dừng** để thôi. Mỗi trang mất vài giây (bảng dưới).
 - Xong thì có nút **Lưu tệp Word…** và **Lưu tệp PDF…** (hộp thoại lưu của Windows, tên gợi ý `tên tệp (OCR).docx` / `.pdf`), **Mở thư mục**, và **Xem trong ezPDF** để mở ngay kết quả trong app (Word mở trên màn hình Word của ezPDF).
 
@@ -64,13 +65,60 @@ Theo thứ tự (`src/ocr/layout.ts`, `lines.ts`, `pipeline.ts`):
 
 Theo đúng ràng buộc của dự án, việc này **không sửa nội dung gốc**: ảnh quét giữ nguyên từng byte, không phủ nền, không vẽ chữ đè lên trang. Lớp chữ chỉ giúp tìm, chọn và chép.
 
+## PDF sửa được chữ (bản 0.9.5)
+
+Theo yêu cầu, kèm ảnh WPS: “công cụ orc của wps sau khi orc xong thì các chữ trên ảnh gốc đã biến thành chữ mà có thể edit được… trông vẫn như ảnh cũ… kéo chữ sang được chỗ khác, chỗ cũ trống trơn luôn. vậy ta có thể làm như vậy được không?”, rồi “cứ thế bắt tay làm”.
+
+**Cách dùng:** trong hộp thoại Nhận dạng chữ, chọn **PDF sửa được chữ** (không chọn sẵn). Xong thì **Lưu tệp PDF…** (tên gợi ý `tên tệp (OCR, sửa được).pdf`) hoặc **Xem trong ezPDF**. Trong ezPDF, bật **Sửa chữ** (phím E), chạm một dòng, đổi hay xóa từ rồi **Lưu dòng**. Thanh sửa báo: “Chữ nhận dạng từ ảnh quét: phần “…” được đặt lại bằng phông ezSans, các từ khác giữ nguyên hình như bản gốc.” **Kéo** một dòng (chuột: kéo thẳng; điện thoại: chạm chọn rồi kéo khung) để dời nó: chỗ cũ trống (`docs/07-sua-chu-va-quet.md`, mục “kéo chữ”).
+
+### Đánh giá khả năng engine
+
+| Cần gì | Engine có gì | Cách làm |
+|---|---|---|
+| Biết từng từ ở đâu, chữ gì | Tesseract (đã có từ 0.9.0): hộp từng từ, đường chân chữ từng dòng, độ tin cậy | Dùng lại kết quả OCR của trang |
+| Lấy chữ ra khỏi ảnh quét (không phủ trắng) | Không engine nào làm sẵn (PDFium chỉ đọc, ghi ảnh) | Tự viết `src/ocr/editable.ts`: trong khung mỗi từ, tách điểm ảnh thành **mực** và **giấy** (xem dưới), sửa chính các điểm ảnh của trang |
+| Chữ thật mà trông y ảnh | PDFium không tạo được phông Type 3; viết PDF tay thì làm được | Tự viết `src/ocr/editable-pdf.ts`: mỗi từ là một ký tự của một phông Type 3 riêng, hình của ký tự là hình từ cắt ra từ ảnh |
+| Sửa được bằng công cụ Sửa chữ có sẵn | `text-edit.ts` (0.5.0): thay đối tượng chữ, chỉ phần đổi | Mỗi từ một đối tượng chữ; phông OCR mang tên `ezOCR-Words` để công cụ chỉ thay đúng từ bị đổi |
+
+**Lấy chữ ra khỏi ảnh** (từ OCR đọc chắc, độ tin cậy ≥ 55):
+
+- Màu giấy P lấy ở viền khung từ (bỏ mực của chữ bên cạnh), màu mực K là 3 % điểm tối nhất trong từ.
+- Mỗi điểm ảnh có độ phủ mực α = vị trí của nó trên đoạn từ P tới K (15 mức). Điểm lệch hẳn màu (con dấu đỏ, nét bút xanh đè lên) không phải mực của từ. Đường kẻ OCR đã tìm thấy (bảng, khung, gạch chân) và mực không nối với chữ của từ (dấu của dòng trên thò xuống) cũng không phải: chúng ở lại trong ảnh.
+- Ảnh nền: chỗ mực mỏng thì tách mực ra, B = (I − α·K)/(1 − α), giữ trong độ lấm tấm của giấy; chỗ mực dày thì lấy một điểm giấy quanh từ. Vẽ hình từ (màu K, độ trong α) lên nền thì ra lại ảnh cũ.
+- Từ OCR không chắc thì để nguyên trong ảnh, không đụng vào.
+
+**Ghi PDF:** trang mới có đúng một ảnh (ảnh trang không còn chữ, JPEG ở đúng độ phân giải của bản quét) và các từ là chữ. Mỗi từ một ký tự của phông Type 3 (ảnh màu mực kèm mặt nạ mềm α 4 bit), ToUnicode cho ra cả từ, sau mỗi từ một dấu cách bằng đúng khoảng tới từ sau, cả dòng chung một đường chân chữ, các từ xếp theo hàng trên trang để chép ra đúng thứ tự. Cỡ chữ là cỡ thật trên trang, màu tô là màu chữ đọc được, nên từ sửa mới cùng cỡ, cùng màu. Trang mới thay trang quét trong một tệp mới (`buildPages … 'new'`), nên tệp không còn giữ ảnh quét cũ.
+
+Hai chỗ phải chiều PDFium (đã thấy khi thử): PDFium làm tròn khung ảnh ra ngoài rồi kéo giãn ảnh thêm một điểm, nên hình từ được vẽ lùi vào 1/100 điểm ảnh; PDFium gộp đối tượng chữ vào dòng trên khi nó cách dòng đó dưới nửa bề rộng ký tự, mà ký tự ở đây là cả một từ, nên bước tiến của ký tự được giới hạn (1,6 em, và 1,2 lần khoảng cách tới dòng gần nhất), phần còn lại dồn vào dấu cách.
+
+### Cách kiểm chứng
+
+| Bộ thử | Kiểm gì |
+|---|---|
+| `npm run test:editable` (`tests/editable-test.ts`, CI) | Trang thử OCR (`tests/fixtures/ocr/scan.pdf`, có bảng, nghiêng 0,4°) đi qua đúng các bước của app. 20 điểm: đa số từ được lấy ra (177/179); vẽ lại giống bản quét ở 200 và 400 dpi (sai khác trung bình 0,15 và 0,10 trên 255); trang chỉ có 1 ảnh và đúng số từ là chữ, không hình vẽ nào; chữ đọc lại đúng từng từ, đúng thứ tự, có dấu cách; mỗi dòng của trang thử ra nguyên dòng; **bỏ hết chữ đi thì chỗ các từ trống** (177/177); 18 đường kẻ bảng vẫn còn nguyên trong ảnh; công cụ Sửa chữ thấy các từ thành dòng, đổi một từ thì chỉ thay đúng từ đó (20 từ khác giữ nguyên, từ trước nó giống hệt từng điểm ảnh); xóa một từ thì chỗ đó trống; kéo một dòng xuống chân trang thì cả dòng tới đúng chỗ, chỗ cũ trống, chữ vẫn đọc được (và một dòng của PDF thường cũng dời đúng). |
+| `scripts/verify_editable.py` (chạy sau bộ trên) | Làm lại bằng trình đọc khác: qpdf; pikepdf: trang chỉ có 1 ảnh và chữ, không lệnh tô vẽ nào, phông chỉ là phông OCR và mỗi ký tự chỉ vẽ ảnh của nó; MuPDF vẽ giống bản quét, đọc đúng thứ tự từ; **ảnh nền lấy thẳng từ tệp không còn mực ở chỗ các từ**; bỏ chữ khỏi trang thì MuPDF vẽ chỗ các từ trống; đường kẻ còn; tệp đã sửa đọc ra từ mới; tệp có dòng đã kéo: từ ở chỗ thả, chỗ cũ trống. **Thử ngược:** một bản “phủ trắng” (ảnh quét giữ nguyên, vẽ hộp trắng đè lên từ, viết chữ lên trên) trượt 5 điểm, trong đó có “ảnh còn mực ở chỗ các từ” và “có lệnh tô vẽ”. |
+| `npm run e2e:ocr` (Chromium thật) | Thêm 11 điểm: lựa chọn có mà không chọn sẵn; chạy trên PDF đang mở; tải về `scan (OCR, sửa được).pdf`; MuPDF vẽ giống bản quét; 1 ảnh JPEG, chữ là phông OCR, không tô vẽ; MuPDF đọc chữ có dấu cách; mở trong ezPDF, Sửa chữ thấy dòng, thanh báo chỉ từ đổi được đặt lại; kéo một dòng bằng chuột thì khung đi theo, thả ra dòng tới chỗ mới; xuất tệp đọc ra từ mới, dòng đã kéo đúng chỗ, chỗ cũ trống, vẫn chỉ 1 ảnh và chữ. |
+| Báo cáo mẫu (chỉ trên máy) | Trang 2, 9, 31, 110: đạt hết các điểm của `test:editable` (378/407, 593/600, 509/515 từ được lấy ra; chữ đọc lại 99,7–100 %; ảnh so trước/sau đã gửi người dùng). |
+
+### Giới hạn
+
+- Từ sửa mới đặt bằng phông ezSans (không chân), không trùng phông trên giấy. Từ giữ nguyên thì vẫn là hình gốc.
+- Từ OCR đọc không chắc (chữ mờ, chữ trong hình) ở lại trong ảnh, không sửa được.
+- Phần gạch chân, đường kẻ chạy qua chữ ở lại trong ảnh; nét chữ nằm trên đường kẻ cũng ở lại.
+- Trang có ghi chú (annotation) thì ghi chú được vẽ luôn vào ảnh nền. Mục lục, dấu trang của tệp gốc không được giữ (tệp mới).
+- Tệp nặng hơn bản quét khoảng 2–4 lần (ảnh nền JPEG cộng hình từng từ).
+- Chỉ bản desktop tạo được tệp (như OCR); mở tệp thì mọi bản sửa, xóa, kéo được. ezPDF kéo cả dòng; WPS, Acrobat… kéo được từng từ.
+
+![Trang thử: bản quét, PDF sửa được chữ, sửa một từ, ảnh nền còn lại](bang-chung/m13-pdf-sua-duoc-chu.png)
+
 ## Cách kiểm chứng
 
 | Bộ thử | Kiểm gì |
 |---|---|
 | `npm run test:ocr` (`tests/ocr-test.ts`, chạy trên CI) | Trang thử dựng từ chữ đã biết (`scripts/make_ocr_fixtures.py` → `tests/fixtures/ocr/`): tiêu đề hai cột, tiêu đề, đoạn văn thụt đầu dòng, bảng kẻ 5 × 6 có một ô gộp hai hàng và một ô gộp bốn cột, ghi chú nghiêng, hình, chân trang dưới đường kẻ. Trang bị xoay 0,4°, làm nhòe, rắc đốm như ảnh quét. Đi qua đúng các bước của app: PDF quét → PDFium vẽ → tìm đường kẻ → tesseract.js → dựng trang → Word → PDF. 32 điểm kiểm: góc xoay, tỉ lệ lỗi ký tự, lưới và ô gộp, chữ từng ô, căn giữa, đậm, nghiêng, cỡ chữ, thụt dòng, hình, chân trang, Word (XML hợp lệ, `gridSpan`, `vMerge`, hình, chân trang, khổ giấy), PDF (ảnh giữ nguyên từng byte, pdf.js đọc lại đúng 100 % chữ đã đặt, vị trí từ), JPEG giữ nguyên và đúng dpi, TIFF hai trang đen trắng. |
-| `npm run e2e:ocr` (Chromium thật, CI) | Nút trên màn hình đầu (và không có trên web app). Chọn ảnh PNG → nhận dạng → **python-docx** đọc tệp Word đã tải về: bảng 5 cột × 6 hàng, ô gộp, viền, chữ trong ô, tiêu đề hai cột không viền, đoạn văn liền, hình, chân trang, khổ A4. PDF tải về: pdf.js tìm thấy chữ, đúng khổ. TIFF hai trang → PDF hai trang. Tệp không phải ảnh bị từ chối. Từ PDF đang mở: Dừng, rồi chạy lại và mở Word trên màn hình Word của ezPDF. Thanh trên cùng 1280 px vẫn đủ chỗ. Không request nào ra ngoài app, không lỗi trang. 20 điểm. |
+| `npm run e2e:ocr` (Chromium thật, CI) | Nút trên màn hình đầu (và không có trên web app). Chọn ảnh PNG → nhận dạng → **python-docx** đọc tệp Word đã tải về: bảng 5 cột × 6 hàng, ô gộp, viền, chữ trong ô, tiêu đề hai cột không viền, đoạn văn liền, hình, chân trang, khổ A4. PDF tải về: pdf.js tìm thấy chữ, đúng khổ. TIFF hai trang → PDF hai trang. Tệp không phải ảnh bị từ chối. Từ PDF đang mở: Dừng, rồi chạy lại và mở Word trên màn hình Word của ezPDF. Thanh trên cùng 1280 px vẫn đủ chỗ. Từ bản 0.9.5 thêm PDF sửa được chữ và kéo chữ (11 điểm, mục trên). Không request nào ra ngoài app, không lỗi trang. 31 điểm. |
 | `smoke-desktop.cjs` bước 8 (bản desktop thật, WebKitGTK) | Hộp thoại chọn ảnh của hệ thống, nhận dạng trong WebView của Tauri bằng tệp OCR trong app, lưu Word và PDF qua hộp thoại lưu, python-docx và pdf.js đọc lại, “Mở thư mục”. |
+| `npm run test:editable` + `scripts/verify_editable.py` | PDF sửa được chữ (bản 0.9.5): xem mục trên. |
 | Báo cáo mẫu (chỉ trên máy, không lên repo) | 8 trang khác nhau (bìa có khung, trang chữ, trang có bảng gộp ô, trang trong khung có bảng, hóa đơn có logo và con dấu). Word dựng xong được LibreOffice vẽ ra rồi đặt cạnh trang gốc để so bằng mắt (`tests/ocr-probe.ts`). Ba đoạn đã gõ lại tay dùng để đo tỉ lệ lỗi. Lớp chữ của PDF được vẽ thành khung đỏ đè lên ảnh để xem có khớp từng từ không. |
 
 ## Kết quả trên báo cáo mẫu
@@ -105,6 +153,8 @@ Tỉ lệ lỗi trên ba đoạn đã gõ lại: trang 30: **0,11 %** ký tự (
 4. **Lưu tệp PDF…** → mở bằng Edge → Ctrl F tìm một từ có trên trang: từ đó phải được tô đúng chỗ trên ảnh.
 5. Mở một PDF quét nhiều trang → nút **Nhận dạng chữ (OCR)** trên thanh trên → **Các trang** `1-3` → **Dừng** giữa chừng → chạy lại hết.
 6. Rút mạng (tắt Wi-Fi) rồi làm lại bước 2: vẫn phải chạy, vì không cần mạng.
+7. (Bản 0.9.5) Mở tệp báo cáo quét → **Nhận dạng chữ (OCR)** → chỉ chọn **PDF sửa được chữ**, Các trang `30-31` → **Nhận dạng** → **Xem trong ezPDF**. Trang phải trông như bản quét. Bấm E, chạm một dòng, đổi một từ, **Lưu dòng**: chỉ từ đó đổi (phông ezSans), các từ khác y như cũ, chỗ chữ cũ không còn vết. Xóa một từ: chỗ đó trống. Kéo một dòng xuống lề dưới rồi thả: dòng sang chỗ mới, chỗ cũ trống; Ctrl Z trả về. Ctrl F tìm một từ trên trang: phải thấy.
+8. Lưu tệp đó ra, mở bằng WPS hoặc Acrobat: chọn được từng từ, kéo một từ đi thì chỗ cũ trống.
 
 ## Tệp
 
@@ -114,6 +164,8 @@ Tỉ lệ lỗi trên ba đoạn đã gõ lại: trang 30: **0,11 %** ký tự (
 - `src/ocr/pipeline.ts`: các bước cho một trang. Dùng chung cho app và cho bộ thử Node.
 - `src/ocr/docx.ts`: ghi Word. `src/ocr/times.ts`: bề rộng chữ Times New Roman (lấy từ Liberation Serif, cùng số đo).
 - `src/engine/ocr-pdf.ts`: lớp chữ ẩn (PDFium). `src/ocr/images-pdf.ts`: ảnh → PDF.
+- `src/ocr/editable.ts`: lấy chữ ra khỏi ảnh (mực, giấy, độ phủ). `src/ocr/editable-pdf.ts`: ghi PDF sửa được chữ (phông Type 3 từng từ). `src/engine/word-pictures.ts`: tên phông để công cụ Sửa chữ nhận ra. `src/ocr/dpi.ts`: độ phân giải đọc và vẽ lại.
+- `tests/editable-test.ts`, `scripts/verify_editable.py`: kiểm PDF sửa được chữ.
 - `src/ocr/tesseract.ts`, `ocr.worker.ts`, `ocr-client.ts`: chạy Tesseract và các worker. `src/app/ocr/`: hộp thoại.
 - `build/ocr-assets.ts`: chép Tesseract và mô hình vào bản desktop (`dist/ocr/`), phục vụ chúng trên dev server.
 

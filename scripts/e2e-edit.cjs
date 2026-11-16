@@ -631,6 +631,50 @@ let onCrash = async () => {};
     const pt = await ph.evaluate(() => window.__ezpdf.pageText(0));
     check('phone: a line edited by touch is saved into the document', pt.includes('Biên bản bàn giao máy'), pt.slice(0, 60));
     await ph.screenshot({ path: path.join(OUT, 'phone.png') });
+    // "Kéo chữ" by touch: the selected line follows the finger; another line scrolls the page instead
+    {
+      const cdp = await pctx.newCDPSession(ph);
+      const touchDrag = async (x, y, dy, during) => {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+        for (let k = 1; k <= 8; k++) {
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + (dy * k) / 8 }] });
+          await ph.waitForTimeout(30);
+        }
+        const seen = await during();
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        return seen;
+      };
+      await ph.waitForSelector(`${tid('textedit-layer-0')}[data-ready="true"]`, { timeout: 30000 });
+      const otherSel = lineSel(0, 'Bên giao:', false);
+      const ob = await ph.locator(otherSel).boundingBox();
+      const otherBefore = await ph.getAttribute(otherSel, 'data-box');
+      const draggedUnselected = await touchDrag(ob.x + ob.width / 2, ob.y + ob.height / 2, 60, () => ph.locator(tid('textedit-drag')).count());
+      await ph.waitForTimeout(600);
+      const target2 = lineSel(0, 'Biên bản bàn giao máy');
+      await ph.locator(target2).scrollIntoViewIfNeeded();
+      const tb = await ph.locator(target2).boundingBox();
+      await ph.touchscreen.tap(tb.x + tb.width / 2, tb.y + tb.height / 2);
+      await ph.waitForSelector(tid('textedit-input'));
+      await ph.waitForTimeout(400);
+      const tb2 = await ph.locator(target2).boundingBox();
+      const before = JSON.parse(await ph.getAttribute(target2, 'data-box'));
+      const followed = await touchDrag(tb2.x + tb2.width / 2, tb2.y + tb2.height / 2, 120, () => ph.locator(tid('textedit-drag')).count());
+      await ph.waitForFunction(
+        ([sel, top]) => {
+          const el = document.querySelector(sel);
+          return el && JSON.parse(el.dataset.box).top < top - 40;
+        },
+        [target2, before.top],
+        { timeout: 30000 },
+      );
+      const after = JSON.parse(await ph.getAttribute(target2, 'data-box'));
+      check(
+        'phone: a finger on a line not selected scrolls the page; the selected line follows the finger and is moved where it is let go',
+        draggedUnselected === 0 && (await ph.getAttribute(otherSel, 'data-box')) === otherBefore && followed === 1 && after.top < before.top - 40,
+        `${before.top.toFixed(0)} → ${after.top.toFixed(0)} pt`,
+      );
+      await ph.screenshot({ path: path.join(OUT, 'phone-moved.png') });
+    }
     // Bỏ tô sáng on a phone: the row fits, the button is in reach
     await ph.goto(server.base + '/?e2e');
     await ph.waitForSelector(tid('state-empty'), { timeout: 60000 });

@@ -148,7 +148,7 @@ export function OutputProvider({ session, children }: { session: DocumentSession
         return;
       }
       setPrintProgress({ done: 0, total: out.pages });
-      await printPdfPages(out.bytes, { title: out.base, signal: ctl.signal, onProgress: setPrintProgress });
+      await printPdfPages(out.bytes, { title: out.base, signal: ctl.signal, onProgress: setPrintProgress, openDialog: platform.openPrintDialog });
     } catch (e) {
       // the share sheet (iPhone) opens only right after a tap; preparing a big file can take longer
       if (ready && platform.printPdf && e instanceof DOMException && e.name === 'NotAllowedError' && alive.current) {

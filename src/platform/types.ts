@@ -112,6 +112,13 @@ export interface Platform {
   /** said when printing starts, when printPdf needs a word of guidance (iPhone: "choose Print") */
   readonly printHint?: string;
   /**
+   * Opens the system's own print dialog for the page, in place of
+   * window.print() (the desktop app: WebView2's print preview prints the
+   * date, the title and the app's address on every sheet). Rejects when it
+   * cannot; the page then calls window.print().
+   */
+  readonly openPrintDialog?: () => Promise<void>;
+  /**
    * Where "Xuất thành ảnh" puts the pictures: the desktop asks for a folder
    * (null when the dialog is cancelled), Android saves into the phone's
    * pictures (TIFF into Download), the browser keeps them for the share sheet

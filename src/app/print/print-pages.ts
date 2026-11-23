@@ -2,9 +2,11 @@
  * Printing in the browser and the desktop app: the finished PDF is drawn page
  * by page by ezPDF's own PDFium worker (annotations included, /Rotate
  * applied), the pictures are put in a print-only block (#ez-print, see
- * styles.css) whose CSS pages have each PDF page's own size, and the
- * system's print dialog is opened with window.print(). Printer, copies,
- * page range, colour and paper are chosen there.
+ * styles.css) whose CSS pages have each PDF page's own size, and the print
+ * dialog is opened: window.print() in the browser, Windows' own print
+ * dialog in the desktop app (platform.openPrintDialog; WebView2's print
+ * preview would add the date, the file name and the app's address on every
+ * sheet). Printer, copies, page range, colour and paper are chosen there.
  *
  * The Android app does not come here: it hands the PDF file itself to
  * Android's print service (vector, see platform/android.ts).
@@ -48,7 +50,8 @@ const aborted = () => new DOMException('Đã hủy in.', 'AbortError');
 
 interface Job {
   ready: Promise<unknown>;
-  print(): void;
+  /** `open`: the platform's own print dialog; window.print() without it, or if it fails */
+  print(open?: () => Promise<void>): void;
   cleanup(): void;
 }
 
@@ -122,9 +125,10 @@ export function mountPrintJob(pages: PageSize[], urls: string[], title: string):
     ready: Promise.all(
       imgs.map((im) => (im.complete ? Promise.resolve() : new Promise<void>((done) => ((im.onload = () => done()), (im.onerror = () => done()))))),
     ),
-    print() {
+    print(open) {
       window.addEventListener('afterprint', onAfter);
-      window.print();
+      if (!open) return window.print();
+      open().catch(() => !done && window.print());
     },
     cleanup,
   };
@@ -138,7 +142,7 @@ export function mountPrintJob(pages: PageSize[], urls: string[], title: string):
  */
 export async function printPdfPages(
   bytes: ArrayBuffer,
-  opts: { title: string; signal?: AbortSignal; onProgress?: (p: PrintProgress) => void },
+  opts: { title: string; signal?: AbortSignal; onProgress?: (p: PrintProgress) => void; openDialog?: () => Promise<void> },
 ) {
   clearPrintJob();
   const { session, pages } = await openRenderSession(bytes);
@@ -166,5 +170,5 @@ export async function printPdfPages(
     job.cleanup();
     throw aborted();
   }
-  job.print();
+  job.print(opts.openDialog);
 }

@@ -137,7 +137,7 @@ Theo yêu cầu, sau khi có PDF sửa được chữ: WPS “kéo chữ sang đ
 - Mở: nút **Quét tài liệu** ở màn hình trống, hoặc biểu tượng quét trên thanh trên.
 - **Chụp ảnh** (điện thoại): mở camera sau. **Chọn ảnh có sẵn**: chọn một hoặc nhiều ảnh.
 - **Một ảnh:** vào màn căn góc. App đã đặt 4 góc lên mép giấy tìm được. Kéo góc nào chưa khớp. Trong lúc kéo, một kính lúp hiện phần ảnh dưới ngón tay. Bàn phím: phím mũi tên dịch góc đang chọn. Nhiều ảnh: xử lý luôn rồi vào màn xem.
-- **Màn xem:** dải ảnh nhỏ các trang, nút **+** để thêm trang. Mỗi trang có **Xoay**, **Căn lại góc**, **Xóa trang** và công tắc **Làm sáng** (mặc định bật; tắt thì giữ ánh sáng và màu như ảnh chụp).
+- **Màn xem:** dải ảnh nhỏ các trang, nút **+** để thêm trang. Mỗi trang có **Xoay**, **Căn lại góc**, **Xóa trang** và công tắc **Làm sáng** (mặc định bật; tắt thì giữ ánh sáng và màu như ảnh chụp). Từ bản 0.9.6 công tắc này thành dải **bộ lọc**: Gốc, Làm sáng, **Màu sạch** (mặc định), Xám, Đen trắng. Xem `docs/15-bo-loc-quet-va-in.md`.
 - **Tạo PDF:** mở bản quét thành tài liệu mới, tên “Bản quét 29-10-2026 15.30.pdf”. Nháp lưu ngay. Từ đây dùng mọi công cụ như với PDF khác: thêm chữ, ký, xuất.
 
 Ảnh chỉ được xử lý trên máy, trong một worker riêng (`src/scan/`). Bản kiểm xác nhận không có request nào ra ngoài.

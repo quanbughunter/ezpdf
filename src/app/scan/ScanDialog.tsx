@@ -4,18 +4,21 @@
  * One photo goes straight to the corner editor (drag the four corners onto
  * the sheet's corners; the app has already placed them where it found the
  * sheet). Several photos are processed at once and land in the review, where
- * each page can be turned, re-cornered, deleted, or shown without the
- * brightening. "Tạo PDF" opens the result as a new document.
+ * each page can be turned, re-cornered, deleted, or given another filter
+ * ("Màu sạch" by default: white paper, shadows and smudges gone, the ink's
+ * colours kept; see src/scan/filters.ts). "Tạo PDF" opens the result as a
+ * new document.
  *
  * Photos are decoded and processed in a worker on this device
  * (src/scan/scan.worker.ts); nothing is uploaded.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Camera, Check, Crop, ImagePlus, Loader2, Plus, RotateCw, Sparkles, Trash2, X } from 'lucide-react';
+import { Camera, Check, Crop, ImagePlus, Loader2, Plus, RotateCw, Trash2, X } from 'lucide-react';
 import { uuidV4 } from '@embedpdf/models';
 import { cn } from '@/lib/utils';
 import { usePlatform } from '@/platform';
 import { detectSheetIn, processPage } from '@/scan/scan-client';
+import { DEFAULT_FILTER, isScanFilter, SCAN_FILTERS, type ScanFilter } from '@/scan/filters';
 import { isConvex, type Pt, type Quad } from '@/scan/geometry';
 import { jpegPagesToPdf, pageSizeFor } from '@/scan/jpeg-pdf';
 
@@ -29,7 +32,7 @@ interface ScanPage {
   quad: Quad | null;
   found: boolean;
   rotation: number;
-  enhance: boolean;
+  filter: ScanFilter;
   result: { blob: Blob; url: string; width: number; height: number; a4: boolean } | null;
   busy: boolean;
   error?: string;
@@ -41,6 +44,32 @@ const WHOLE: Quad = [
   { x: 1, y: 1 },
   { x: 0, y: 1 },
 ];
+
+const FILTERS: Record<ScanFilter, { name: string; about: string }> = {
+  original: { name: 'Gốc', about: 'Ảnh như lúc chụp, chỉ cắt theo mép giấy và nắn thẳng.' },
+  brighten: { name: 'Làm sáng', about: 'Bỏ bóng và ám màu của đèn, giấy vẫn tự nhiên.' },
+  clean: { name: 'Màu sạch', about: 'Nền trắng tinh: bỏ bóng, vệt sáng, vết bẩn. Con dấu, chữ màu, ảnh giữ nguyên màu.' },
+  gray: { name: 'Xám', about: 'Như Màu sạch, nhưng thành các sắc xám.' },
+  bw: { name: 'Đen trắng', about: 'Chỉ còn đen và trắng, như bản photo. Con dấu cũng thành đen.' },
+};
+
+/** the filter new pages get: the last one chosen on this device */
+const FILTER_KEY = 'ezpdf.scan.filter';
+function savedFilter(): ScanFilter {
+  try {
+    const v = localStorage.getItem(FILTER_KEY);
+    return isScanFilter(v) ? v : DEFAULT_FILTER;
+  } catch {
+    return DEFAULT_FILTER;
+  }
+}
+function saveFilter(f: ScanFilter) {
+  try {
+    localStorage.setItem(FILTER_KEY, f);
+  } catch {
+    /* private window: only this session's pages keep it */
+  }
+}
 
 const fileName = (d = new Date()) => {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -91,20 +120,26 @@ export function ScanDialog({
     setPages((ps) => ps.map((p) => (p.id === id ? { ...p, ...f(p) } : p)));
   }, []);
 
+  // the latest run per page: an earlier one finishing later must not show its page
+  const latest = useRef(new Map<string, number>());
   const run = useCallback(
     async (id: string, with_: Partial<ScanPage> = {}) => {
       const found = pagesRef.current.find((x) => x.id === id);
       const p = found && { ...found, ...with_ };
       if (!p || !p.quad) return;
+      const job = (latest.current.get(id) ?? 0) + 1;
+      latest.current.set(id, job);
       patch(id, () => ({ busy: true, error: undefined }));
       try {
-        const r = await processPage(p.file, p.quad, p.rotation, p.enhance);
+        const r = await processPage(p.file, p.quad, p.rotation, p.filter, p.id);
+        if (latest.current.get(id) !== job) return;
         const url = URL.createObjectURL(r.jpeg);
         patch(id, (old) => {
           if (old.result) URL.revokeObjectURL(old.result.url);
           return { busy: false, result: { blob: r.jpeg, url, width: r.width, height: r.height, a4: r.a4 } };
         });
       } catch (e) {
+        if (latest.current.get(id) !== job) return;
         patch(id, () => ({ busy: false, error: `Không xử lý được ảnh: ${e instanceof Error ? e.message : String(e)}` }));
       }
     },
@@ -124,7 +159,7 @@ export function ScanDialog({
         quad: null,
         found: false,
         rotation: 0,
-        enhance: true,
+        filter: savedFilter(),
         result: null,
         busy: true,
       }));
@@ -173,6 +208,20 @@ export function ScanDialog({
   const change = (id: string, f: Partial<ScanPage>) => {
     patch(id, () => f);
     void run(id, f);
+  };
+
+  const pickFilter = (id: string, filter: ScanFilter) => {
+    saveFilter(filter);
+    change(id, { filter });
+  };
+
+  /** the current page's filter on every page */
+  const filterAll = async (filter: ScanFilter) => {
+    for (const p of pagesRef.current) {
+      if (p.filter === filter) continue;
+      patch(p.id, () => ({ filter }));
+      await run(p.id, { filter });
+    }
   };
 
   const ready = pages.length > 0 && pages.every((p) => p.result && !p.busy);
@@ -347,26 +396,16 @@ export function ScanDialog({
               <DarkButton onClick={() => remove(page.id)} disabled={page.busy} testId="scan-delete">
                 <Trash2 /> Xóa trang
               </DarkButton>
-              <label
-                data-testid="scan-enhance-toggle"
-                className={cn(
-                  'flex h-9 cursor-pointer items-center gap-2 rounded-md px-3 text-[13px] select-none hover:bg-white/10',
-                  page.busy && 'pointer-events-none opacity-50',
-                )}
-              >
-                <Sparkles className="size-4" />
-                Làm sáng
-                <input
-                  type="checkbox"
-                  role="switch"
-                  data-testid="scan-enhance"
-                  checked={page.enhance}
-                  onChange={(e) => change(page.id, { enhance: e.target.checked })}
-                  className="peer sr-only"
-                />
-                <span className="relative h-5 w-9 rounded-full bg-white/25 transition-colors peer-checked:bg-[#2fa79c] peer-focus-visible:ring-2 peer-focus-visible:ring-white after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
-              </label>
             </div>
+          )}
+          {page && (
+            <FilterPicker
+              value={page.filter}
+              disabled={page.busy}
+              onPick={(f) => pickFilter(page.id, f)}
+              others={pages.length > 1 && pages.some((p) => p.filter !== page.filter) ? pages.length : 0}
+              onAll={() => void filterAll(page.filter)}
+            />
           )}
           <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-t border-white/10 px-3 py-2" data-testid="scan-strip">
             {pages.map((p, i) => (
@@ -507,6 +546,57 @@ function AddMore({ canCapture, onCamera, onGallery }: { canCapture: boolean; onC
         </span>
       )}
     </span>
+  );
+}
+
+/**
+ * The filters as a row of choices, the chosen one's description below it.
+ * With pages on other filters, one tap puts this one on all of them.
+ */
+function FilterPicker({
+  value,
+  disabled,
+  onPick,
+  others,
+  onAll,
+}: {
+  value: ScanFilter;
+  disabled: boolean;
+  onPick: (f: ScanFilter) => void;
+  /** the number of pages when some have another filter, else 0 */
+  others: number;
+  onAll: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 flex-col items-center gap-1 px-2 pb-2">
+      <div role="radiogroup" aria-label="Bộ lọc" aria-describedby="scan-filter-about" data-testid="scan-filters" className="flex max-w-full items-center gap-1 overflow-x-auto">
+        {SCAN_FILTERS.map((f) => (
+          <button
+            key={f}
+            type="button"
+            role="radio"
+            aria-checked={value === f}
+            disabled={disabled}
+            onClick={() => value !== f && onPick(f)}
+            data-testid={`scan-filter-${f}`}
+            className={cn(
+              'h-8 shrink-0 rounded-full px-3 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50',
+              value === f ? 'bg-[#eef1f0] text-[#1b1f21]' : 'text-[#cfd6d4] hover:bg-white/10',
+            )}
+          >
+            {FILTERS[f].name}
+          </button>
+        ))}
+      </div>
+      <p id="scan-filter-about" className="flex min-h-[1.5em] flex-wrap items-center justify-center gap-x-2 text-center text-[12px] text-[#a6b0ae]" data-testid="scan-filter-about">
+        {FILTERS[value].about}
+        {others > 0 && (
+          <button type="button" onClick={onAll} disabled={disabled} className="rounded px-1 font-medium text-[#7fd3c9] underline-offset-2 hover:underline disabled:opacity-50" data-testid="scan-filter-all">
+            Dùng cho cả {others} trang
+          </button>
+        )}
+      </p>
+    </div>
   );
 }
 

@@ -111,6 +111,43 @@ fn reveal_file(path: String) -> Result<(), String> {
     share::reveal(&p).map_err(|e| format!("Không mở được thư mục: {e}"))
 }
 
+/// Opens Windows' own print dialog for the page (WebView2's ShowPrintUI,
+/// system kind). The page has already put the pages to print in place, as
+/// for window.print(), which in WebView2 opens the browser's print preview:
+/// that one adds the date, the page's title and its address
+/// (tauri.localhost) above and below every sheet, even with the page's
+/// margins at zero. The system dialog prints the pages as they are.
+/// Not async: it runs on the main thread, where the webview is.
+#[tauri::command]
+fn print_page(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        window
+            .with_webview(move |webview| {
+                let shown = (|| -> windows::core::Result<()> {
+                    use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_16, COREWEBVIEW2_PRINT_DIALOG_KIND_SYSTEM};
+                    use windows::core::Interface;
+                    unsafe {
+                        webview
+                            .controller()
+                            .CoreWebView2()?
+                            .cast::<ICoreWebView2_16>()?
+                            .ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_SYSTEM)
+                    }
+                })();
+                let _ = tx.send(shown.map_err(|e| e.to_string()));
+            })
+            .map_err(|e| e.to_string())?;
+        rx.recv().map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        Err("Máy này in bằng hộp thoại của trình duyệt.".into())
+    }
+}
+
 /// the kinds of file the page may ask to be shown in their folder
 fn revealable(p: &std::path::Path) -> bool {
     p.extension()
@@ -144,7 +181,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(LaunchFiles::default())
-        .invoke_handler(tauri::generate_handler![take_launch_files, share_ways, share_file, reveal_file])
+        .invoke_handler(tauri::generate_handler![take_launch_files, share_ways, share_file, reveal_file, print_page])
         .setup(|app| {
             // copies shared more than a day ago are not needed any more
             share::remove_older_than(&share::share_root(), std::time::Duration::from_secs(24 * 3600));

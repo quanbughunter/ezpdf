@@ -8,7 +8,7 @@
 - **Bộ công cụ** (bản 0.7.0, tên cũ “Sắp xếp trang”; từ 0.8.0 nằm cạnh nút Chia sẻ): thêm trang từ PDF khác, từ ảnh quét hay trang trắng; kéo thả để đổi chỗ (trên điện thoại: giữ rồi kéo); xoay, xóa; trích các trang chọn ra tệp mới; tách tài liệu thành nhiều tệp (từ 0.9.3: bấm cây kéo giữa hai trang để đặt vết cắt, hoặc nhập số trang). Từ 0.9.4 có **Gộp PDF** trên màn đầu: chọn nhiều tệp, sắp thứ tự, gộp thành một tệp. Áp dụng một lần, hoàn tác được. Quét xong có thể **Thêm vào tài liệu này**. Xem `docs/10-sap-xep-trang.md`.
 - **Kéo trang bằng chuột** (bản 0.6.0, phím P, giữ Space để kéo tạm): mặc định trên máy có chuột. Trên điện thoại, một ngón cuộn trang như trước.
 - **Chia sẻ** (bản 0.6.0): gửi đúng tệp “Xuất PDF” qua Zalo, Telegram, thư… Windows: chép tệp để dán (Ctrl V), cửa sổ chia sẻ của Windows, hiện tệp trong thư mục. Android và trình duyệt: bảng chia sẻ của hệ điều hành.
-- **In** (bản 0.6.0, Ctrl P): Android in thẳng tệp PDF qua dịch vụ in của máy; Windows và trình duyệt in ảnh trang 300 dpi qua hộp thoại in. Xem `docs/08-keo-trang-chia-se-in.md`.
+- **In** (bản 0.6.0, Ctrl P): Android in thẳng tệp PDF qua dịch vụ in của máy; Windows và trình duyệt in ảnh trang 300 dpi qua hộp thoại in. Từ 0.9.6 bản Windows dùng hộp thoại In của chính Windows, giấy in không còn ngày giờ, tên tệp, địa chỉ `tauri.localhost`. Xem `docs/08-keo-trang-chia-se-in.md`, `docs/15-bo-loc-quet-va-in.md`.
 - **Nhận dạng chữ (OCR)** (bản 0.9.0, bản Windows): nút **Nhận dạng chữ** ở màn hình đầu (chọn một PDF quét, hoặc ảnh JPEG, PNG, TIFF nhiều trang…) và trên thanh trên khi đang mở PDF. Đọc chữ ngay trên máy bằng Tesseract và mô hình tiếng Việt có sẵn trong app, không cần mạng. Ra **tệp Word dựng lại như bản giấy** (bảng thành bảng Word, cả ô gộp; tiêu đề hai cột; đoạn văn, thụt dòng, căn lề, cỡ chữ, đậm, nghiêng; hình, con dấu; đầu trang, chân trang, khung trang) và/hoặc **PDF tìm được chữ** (trang giữ nguyên, thêm lớp chữ ẩn đúng chỗ từng từ). Từ 0.9.5 có **PDF sửa được chữ**: chữ được lấy ra khỏi ảnh quét và vẽ lại thành chữ thật bằng chính hình của từng từ, trang trông như bản quét, sửa hay xóa từng từ bằng Sửa chữ, kéo dòng sang chỗ khác, chỗ cũ trống. Web app và Android chưa có. Xem `docs/13-ocr.md`.
 - **Cập nhật web app** (bản 0.8.9): khi đã tải xong bản mới, cuối màn hình đầu hiện “Có bản mới X” và nút **Cập nhật**. Bấm là trang tải lại thành bản mới, không cần đóng tab; tải lại trang cũng được. Service worker mới tiếp quản ngay và giữ tệp của bản vừa thay cho trang còn mở (`build/sw-template.js`, `src/app/web-update.ts`). Bản Windows và Android cập nhật bằng bộ cài mới trên trang Releases.
 - **Số phiên bản** (bản 0.8.8): dòng “ezPDF phiên bản 0.8.8” ở cuối màn hình đầu tiên khi vào app (mọi bản); bản Windows còn có trên thanh tiêu đề cửa sổ. Số lấy từ `package.json` (`vite.config.ts` → `src/app/app-version.tsx`), trùng với số của release.
@@ -16,7 +16,7 @@
 
 - **Sửa chữ có sẵn trong PDF** (bản 0.5.0, phím E): sửa từng dòng, và chỉ phần đã đổi bị viết lại (nhãn đậm đứng trước vẫn giữ nguyên). Chữ cũ được xóa khỏi nội dung trang rồi viết chữ mới vào, không phủ đè. Giữ phông gốc khi phông đó vẽ được mọi chữ mới; nếu không thì dùng phông ezSans (Latin, tiếng Việt, tiếng Nga, Hy Lạp) và báo trước. Từ bản 0.9.1, mỗi ô của một hàng bảng là một dòng riêng. Từ bản 0.9.5 **kéo chữ**: kéo một dòng sang chỗ khác (điện thoại: chạm chọn rồi kéo khung), hoàn tác được. Xem `docs/07-sua-chu-va-quet.md`.
 - **Bỏ tô sáng có sẵn trong tệp** (bản 0.9.1, trong công cụ Sửa chữ có sẵn): chạm vào dòng đang được tô, bấm **Bỏ tô sáng**, cả đoạn tô liền nhau mất màu. Dải màu mà Google Docs, Word, LibreOffice, Chrome vẽ dưới chữ được xóa khỏi nội dung trang, không phủ trắng; ghi chú tô sáng thì được gỡ khỏi trang. Chữ giữ nguyên. Nền ô bảng, chữ trắng trên nền đậm, ô đen che chữ không bao giờ bị bỏ. Từ bản 0.9.2 có **Bỏ tô sáng hàng loạt…**: tìm mọi chỗ tô trong tệp, chọn màu và trang, bỏ hết trong một lần (một bước hoàn tác). Xem `docs/14-bo-to-sang.md`.
-- **Quét tài liệu** (bản 0.5.0): chụp hoặc chọn ảnh giấy tờ. App tìm mép giấy, kể cả tờ nằm đè lên tờ khác (bản 0.6.2); người dùng kéo 4 góc nếu cần (có kính lúp). App làm phẳng và làm sáng ảnh với màu tự nhiên, rồi tạo PDF. Xử lý hoàn toàn trên máy.
+- **Quét tài liệu** (bản 0.5.0): chụp hoặc chọn ảnh giấy tờ. App tìm mép giấy, kể cả tờ nằm đè lên tờ khác (bản 0.6.2); người dùng kéo 4 góc nếu cần (có kính lúp). App làm phẳng ảnh rồi tạo PDF. Từ 0.9.6 có **bộ lọc**: Gốc, Làm sáng, **Màu sạch** (mặc định: nền trắng tinh, bỏ bóng, vệt sáng, vết bẩn; con dấu, chữ màu, ảnh giữ màu), Xám, Đen trắng; dùng cho một trang hay cả bản quét (xem `docs/15-bo-loc-quet-va-in.md`). Xử lý hoàn toàn trên máy.
 
 Mốc 4 đóng gói cùng một mã nguồn thành 3 bản:
 
@@ -81,6 +81,7 @@ npm run e2e:m4       # lớp lưu trữ trong trình duyệt (IndexedDB, Capacit
 npm run e2e:m4:preview  # trên bản build: cài được, chạy offline, CSP chặn request ra ngoài, "Mở bằng"
 npm run test:ocr     # OCR trong Node qua đúng các bước của app: trang thử có bảng gộp ô → Word, PDF tìm được chữ (32 điểm)
 npm run test:editable # PDF sửa được chữ trong Node + kiểm lại bằng qpdf, pikepdf, MuPDF (có thử ngược bản phủ trắng)
+npm run test:scan-filter # bộ lọc quét: 6 ảnh chụp giả lập (bóng, nắng, vệt sáng, vết bẩn, giấy cũ) so với bản gốc
 npm run e2e:ocr      # OCR trong Chromium thật (dev server, ?ocr): ảnh, TIFF hai trang, PDF đang mở → Word (python-docx), PDF (pdf.js), PDF sửa được chữ (MuPDF, sửa một từ)
 npm run test:edit    # sửa chữ có sẵn: 6 kiểu PDF (Chromium, LibreOffice, Helvetica, LaTeX, trang xoay, chữ ẩn/Form)
                      # + tệp mã hóa → kiểm độc lập bằng qpdf, Poppler, MuPDF (chữ cũ hết, phần còn lại không đổi điểm ảnh nào)
@@ -136,7 +137,7 @@ src/
     viewer/free-text.tsx ô chữ: vẽ bằng bộ ngắt dòng của bước xuất, sửa, tự giãn
     viewer/touch-guard.ts  cảm ứng: chụm hai ngón chỉ để phóng, một ngón chỉ để cuộn ở chế độ Chọn
     viewer/hand.ts       bàn tay: chế độ kéo trang, công cụ nghỉ (bàn tay / chọn), giữ Space để kéo
-  scan/                quét: detect.ts (tìm tờ giấy), geometry.ts (phối cảnh, tỉ lệ thật), process.ts (làm phẳng, làm sáng),
+  scan/                quét: detect.ts (tìm tờ giấy), geometry.ts (phối cảnh, tỉ lệ thật), process.ts (làm phẳng, làm sáng), filters.ts (bộ lọc: Màu sạch, Xám, Đen trắng),
                        jpeg-pdf.ts (PDF từ JPEG), scan.worker.ts
   components/ui/       component shadcn/ui (chép vào, sửa được)
   engine/
@@ -162,7 +163,8 @@ branding/              SVG gốc của biểu tượng
 tests/                 engine-proof.ts, m3-engine-probe.ts, storage-*, fixtures, trang pdf.js để kiểm độc lập
 scripts/               e2e*.cjs, smoke-desktop.cjs, perf-big.cjs, verify_*.py, inspect_export.py, make_*.py
 docs/                  đánh giá engine, kết quả mốc 1–4, sửa chữ và quét (07), kéo trang, chia sẻ, in (08), web app trên iPhone (09),
-                       sắp xếp trang (10), tệp Word (11), xuất thành ảnh (12), OCR (13), bỏ tô sáng (14), kế hoạch, bằng chứng
+                       sắp xếp trang (10), tệp Word (11), xuất thành ảnh (12), OCR (13), bỏ tô sáng (14), bộ lọc quét và in (15),
+                       kế hoạch, bằng chứng
 ```
 
 ## Nguyên tắc kiến trúc

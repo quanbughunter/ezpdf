@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Acceptance run for "Quét tài liệu" (photo → flat, brightened PDF), in real
+ * Acceptance run for "Quét tài liệu" (photo → flat, clean PDF), in real
  * Chromium, on the synthetic phone photos of tests/fixtures/scan
  * (scripts/make_scan_fixtures.py: a known document photographed through a
  * pinhole camera on various tables, with uneven light and a colour cast).
@@ -9,13 +9,18 @@
  *  - the sheet is found, corners within 1.5 % of the photo's diagonal
  *  - A4 proportions recovered from the perspective (snapped to A4)
  *  - the flat page matches the original document (correlation)
- *  - brightening: paper white and even, ink not lighter, the red stamp red
+ *  - "Màu sạch" (the default filter): paper white and even, ink not
+ *    lighter, the red stamp red. The filters themselves are measured
+ *    against a document in npm run test:scan-filter.
  *  - the PDF: qpdf clean, one JPEG per page (DCT, not re-encoded), A4 pages,
  *    MuPDF and Poppler draw it
  * App:
  *  - empty state → scan → one photo → corner editor with the corners on the
  *    sheet; a dragged corner shows the loupe and moves
- *  - several photos → review; brightening off / on, turn, delete
+ *  - several photos → review; the filters: "Màu sạch" chosen, "Gốc" shows
+ *    the photo's own light, back again without decoding the photo; "Xám"
+ *    is grey; "Dùng cho cả N trang"; a new photo gets the last filter;
+ *    turn, delete
  *  - "Tạo PDF" opens a new document, already in a draft; export writes it
  *  - closing with pages asks first
  *  - phone: "Chụp ảnh" opens the camera (capture=environment)
@@ -215,17 +220,69 @@ let onCrash = async () => {};
       for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2];
       return s / (d.length / 4) / 3;
     });
+  const settle = () => page.waitForFunction(() => !document.querySelector('[data-testid="scan-result"].opacity-60'), null, { timeout: 30000 }).then(() => sleep(300));
+  const chosen = () => page.evaluate(() => document.querySelector('[data-testid="scan-filters"] [aria-checked="true"]')?.dataset.testid?.replace('scan-filter-', ''));
+  const greyness = () =>
+    page.evaluate(async () => {
+      const img = document.querySelector('[data-testid="scan-result"]');
+      const b = await createImageBitmap(await (await fetch(img.src)).blob(), { resizeWidth: 120, resizeHeight: 170 });
+      const c = new OffscreenCanvas(120, 170);
+      const g = c.getContext('2d');
+      g.drawImage(b, 0, 0);
+      const d = g.getImageData(0, 0, 120, 170).data;
+      let m = 0;
+      for (let i = 0; i < d.length; i += 4) m = Math.max(m, Math.abs(d[i] - d[i + 1]), Math.abs(d[i + 1] - d[i + 2]));
+      return m;
+    });
   await page.click(tid('scan-thumb-1'));
   await sleep(200);
+  const about = await page.textContent(tid('scan-filter-about'));
   const bright = await meanOfResult();
-  await page.click(tid('scan-enhance-toggle'));
-  await page.waitForFunction(() => !document.querySelector('[data-testid="scan-result"].opacity-60'), null, { timeout: 30000 });
-  await sleep(300);
+  await page.click(tid('scan-filter-original'));
+  await settle();
   const natural = await meanOfResult();
-  await page.click(tid('scan-enhance-toggle'));
-  await page.waitForFunction(() => !document.querySelector('[data-testid="scan-result"].opacity-60'), null, { timeout: 30000 });
-  await sleep(300);
-  check('“Làm sáng” on by default; off shows the photo’s own light, on again brightens', (await page.isChecked(tid('scan-enhance'))) && bright > natural + 12 && Math.abs((await meanOfResult()) - bright) < 2, `mean ${Math.round(natural)} off, ${Math.round(bright)} on`);
+  const t0 = Date.now();
+  await page.click(tid('scan-filter-clean'));
+  await settle();
+  const back = Date.now() - t0;
+  check(
+    '“Màu sạch” is chosen by default and says what it does; “Gốc” shows the photo’s own light; back again gives the same page',
+    (await chosen()) === 'clean' && /Nền trắng tinh/.test(about) && bright > natural + 12 && Math.abs((await meanOfResult()) - bright) < 2,
+    `mean ${Math.round(natural)} (Gốc), ${Math.round(bright)} (Màu sạch), back in ${back} ms`,
+  );
+  await page.click(tid('scan-filter-gray'));
+  await settle();
+  const grey = await greyness();
+  const all = await page.isVisible(tid('scan-filter-all'));
+  await page.click(tid('scan-filter-all'));
+  await page.waitForFunction(() => !document.querySelector('[data-testid="scan-filter-all"]') && !document.querySelector('[data-testid="scan-strip"] .animate-spin'), null, { timeout: 60000 });
+  const filters = [];
+  for (const i of [0, 1, 2]) {
+    await page.click(tid(`scan-thumb-${i}`));
+    await sleep(150);
+    filters.push(await chosen());
+  }
+  check('“Xám” gives a grey page; “Dùng cho cả 3 trang” puts it on every page', grey <= 2 && all && filters.every((f) => f === 'gray'), `colour left ${grey} · ${filters.join(', ')}`);
+  await page.setInputFiles(tid('scan-file-input'), [SCAN('photo-wood.jpg'), SCAN('photo-flat.jpg')]);
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid^="scan-thumb-"]').length === 5 && !document.querySelector('[data-testid="scan-strip"] .animate-spin'), null, { timeout: 60000 });
+  await page.click(tid('scan-thumb-4'));
+  await sleep(200);
+  const remembered = await chosen();
+  await page.click(tid('scan-filter-clean'));
+  await settle();
+  check('a new photo gets the filter chosen last', remembered === 'gray' && (await chosen()) === 'clean', remembered);
+  // back to three pages, all on "Màu sạch"
+  for (let n = 0; n < 2; n++) {
+    await page.click(tid('scan-thumb-3'));
+    await page.click(tid('scan-delete'));
+    await sleep(200);
+  }
+  await page.click(tid('scan-thumb-0'));
+  await sleep(150);
+  await page.click(tid('scan-filter-clean'));
+  await settle();
+  await page.click(tid('scan-filter-all'));
+  await page.waitForFunction(() => !document.querySelector('[data-testid="scan-filter-all"]') && !document.querySelector('[data-testid="scan-strip"] .animate-spin'), null, { timeout: 60000 });
 
   await page.click(tid('scan-thumb-2'));
   await page.click(tid('scan-rotate'));

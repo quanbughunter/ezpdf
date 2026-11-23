@@ -1,4 +1,5 @@
 import type { ScanRequest, ScanResponse } from './scan.worker';
+import { MISS, type ScanFilter } from './filters';
 import type { Quad } from './geometry';
 import type { Img } from './process';
 
@@ -122,7 +123,7 @@ function call<T>(msg: Payload<ScanRequest>): Promise<T> {
   const id = ++seq;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve: resolve as (v: ScanResponse & { ok: true }) => void, reject });
-    getWorker().postMessage({ ...msg, id }, [msg.img.data.buffer]);
+    getWorker().postMessage({ ...msg, id }, msg.img ? [msg.img.data.buffer] : []);
   });
 }
 
@@ -133,14 +134,22 @@ export async function detectSheetIn(file: Blob) {
   return { width: photo.width, height: photo.height, quad: r.quad, found: r.found };
 }
 
-/** The flat page as a JPEG. `quad` is 0–1 in the photo as shown. */
-export async function processPage(file: Blob, quad: Quad, rotation: number, enhance: boolean) {
+type Processed = { jpeg: Blob; width: number; height: number; a4: boolean; ms: number };
+
+/**
+ * The flat page as a JPEG, through `filter`. `quad` is 0–1 in the photo as
+ * shown; `key` names the photo (a page's id): the worker keeps the last cut
+ * pages by key and corners, so another filter or a turn skips decoding.
+ */
+export async function processPage(file: Blob, quad: Quad, rotation: number, filter: ScanFilter, key = '') {
+  const cutKey = key && `${key}|${quad.map((p) => `${p.x.toFixed(5)},${p.y.toFixed(5)}`).join(';')}`;
+  if (cutKey) {
+    try {
+      return await call<Processed>({ kind: 'process', key: cutKey, img: null, quad, rotation, filter });
+    } catch (e) {
+      if (!(e instanceof Error) || e.message !== MISS) throw e;
+    }
+  }
   const photo = await photoPixels(file, PROCESS_SIZE);
-  return call<{ jpeg: Blob; width: number; height: number; a4: boolean; ms: number }>({
-    kind: 'process',
-    img: photo.img,
-    quad,
-    rotation,
-    enhance,
-  });
+  return call<Processed>({ kind: 'process', key: cutKey || `once-${seq}`, img: photo.img, quad, rotation, filter });
 }

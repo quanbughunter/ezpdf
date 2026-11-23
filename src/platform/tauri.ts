@@ -10,7 +10,10 @@
  *  - share: the finished PDF goes to the shell as raw bytes; it writes a
  *    temporary copy and puts it on the clipboard, in Windows' share window,
  *    or shows it in Explorer (src-tauri/src/share.rs)
- *  - print: the page's own (rendered pages, window.print in WebView2)
+ *  - print: the page's own rendered pages, printed through Windows' own
+ *    print dialog (print_page: WebView2's ShowPrintUI). window.print()
+ *    would open WebView2's print preview, which adds the date, the file
+ *    name and "tauri.localhost" above and below every sheet.
  *  - page pictures: written into a folder picked in the system's dialog, never
  *    over an existing file; then shown in Explorer (reveal_file)
  */
@@ -109,6 +112,9 @@ export async function createTauriPlatform(): Promise<Platform> {
       return way === 'copy' ? 'copied' : 'done';
     },
     printPdf: null,
+    async openPrintDialog() {
+      await invoke('print_page');
+    },
     async openImageSink() {
       // the folder dialog adds the folder to the fs scope for this run, nothing above or beside it
       const folder = await open({ directory: true, multiple: false, title: 'Chọn thư mục để lưu ảnh' });

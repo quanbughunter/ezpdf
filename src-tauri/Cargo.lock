@@ -937,13 +937,14 @@ dependencies = [
 
 [[package]]
 name = "ezpdf"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-single-instance",
+ "webview2-com",
  "windows",
  "windows-collections",
  "windows-future",

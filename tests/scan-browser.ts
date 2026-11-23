@@ -144,12 +144,13 @@ function measure(img: ImageData, doc: ReturnType<typeof regions>, cell: number) 
     const tDetect = performance.now() - t0;
     const diag = Math.hypot(det.width, det.height);
     const err = Math.max(...det.quad.map((p, i) => Math.hypot((p.x - ph.quad[i][0]) * det.width, (p.y - ph.quad[i][1]) * det.height))) / diag;
-    const page = await processPage(file, det.quad, 0, true);
-    const plain = await processPage(file, det.quad, 0, false);
+    // "Màu sạch", the default, against the photo only cut and straightened
+    const page = await processPage(file, det.quad, 0, 'clean');
+    const plain = await processPage(file, det.quad, 0, 'original');
     const out = await pixels(page.jpeg, W, H);
     const outPlain = await pixels(plain.jpeg, W, H);
     // the photo's own paper, warped with the true corners and no brightening, for comparison
-    const raw = await pixels((await processPage(file, ph.quad.map(([x, y]) => ({ x, y })) as Quad, 0, false)).jpeg, W, H);
+    const raw = await pixels((await processPage(file, ph.quad.map(([x, y]) => ({ x, y })) as Quad, 0, 'original')).jpeg, W, H);
     results.push({
       file: ph.file,
       note: ph.note,

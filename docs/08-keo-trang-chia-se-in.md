@@ -65,7 +65,8 @@ Nút **In** (máy in, **Ctrl P**). Trên điện thoại, nút In nằm trong me
 - máy in Wi-Fi cùng mạng: dịch vụ in mặc định của Android hoặc Samsung, chuẩn Mopria;
 - máy in Bluetooth hay USB: ứng dụng hoặc plug-in của hãng (HP Smart, Canon PRINT, Epson…).
 
-**Windows và trình duyệt: in ảnh trang.** WebView2 trên Windows và trình duyệt chỉ in được trang web, không nhận một tệp PDF để in. Vì vậy app dựng từng trang của tệp xuất bằng PDFium, gồm cả chú thích và góc xoay trang, thành ảnh **300 dpi**. Các ảnh này nằm trong một khối chỉ dùng khi in. Mỗi trang CSS có đúng khổ và chiều của trang PDF, nên trang ngang in ngang. Sau đó app mở hộp thoại in của Windows (hay của trình duyệt), có xem trước, để chọn máy in, số bản, trang cần in, khổ giấy, màu. Máy in nào đã cài trong Windows (Cài đặt → Bluetooth & thiết bị → Máy in & máy quét) đều có trong danh sách.
+**Windows và trình duyệt: in ảnh trang.** WebView2 trên Windows và trình duyệt chỉ in được trang web, không nhận một tệp PDF để in. Vì vậy app dựng từng trang của tệp xuất bằng PDFium, gồm cả chú thích và góc xoay trang, thành ảnh **300 dpi**. Các ảnh này nằm trong một khối chỉ dùng khi in. Mỗi trang CSS có đúng khổ và chiều của trang PDF, nên trang ngang in ngang. Sau đó app mở hộp thoại in của Windows (hay của trình duyệt) để chọn máy in, số bản, trang cần in, khổ giấy, màu. Máy in nào đã cài trong Windows (Cài đặt → Bluetooth & thiết bị → Máy in & máy quét) đều có trong danh sách.
+- Từ bản 0.9.6, bản Windows mở **hộp thoại In của chính Windows**, không mở ô xem trước của WebView2 nữa: ô xem trước đó tự in ngày giờ, tên tệp và địa chỉ `tauri.localhost` lên đầu và chân mỗi tờ. Xem `docs/15-bo-loc-quet-va-in.md`.
 - Tài liệu dài thì độ phân giải giảm dần, để cả lượt in không quá khoảng 260 triệu điểm ảnh, nhưng không dưới 96 dpi. Ví dụ: tới khoảng 30 trang A4 vẫn ở 300 dpi, 100 trang ở khoảng 165 dpi, 200 trang ở khoảng 120 dpi. Hộp thoại in giữ ảnh của mọi trang, nên đây là giới hạn bộ nhớ.
 - Trong lúc dựng trang có hộp tiến độ “Trang x/y” và nút **Hủy** (hoặc Esc). Đóng tài liệu hay mở tài liệu khác giữa chừng cũng hủy lượt in và lượt chia sẻ đang chuẩn bị, để không in hay gửi nhầm tài liệu đã rời.
 - Giới hạn: chữ được in dưới dạng ảnh 300 dpi. Bản in giấy nhìn sắc, nhưng nếu chọn máy in “Microsoft Print to PDF” thì sẽ ra một PDF toàn ảnh. Muốn có tệp PDF thật thì dùng **Xuất PDF**.
@@ -135,7 +136,7 @@ Các phần dưới đây dùng API riêng của Windows hoặc Android, máy ki
 2. Chia sẻ → **Chép tệp để dán…** Mở Zalo PC hoặc Telegram Desktop, vào một cuộc trò chuyện, bấm Ctrl V. Tệp `Tên tài liệu.pdf` hiện ra để gửi. Cũng thử dán vào một thư mục trong File Explorer.
 3. Chia sẻ → **Chia sẻ bằng Windows…** Cửa sổ chia sẻ hiện ra, tiêu đề là tên tệp.
 4. Chia sẻ → **Hiện tệp trong thư mục.** File Explorer mở với tệp đã chọn sẵn.
-5. **In** (Ctrl P). Hộp thoại in có xem trước, đủ trang, trang ngang hiện ngang. In thử một trang ra máy in.
+5. **In** (Ctrl P). Hộp thoại In của Windows hiện ra (từ 0.9.6; trước đó là ô xem trước). In thử một trang ra máy in: không có ngày giờ, tên tệp hay địa chỉ trên giấy.
 
 **Android (APK từ CI):**
 1. Bấm Chia sẻ. Bảng chia sẻ có Zalo, Telegram, Gmail và không có ezPDF. Gửi cho chính mình qua Zalo rồi mở tệp nhận được: có đủ chú thích.

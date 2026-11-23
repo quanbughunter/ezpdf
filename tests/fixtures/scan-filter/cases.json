@@ -1,0 +1,57 @@
+{
+ "truth": "truth.png",
+ "labels": "labels.png",
+ "size": [
+  1240,
+  1754
+ ],
+ "label_ids": {
+  "paper": 0,
+  "print": 1,
+  "title": 2,
+  "stamp": 3,
+  "signature": 4,
+  "blue_ink": 5,
+  "green_ink": 6,
+  "highlight": 7,
+  "grey_fill": 8,
+  "blue_fill": 9,
+  "picture": 10,
+  "pencil": 11,
+  "rule": 12,
+  "photo_bw": 13,
+  "dark_box": 14
+ },
+ "cases": [
+  {
+   "name": "light",
+   "file": "light.jpg",
+   "note": "đèn vàng, sáng giảm dần về một góc"
+  },
+  {
+   "name": "shadow",
+   "file": "shadow.jpg",
+   "note": "bóng tay mờ che một phần ba trang"
+  },
+  {
+   "name": "sun",
+   "file": "sun.jpg",
+   "note": "nắng xiên qua cửa sổ, mép bóng sắc"
+  },
+  {
+   "name": "streaks",
+   "file": "streaks.jpg",
+   "note": "vệt sáng xiên và một đốm lóa"
+  },
+  {
+   "name": "smudges",
+   "file": "smudges.jpg",
+   "note": "vết chì, vòng cà phê, dấu vân tay, bụi, nếp gấp"
+  },
+  {
+   "name": "aged",
+   "file": "aged.jpg",
+   "note": "giấy cũ ngả vàng, có thớ, chữ phai, ánh sáng lạnh"
+  }
+ ]
+}

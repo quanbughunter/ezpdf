@@ -11,8 +11,8 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { brighten, type Img } from '../src/scan/process';
-import { blackWhite, clean, gray, type CleanStats } from '../src/scan/filters';
+import type { Img } from '../src/scan/process';
+import { blackWhite, brighten, clean, gray, type CleanStats } from '../src/scan/filters';
 
 const dir = process.argv[2] ?? 'tests/fixtures/scan-filter';
 const out = process.argv[3] ?? 'out/scan-filter';

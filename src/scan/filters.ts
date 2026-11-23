@@ -2,7 +2,9 @@
  * Scan filters: what the flat page looks like in the PDF.
  *
  *  - original ("Gốc"): the photo as it is, only cut and straightened
- *  - brighten ("Làm sáng"): the light divided out, gently (process.ts)
+ *  - brighten ("Làm sáng"): the same light as "clean" divided out, gently:
+ *    the paper turns evenly near-white with its own grain, nothing is
+ *    thresholded, a mild curve deepens the ink
  *  - clean ("Màu sạch"): white paper and nothing else. The light falling on
  *    the sheet (shadows, streaks, a lamp's colour, a dark corner) is found
  *    on the paper and divided out; then everything that is only slightly
@@ -236,10 +238,7 @@ export function printedAreas(closed: Plane[], w: number, h: number): Uint8Array 
     }
   const at = (x: number, y: number) => dev[Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))];
   const dark = new Uint8Array(n);
-  for (let i = 0; i < n; i++) dark[i] = dev[i] < 0.9 ? 1 : 0;
-  // cells with dark all around them (two cells): a printed area is broad, a sliver along a shadow's edge is not
-  const core = rank(Float32Array.from(dark), w, h, 2, false);
-  const comp = new Int32Array(n).fill(-1);
+  const comp = new Int32Array(n);
   const queue = new Int32Array(n);
   const printed = new Float32Array(n);
   const flood = (start: number, id: number, members: number[]) => {
@@ -266,28 +265,40 @@ export function printedAreas(closed: Plane[], w: number, h: number): Uint8Array 
   };
   let id = 0;
   const members: number[] = [];
-  for (let s = 0; s < n; s++) {
-    if (!dark[s] || comp[s] >= 0) continue;
-    members.length = 0;
-    if (flood(s, id++, members)) continue;
-    // sharp all round: the change across the edge, two cells out against two cells in.
-    // (Next to a shadow's hard edge the wide median makes a band of shade look dark too;
-    // only its side along the edge is sharp.)
-    let sharp = 0, count = 0;
-    for (const p of members) {
-      const x = p % w, y = (p - x) / w;
-      for (const [dx, dy] of DIRS) {
-        const qx = x + dx, qy = y + dy;
-        if (qx < 0 || qy < 0 || qx >= w || qy >= h || dark[qy * w + qx]) continue;
-        const o = at(x + 2 * dx, y + 2 * dy), i = at(x - 2 * dx, y - 2 * dy);
-        if ((o - i) / Math.max(o, 1e-3) >= 0.12) sharp++;
-        count++;
+  /** the dark areas below `cut`: dark, broad, sharp all round, inside the page → printed */
+  const findAt = (cut: number) => {
+    for (let i = 0; i < n; i++) dark[i] = dev[i] < cut ? 1 : 0;
+    comp.fill(-1);
+    // cells with dark all around them (two cells): a printed area is broad, a sliver along a shadow's edge is not
+    const core = rank(Float32Array.from(dark), w, h, 2, false);
+    for (let s = 0; s < n; s++) {
+      if (!dark[s] || comp[s] >= 0) continue;
+      members.length = 0;
+      if (flood(s, id++, members)) continue;
+      // sharp all round: the change across the edge, two cells out against two cells in.
+      // (Next to a shadow's hard edge the wide median makes a band of shade look dark too;
+      // only its side along the edge is sharp.)
+      let sharp = 0, count = 0;
+      for (const p of members) {
+        const x = p % w, y = (p - x) / w;
+        for (const [dx, dy] of DIRS) {
+          const qx = x + dx, qy = y + dy;
+          if (qx < 0 || qy < 0 || qx >= w || qy >= h || dark[qy * w + qx]) continue;
+          const o = at(x + 2 * dx, y + 2 * dy), i = at(x - 2 * dx, y - 2 * dy);
+          if ((o - i) / Math.max(o, 1e-3) >= 0.12) sharp++;
+          count++;
+        }
       }
+      let broad = 0;
+      for (const p of members) broad += core[p];
+      if (count && sharp >= count * 0.75 && broad >= members.length * 0.25) for (const p of members) printed[p] = 1;
     }
-    let broad = 0;
-    for (const p of members) broad += core[p];
-    if (count && sharp >= count * 0.75 && broad >= members.length * 0.25) for (const p of members) printed[p] = 1;
-  }
+  };
+  // twice: what is a little darker than the paper, then only what is much darker. A
+  // photo lying next to a soft shadow joins up with it at 90 % and touches the page's
+  // edge through it; its dark parts (hair, a suit) stand alone at 70 %.
+  findAt(0.7);
+  findAt(0.9);
   // light holes in printed areas (not too big: a framed page is not a picture)
   for (let s = 0; s < n; s++) {
     if (dark[s] || comp[s] >= 0) continue;
@@ -326,6 +337,12 @@ export interface PaperLight {
   paper: Plane;
   /** 1 where a broad printed area (picture, photo, box) was found */
   printed: Uint8Array;
+  /**
+   * 0–1: a picture (a photo on an ID page, a coloured picture): the printed
+   * areas and the coloured or dark areas they touch (a face next to the hair).
+   * "Màu sạch" shows these as "Làm sáng" does, without whitening light parts.
+   */
+  picture: Plane;
 }
 
 /** Long side of the grid the light is worked out on. */
@@ -359,7 +376,9 @@ export function paperLight(img: Img): PaperLight {
     const spread = (Math.max(r0, r1, r2) - Math.min(r0, r1, r2)) / Math.max(1e-3, mean);
     const allowed = tint + 0.25 * Math.max(0, 1 - mean);
     const hue = Math.min(1, Math.max(0, (allowed + 0.03 - spread) / 0.06));
-    const dark = Math.min(1, Math.max(0, (mean - 0.18) / 0.08));
+    // not nearly black: under 25 % of the paper's light is print (hair, a suit, a black
+    // box), not shade; from 40 % on it may be shade
+    const dark = Math.min(1, Math.max(0, (mean - 0.25) / 0.15));
     return hue * dark;
   };
   const lum = (x: Plane[], i: number) => 0.299 * x[0][i] + 0.587 * x[1][i] + 0.114 * x[2][i];
@@ -373,6 +392,7 @@ export function paperLight(img: Img): PaperLight {
     wClosed[i] = paperLike(closed, i, 0.03);
   }
   void lum;
+  const picture = pictureAreas(printed, closed, paperLike, w, h);
   const paper = boxBlur(rank(wMid, w, h, 1, false), w, h, 1);
   const fine = boxBlur(rank(wClosed, w, h, 1, false), w, h, 1);
   // where it is not paper: the light of the paper around it (normalised convolution)
@@ -386,11 +406,43 @@ export function paperLight(img: Img): PaperLight {
     for (let i = 0; i < out.length; i++) {
       const filled = den[i] > 0.02 ? around[i] / den[i] : overall[c][i];
       const broad = paper[i] * m[i] + (1 - paper[i]) * filled;
-      out[i] = Math.max(8, fine[i] * cl[i] + (1 - fine[i]) * broad);
+      // never more than 3 times brighter than the page's paper: a very deep shade stays a
+      // little grey rather than anything being burnt out
+      out[i] = Math.max(8, overall[c][i] * 0.33, fine[i] * cl[i] + (1 - fine[i]) * broad);
     }
     return out;
   }) as [Plane, Plane, Plane];
-  return { w, h, light, paper, printed };
+  return { w, h, light, paper, printed, picture };
+}
+
+/**
+ * Pictures: the printed areas, grown into the cells next to them that are not
+ * paper either (coloured, or dark), at most 6 % of the page away. A face is
+ * not dark, but it lies next to the hair; a stamp touches no printed area.
+ */
+function pictureAreas(printed: Uint8Array, closed: Plane[], paperLike: (x: Plane[], i: number, tint: number) => number, w: number, h: number): Plane {
+  const n = w * h;
+  const dist = new Int32Array(n).fill(-1);
+  const queue = new Int32Array(n);
+  let head = 0, tail = 0;
+  for (let i = 0; i < n; i++) if (printed[i]) (dist[i] = 0), (queue[tail++] = i);
+  const reach = Math.max(3, Math.round(Math.max(w, h) * 0.06));
+  while (head < tail) {
+    const p = queue[head++];
+    if (dist[p] >= reach) continue;
+    const x = p % w, y = (p - x) / w;
+    for (const [dx, dy] of DIRS) {
+      const qx = x + dx, qy = y + dy;
+      if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+      const q = qy * w + qx;
+      if (dist[q] >= 0 || paperLike(closed, q, 0.06) >= 0.5) continue;
+      dist[q] = dist[p] + 1;
+      queue[tail++] = q;
+    }
+  }
+  const pic = new Float32Array(n);
+  for (let i = 0; i < n; i++) pic[i] = dist[i] >= 0 ? 1 : 0;
+  return boxBlur(rank(pic, w, h, 1, true), w, h, 1);
 }
 
 // ---- "Màu sạch" ---------------------------------------------------------------------------
@@ -407,9 +459,10 @@ export interface CleanStats {
 /** < 1 deepens the ink between the threshold and full strength */
 const GAMMA = 0.85;
 
-/** The light on the grid, bilinear at full size, one row at a time. */
+/** The light (and the picture weight) on the grid, bilinear at full size, one row at a time. */
 function lightRows(L: PaperLight, width: number, height: number) {
   const { w, h } = L;
+  const planes = [...L.light, L.picture];
   const fx = (w - 1) / Math.max(1, width - 1), fy = (h - 1) / Math.max(1, height - 1);
   const x0 = new Int32Array(width), x1 = new Int32Array(width), ax = new Float32Array(width);
   for (let x = 0; x < width; x++) {
@@ -418,12 +471,12 @@ function lightRows(L: PaperLight, width: number, height: number) {
     x1[x] = Math.min(w - 1, x0[x] + 1);
     ax[x] = gx - x0[x];
   }
-  const rowGrid = [new Float32Array(w), new Float32Array(w), new Float32Array(w)];
-  const row = [new Float32Array(width), new Float32Array(width), new Float32Array(width)];
+  const rowGrid = planes.map(() => new Float32Array(w));
+  const row = planes.map(() => new Float32Array(width));
   return (y: number) => {
     const gy = y * fy, y0 = gy | 0, y1 = Math.min(h - 1, y0 + 1), ay = gy - y0;
-    for (let c = 0; c < 3; c++) {
-      const b = L.light[c], g = rowGrid[c], r = row[c];
+    for (let c = 0; c < planes.length; c++) {
+      const b = planes[c], g = rowGrid[c], r = row[c];
       for (let x = 0; x < w; x++) g[x] = b[y0 * w + x] + (b[y1 * w + x] - b[y0 * w + x]) * ay;
       for (let x = 0; x < width; x++) r[x] = g[x0[x]] + (g[x1[x]] - g[x0[x]]) * ax[x];
     }
@@ -477,39 +530,49 @@ export function clean(img: Img, stats?: (s: CleanStats) => void): Img {
   }
   const pow = new Float32Array(1025);
   for (let i = 0; i <= 1024; i++) pow[i] = Math.pow(i / 1024, GAMMA);
+  const natural = naturalLut();
   // ink → output strength, the hue kept: every channel scaled by the same factor
   const out = new Uint8ClampedArray(data.length);
   const keep = new Uint8Array(n); // output strength 0–255, for the specks
   for (let y = 0; y < height; y++) {
-    const [lr, lg, lb] = rows(y);
+    const [lr, lg, lb, pic] = rows(y);
     for (let x = 0, p = y * width, o = p * 4; x < width; x++, p++, o += 4) {
       out[o + 3] = 255;
+      let r = 255, g = 255, b = 255;
       const e = strong[p];
-      if (e <= 0.04) {
-        out[o] = out[o + 1] = out[o + 2] = 255;
-        continue;
+      if (e > 0.04) {
+        let a0 = 1 - data[o] / lr[x], a1 = 1 - data[o + 1] / lg[x], a2 = 1 - data[o + 2] / lb[x];
+        if (a0 < 0) a0 = 0;
+        if (a1 < 0) a1 = 0;
+        if (a2 < 0) a2 = 0;
+        // coloured marks (a pale fill, a light highlighter) count as ink much sooner than grey
+        // ones (dirt, smears): colourful for their strength, and clearly so
+        const chroma = e - Math.min(a0, a1, a2);
+        const colourful = Math.min(1, Math.max(0, (chroma / e - 0.3) / 0.3)) * Math.min(1, Math.max(0, (chroma - 0.04) / 0.04));
+        const t = threshold * (1 - 0.8 * colourful);
+        if (e > t) {
+          const s = Math.min(1, (e - t) / Math.max(0.05, inkLevel - t));
+          const soft = Math.min(1, (e - t) / 0.08);
+          const strength = pow[Math.round(s * 1024)] * soft * soft * (3 - 2 * soft);
+          const k = strength / e;
+          keep[p] = Math.round(strength * 255);
+          r = 255 * (1 - Math.min(1, a0 * k));
+          g = 255 * (1 - Math.min(1, a1 * k));
+          b = 255 * (1 - Math.min(1, a2 * k));
+        }
       }
-      let a0 = 1 - data[o] / lr[x], a1 = 1 - data[o + 1] / lg[x], a2 = 1 - data[o + 2] / lb[x];
-      if (a0 < 0) a0 = 0;
-      if (a1 < 0) a1 = 0;
-      if (a2 < 0) a2 = 0;
-      // coloured marks (a pale fill, a light highlighter) count as ink much sooner than grey
-      // ones (dirt, smears): colourful for their strength, and clearly so
-      const chroma = e - Math.min(a0, a1, a2);
-      const colourful = Math.min(1, Math.max(0, (chroma / e - 0.3) / 0.3)) * Math.min(1, Math.max(0, (chroma - 0.04) / 0.04));
-      const t = threshold * (1 - 0.8 * colourful);
-      if (e <= t) {
-        out[o] = out[o + 1] = out[o + 2] = 255;
-        continue;
+      // in a picture: as "Làm sáng" shows it (a face's light parts must not turn white)
+      const w = pic[x];
+      if (w > 0.01) {
+        const [nr, ng, nb] = natural(data[o] / lr[x], data[o + 1] / lg[x], data[o + 2] / lb[x]);
+        r += (nr - r) * w;
+        g += (ng - g) * w;
+        b += (nb - b) * w;
+        if (w > 0.5) keep[p] = 255;
       }
-      const s = Math.min(1, (e - t) / Math.max(0.05, inkLevel - t));
-      const soft = Math.min(1, (e - t) / 0.08);
-      const g = pow[Math.round(s * 1024)] * soft * soft * (3 - 2 * soft);
-      const k = g / e;
-      keep[p] = Math.round(g * 255);
-      out[o] = 255 * (1 - Math.min(1, a0 * k));
-      out[o + 1] = 255 * (1 - Math.min(1, a1 * k));
-      out[o + 2] = 255 * (1 - Math.min(1, a2 * k));
+      out[o] = r;
+      out[o + 1] = g;
+      out[o + 2] = b;
     }
   }
   const specks = removeSpecks(out, keep, width, height);
@@ -578,6 +641,49 @@ function removeSpecks(out: Uint8ClampedArray, keep: Uint8Array, width: number, h
     removed++;
   }
   return removed;
+}
+
+// ---- "Làm sáng" ---------------------------------------------------------------------------
+
+/** Paper level of "Làm sáng" (0–1): a little below pure white looks natural. */
+const PAPER = 0.975;
+/** > 1 deepens the ink, leaves the paper where it is */
+const INK_CURVE = 1.25;
+const SATURATION = 1.08;
+
+/** "Làm sáng" for one pixel: value / light per channel (1 = paper) → output 0–255. */
+function naturalLut() {
+  const lut = new Float32Array(1025);
+  for (let i = 0; i <= 1024; i++) lut[i] = Math.pow(Math.min(1, (i / 1024) * PAPER), INK_CURVE) * 255;
+  const px: [number, number, number] = [0, 0, 0];
+  return (vr: number, vg: number, vb: number) => {
+    const r = lut[Math.min(1024, Math.round(vr * 1024))];
+    const g = lut[Math.min(1024, Math.round(vg * 1024))];
+    const b = lut[Math.min(1024, Math.round(vb * 1024))];
+    const l = 0.299 * r + 0.587 * g + 0.114 * b;
+    px[0] = l + (r - l) * SATURATION;
+    px[1] = l + (g - l) * SATURATION;
+    px[2] = l + (b - l) * SATURATION;
+    return px;
+  };
+}
+
+export function brighten(img: Img): Img {
+  const { width, height, data } = img;
+  const rows = lightRows(paperLight(img), width, height);
+  const natural = naturalLut();
+  const out = new Uint8ClampedArray(data.length);
+  for (let y = 0; y < height; y++) {
+    const light = rows(y);
+    for (let x = 0, o = y * width * 4; x < width; x++, o += 4) {
+      const [r, g, b] = natural(data[o] / light[0][x], data[o + 1] / light[1][x], data[o + 2] / light[2][x]);
+      out[o] = r;
+      out[o + 1] = g;
+      out[o + 2] = b;
+      out[o + 3] = 255;
+    }
+  }
+  return { width, height, data: out };
 }
 
 // ---- grey, black and white ----------------------------------------------------------------

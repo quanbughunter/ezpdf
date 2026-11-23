@@ -10,9 +10,9 @@
  * a request without the photo is answered from them, or with MISS.
  */
 import { detectSheet } from './detect';
-import { blackWhite, clean, gray, MISS, type ScanFilter } from './filters';
+import { blackWhite, brighten, clean, gray, MISS, type ScanFilter } from './filters';
 import { orderQuad, outputSize, sheetAspect, type Quad } from './geometry';
-import { brighten, rotate, warp, type Img } from './process';
+import { rotate, warp, type Img } from './process';
 
 export type ScanRequest =
   | { id: number; kind: 'detect'; img: Img }

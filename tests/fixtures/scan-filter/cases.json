@@ -22,36 +22,91 @@
   "photo_bw": 13,
   "dark_box": 14
  },
+ "docs": {
+  "report": {
+   "truth": "truth.png",
+   "labels": "labels.png",
+   "label_ids": {
+    "paper": 0,
+    "print": 1,
+    "title": 2,
+    "stamp": 3,
+    "signature": 4,
+    "blue_ink": 5,
+    "green_ink": 6,
+    "highlight": 7,
+    "grey_fill": 8,
+    "blue_fill": 9,
+    "picture": 10,
+    "pencil": 11,
+    "rule": 12,
+    "photo_bw": 13,
+    "dark_box": 14
+   }
+  },
+  "passport": {
+   "truth": "passport-truth.png",
+   "labels": "passport-labels.png",
+   "label_ids": {
+    "paper": 0,
+    "print": 1,
+    "stamp": 3,
+    "signature": 4,
+    "mrz": 19,
+    "photo_face": 15,
+    "photo_hair": 16,
+    "photo_suit": 17,
+    "photo_ground": 18
+   }
+  }
+ },
  "cases": [
   {
    "name": "light",
    "file": "light.jpg",
-   "note": "đèn vàng, sáng giảm dần về một góc"
+   "note": "đèn vàng, sáng giảm dần về một góc",
+   "doc": "report"
   },
   {
    "name": "shadow",
    "file": "shadow.jpg",
-   "note": "bóng tay mờ che một phần ba trang"
+   "note": "bóng tay mờ che một phần ba trang",
+   "doc": "report"
   },
   {
    "name": "sun",
    "file": "sun.jpg",
-   "note": "nắng xiên qua cửa sổ, mép bóng sắc"
+   "note": "nắng xiên qua cửa sổ, mép bóng sắc",
+   "doc": "report"
   },
   {
    "name": "streaks",
    "file": "streaks.jpg",
-   "note": "vệt sáng xiên và một đốm lóa"
+   "note": "vệt sáng xiên và một đốm lóa",
+   "doc": "report"
   },
   {
    "name": "smudges",
    "file": "smudges.jpg",
-   "note": "vết chì, vòng cà phê, dấu vân tay, bụi, nếp gấp"
+   "note": "vết chì, vòng cà phê, dấu vân tay, bụi, nếp gấp",
+   "doc": "report"
   },
   {
    "name": "aged",
    "file": "aged.jpg",
-   "note": "giấy cũ ngả vàng, có thớ, chữ phai, ánh sáng lạnh"
+   "note": "giấy cũ ngả vàng, có thớ, chữ phai, ánh sáng lạnh",
+   "doc": "report"
+  },
+  {
+   "name": "passport",
+   "file": "passport.jpg",
+   "note": "trang hộ chiếu: giấy có hoa văn, ảnh màu tóc đen, bóng mờ chạy dọc qua mép ảnh",
+   "doc": "passport",
+   "band": {
+    "x0": 0.3,
+    "dx": 0.04,
+    "sigma": 0.055
+   }
   }
  ]
 }

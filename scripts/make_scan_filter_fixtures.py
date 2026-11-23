@@ -22,6 +22,11 @@ The troubles (each case adds noise, a slight blur and JPEG at 85):
   streaks   bright streaks of light across the page and a glare spot
   smudges   pencil smears, a coffee ring, fingerprints, dust, a crease
   aged      yellowed paper with its grain, low contrast, cool light
+  passport  a second page (passport-truth.png): security paper with fine
+            coloured lines, a colour photo with black hair and a dark suit,
+            a red stamp over a blue signature, an MRZ; a soft shadow runs
+            down the page right beside the photo (the case that burnt the
+            hair to grey in 0.9.6's first try)
 """
 import json, os, sys
 import numpy as np
@@ -272,5 +277,103 @@ ink = truth / 255
 img = aged_paper * (0.35 + 0.65 * ink)  # ink is faded: never darker than 35 % of the paper
 cases.append(finish('aged', img * (0.8 + 0.15 * u)[..., None] * np.array([0.92, 0.98, 1.08]), 'giấy cũ ngả vàng, có thớ, chữ phai, ánh sáng lạnh'))
 
-json.dump({'truth': 'truth.png', 'labels': 'labels.png', 'size': [W, H], 'label_ids': LABELS, 'cases': cases}, open(os.path.join(OUT, 'cases.json'), 'w'), ensure_ascii=False, indent=1)
+for c in cases:
+    c['doc'] = 'report'
+
+# ---- a passport's data page: security paper, a colour photo, a soft shadow beside it ----
+# (made up: no real person, no real number)
+P_LABELS = {
+    'paper': 0,
+    'print': 1,
+    'stamp': 3,
+    'signature': 4,
+    'mrz': 19,
+    'photo_face': 15,
+    'photo_hair': 16,
+    'photo_suit': 17,
+    'photo_ground': 18,
+}
+waves = np.sin(xx / 7.0 + 5 * np.sin(yy / 60.0)) * np.sin(yy / 9.0 + 4 * np.sin(xx / 80.0))
+lines = np.clip((np.abs(waves) - 0.85) / 0.15, 0, 1)
+paper2 = np.array([236, 240, 226], np.float32) * (1 - 0.07 * lines[..., None] * np.array([0.5, 0.25, 0.6]))
+doc = Image.fromarray(paper2.clip(0, 255).astype(np.uint8))
+lab = Image.new('L', (W, H), 0)
+d = ImageDraw.Draw(doc)
+dl = ImageDraw.Draw(lab)
+small = ImageFont.truetype(SERIF, 24)
+value = ImageFont.truetype(SERIF, 32)
+text((W // 2, 110), 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', ImageFont.truetype(BOLD, 30), (20, 30, 25), P_LABELS['print'], 'mm')
+text((90, 200), 'CƠ QUAN CẤP / ISSUING AUTHORITY', small, (40, 55, 45), P_LABELS['print'])
+text((90, 240), 'CỤC QUẢN LÝ XUẤT NHẬP CẢNH', value, (10, 10, 10), P_LABELS['print'])
+# signature under a red stamp
+pts = [(560 + t * 4.0, 420 + 45 * np.sin(t / 7.0) + 12 * np.cos(t / 2.2)) for t in range(90)]
+d.line(pts, fill=(30, 50, 160), width=5)
+dl.line(pts, fill=P_LABELS['signature'], width=5)
+st = Image.new('L', (W, H), 0)
+ds = ImageDraw.Draw(st)
+ds.ellipse((620, 300, 860, 540), outline=255, width=8)
+ds.ellipse((645, 325, 835, 515), outline=255, width=4)
+ds.text((740, 420), 'ĐÃ CẤP', font=ImageFont.truetype(BOLD, 30), fill=255, anchor='mm')
+s_ = np.asarray(st).astype(np.float32) / 255 * (0.85 + 0.15 * rng.random((H, W)))
+arr = np.asarray(doc).astype(np.float32)
+arr = arr * (1 - s_[..., None]) + arr * (np.array([205, 30, 35], np.float32) / 255) * s_[..., None]
+doc = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+la = np.asarray(lab).copy()
+la[s_ > 0.5] = P_LABELS['stamp']
+lab = Image.fromarray(la)
+d = ImageDraw.Draw(doc)
+dl = ImageDraw.Draw(lab)
+d.line((60, 760, W - 60, 760), fill=(60, 70, 60), width=2)
+text((90, 800), 'HỘ CHIẾU / PASSPORT', ImageFont.truetype(BOLD, 28), (20, 30, 25), P_LABELS['print'])
+# the photo: a light ground, a face, black hair, a dark suit, a white collar, a red tie
+px0, py0, pw_, ph_ = 90, 880, 300, 390
+yy2, xx2 = np.mgrid[0:ph_, 0:pw_].astype(np.float32)
+photo = np.zeros((ph_, pw_, 3), np.float32) + np.array([214, 219, 216], np.float32)
+plab = np.full((ph_, pw_), P_LABELS['photo_ground'], np.uint8)
+face = ((xx2 - 150) / 82) ** 2 + ((yy2 - 175) / 105) ** 2
+skin = np.array([226, 182, 150], np.float32) * (1.02 - 0.12 * np.clip(face, 0, 1))[..., None]
+photo = np.where((face < 1)[..., None], skin, photo)
+plab[face < 1] = P_LABELS['photo_face']
+hair = ((((xx2 - 150) / 98) ** 2 + ((yy2 - 150) / 112) ** 2) < 1) & ((yy2 < 120) | (((xx2 - 150) / 98) ** 2 + ((yy2 - 150) / 112) ** 2 > 0.72) & (yy2 < 200))
+photo = np.where(hair[..., None], np.array([38, 32, 30], np.float32) + 6 * np.sin(xx2 / 3)[..., None], photo)
+plab[hair] = P_LABELS['photo_hair']
+suit = yy2 > 300 - 0.35 * np.abs(xx2 - 150) + 0.0
+photo = np.where(suit[..., None], np.array([28, 30, 40], np.float32), photo)
+plab[suit] = P_LABELS['photo_suit']
+collar = suit & (np.abs(xx2 - 150) < (yy2 - 280) * 0.45) & (yy2 < 360)
+photo = np.where(collar[..., None], np.array([238, 238, 236], np.float32), photo)
+tie = suit & (np.abs(xx2 - 150) < 9) & (yy2 > 300)
+photo = np.where(tie[..., None], np.array([170, 30, 40], np.float32), photo)
+plab[collar | tie] = 0
+photo += rng.normal(0, 4, photo.shape)
+doc.paste(Image.fromarray(photo.clip(0, 255).astype(np.uint8)), (px0, py0))
+la = np.asarray(lab).copy()
+la[py0:py0 + ph_, px0:px0 + pw_] = plab
+lab = Image.fromarray(la)
+d = ImageDraw.Draw(doc)
+dl = ImageDraw.Draw(lab)
+fields = [('Họ và tên / Full name', 'NGUYỄN VĂN AN'), ('Quốc tịch / Nationality', 'VIỆT NAM'), ('Ngày sinh / Date of birth', '01/01/2000'),
+          ('Nơi sinh / Place of birth', 'HẢI PHÒNG'), ('Ngày cấp / Date of issue', '01/06/2025'), ('Có giá trị đến / Date of expiry', '01/06/2035')]
+for i, (k, v_) in enumerate(fields):
+    text((440, 880 + i * 72), k, small, (50, 65, 55), P_LABELS['print'])
+    text((440, 908 + i * 72), v_, value, (5, 5, 5), P_LABELS['print'])
+mono = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 38)
+text((80, 1420), 'P<VNMNGUYEN<<VAN<AN<<<<<<<<<<<<<<<<<<<<<<<<', mono, (0, 0, 0), P_LABELS['mrz'])
+text((80, 1480), 'B1234567<0VNM0001011M3506011<<<<<<<<<<<<<04', mono, (0, 0, 0), P_LABELS['mrz'])
+doc.save(os.path.join(OUT, 'passport-truth.png'))
+lab.save(os.path.join(OUT, 'passport-labels.png'))
+truth2 = np.asarray(doc).astype(np.float32)
+# a soft shadow down the page, over the photo's right side (an arm, the phone), and a
+# lamp falling off towards the bottom
+band_x = 0.30 + 0.04 * v
+shade2 = 1 - 0.38 * np.exp(-(((u - band_x) / 0.055) ** 2))
+img = truth2 * 0.93 * shade2[..., None] * (0.88 + 0.12 * (1 - v))[..., None] * np.array([1.0, 0.99, 0.95])
+c = finish('passport', img, 'trang hộ chiếu: giấy có hoa văn, ảnh màu tóc đen, bóng mờ chạy dọc qua mép ảnh')
+c.update({'doc': 'passport', 'band': {'x0': 0.30, 'dx': 0.04, 'sigma': 0.055}})
+cases.append(c)
+
+json.dump({'truth': 'truth.png', 'labels': 'labels.png', 'size': [W, H], 'label_ids': LABELS,
+           'docs': {'report': {'truth': 'truth.png', 'labels': 'labels.png', 'label_ids': LABELS},
+                    'passport': {'truth': 'passport-truth.png', 'labels': 'passport-labels.png', 'label_ids': P_LABELS}},
+           'cases': cases}, open(os.path.join(OUT, 'cases.json'), 'w'), ensure_ascii=False, indent=1)
 print('wrote', len(cases), 'cases to', OUT)

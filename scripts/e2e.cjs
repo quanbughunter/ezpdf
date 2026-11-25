@@ -245,6 +245,38 @@ const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.tes
   await click('btn-toggle-right');
   check('panels can be hidden and shown', hidden && (await page.isVisible(tid('left-panel'))) && (await page.isVisible(tid('right-panel'))));
 
+  // ── 1b. Copying selected text (0.9.8: Ctrl C used to put nothing on the clipboard) ──
+  await click('tool-select');
+  await page.evaluate(() => navigator.clipboard.writeText('(trống)'));
+  await drag(await toScreen(0, 73, 127), await toScreen(0, 300, 127));
+  await page.waitForTimeout(400);
+  const menu = await page.isVisible(tid('selection-copy'));
+  await page.keyboard.press('Control+c');
+  await page.waitForTimeout(300);
+  const byKey = await page.evaluate(() => navigator.clipboard.readText());
+  const copiedHint = (await page.textContent(tid('tool-hint')).catch(() => '')) ?? '';
+  await page.evaluate(() => navigator.clipboard.writeText('(trống)'));
+  await click('selection-copy');
+  await page.waitForTimeout(300);
+  const byButton = await page.evaluate(() => navigator.clipboard.readText());
+  check(
+    'selected text goes to the clipboard with Ctrl C and with the “Sao chép” button by the selection (Vietnamese intact)',
+    menu && /^Tài liệu mẫu để kiểm tra ezPDF/.test(byKey) && byButton === byKey && /Đã chép \d+ ký tự/.test(copiedHint),
+    `${JSON.stringify(byKey)} | ${JSON.stringify(byButton)} | ${copiedHint}`,
+  );
+  // the search box's own selected text is still the box's to copy
+  await click('btn-search');
+  await page.keyboard.type('mẫu');
+  await page.click(tid('search-input'), { clickCount: 3 });
+  await page.keyboard.press('Control+c');
+  await page.waitForTimeout(300);
+  check('Ctrl C in the search box copies the box’s own text', (await page.evaluate(() => navigator.clipboard.readText())) === 'mẫu');
+  await click('search-clear');
+  await click('tab-pages');
+  await page.mouse.click(...(await toScreen(0, 300, 700)));
+  await click('tool-hand');
+  await page.waitForTimeout(300);
+
   // ── 2. FreeText by drag ─────────────────────────────────────────────────
   await click('tool-text');
   check('active tool explained in the hint strip', /ô chữ/i.test((await page.textContent(tid('tool-hint'))) || ''));
@@ -604,6 +636,15 @@ const benignRenderRace = (m) => m.type() === 'error' && /ERR_FILE_NOT_FOUND/.tes
   await click('search-prev');
   await page.waitForFunction(() => document.querySelector('[data-testid="page-input"]').value === '150', null, { timeout: 10000 });
   check('result click, next, previous move to the right page', true);
+  // the active hit again, after scrolling away from it (0.9.8: nothing happened)
+  await page.fill(tid('page-input'), '40');
+  await page.press(tid('page-input'), 'Enter');
+  await page.waitForFunction(() => document.querySelector('[data-testid="page-input"]').value === '40', null, { timeout: 10000 });
+  await page.click(tid('search-result-1'));
+  const back = await page
+    .waitForFunction(() => document.querySelector('[data-testid="page-input"]').value === '150', null, { timeout: 10000 })
+    .then(() => true, () => false);
+  check('clicking the active result again after scrolling away goes back to it', back, await page.$eval(tid('page-input'), (e) => e.value));
   await page.fill(tid('search-input'), 'hải phòng');
   await page.waitForFunction(() => /3 kết quả/.test(document.querySelector('[data-testid="search-status"]').textContent), null, { timeout: 20000 });
   await click('search-match-case');

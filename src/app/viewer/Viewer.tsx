@@ -14,6 +14,7 @@ import { useHandPan } from './hand';
 import { EndEditingContext, ezFreeTextRenderer } from './free-text';
 import { PlacementLayer } from '../images/placement';
 import { TextEditLayer } from '../text-edit';
+import { selectionMenu, useCopyText } from './copy-text';
 
 const ACCENT = '#0b6e69';
 const renderers = [ezFreeTextRenderer];
@@ -29,6 +30,7 @@ export function Viewer({ documentId }: { documentId: string }) {
   const rootRef = useRef<HTMLDivElement>(null);
   useTouchGuard(rootRef, documentId);
   useHandPan(rootRef, documentId);
+  useCopyText(documentId);
   return (
     <EndEditingContext.Provider value={endEditing}>
       {/* pan-x pan-y: one finger scrolls, two fingers reach ZoomGestureWrapper (pinch to
@@ -55,7 +57,7 @@ export function Viewer({ documentId }: { documentId: string }) {
                         highlightColor="rgba(255, 212, 59, 0.45)"
                         activeHighlightColor="rgba(11, 110, 105, 0.35)"
                       />
-                      <SelectionLayer documentId={documentId} pageIndex={pageIndex} />
+                      <SelectionLayer documentId={documentId} pageIndex={pageIndex} selectionMenu={selectionMenu} />
                       <AnnotationLayer
                         key={epochs[pageIndex] ?? 0}
                         documentId={documentId}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { MatchFlag, type SearchResult } from '@embedpdf/models';
 import { ThumbnailsPane, ThumbImg } from '@embedpdf/plugin-thumbnail/react';
@@ -109,17 +109,41 @@ function SearchPanel({
     inputRef.current?.select();
   }, [focusKey]);
 
-  // Bring the active hit into view, on the page and in the list.
+  // Bring a hit into view, on the page and in the list.
+  const reveal = useCallback(
+    (index: number) => {
+      const hit = state.results[index];
+      if (!hit) return;
+      const top = hit.rects.reduce((m, r) => Math.min(m, r.origin.y), Infinity);
+      const left = hit.rects.reduce((m, r) => Math.min(m, r.origin.x), Infinity);
+      scroll
+        ?.forDocument(documentId)
+        .scrollToPage({ pageNumber: hit.pageIndex + 1, pageCoordinates: { x: left, y: top }, alignX: 50, alignY: 35 });
+      listRef.current?.querySelector(`[data-result="${index}"]`)?.scrollIntoView({ block: 'nearest' });
+    },
+    [state.results, scroll, documentId],
+  );
+  // A click (or Enter, ↑ ↓) goes to the hit itself, even when it is the active one
+  // already and the page has been scrolled away from it since; the effect below then
+  // has nothing more to do for that index.
+  const revealed = useRef(-1);
+  const go = (index: number) => {
+    if (!state.total) return;
+    const i = ((index % state.total) + state.total) % state.total;
+    revealed.current = i;
+    provides?.goToResult(i);
+    reveal(i);
+  };
+  // A new search's first hit (the plugin makes it active by itself).
   useEffect(() => {
-    const hit = state.results[state.activeResultIndex];
-    if (!hit || state.loading) return;
-    const top = hit.rects.reduce((m, r) => Math.min(m, r.origin.y), Infinity);
-    const left = hit.rects.reduce((m, r) => Math.min(m, r.origin.x), Infinity);
-    scroll
-      ?.forDocument(documentId)
-      .scrollToPage({ pageNumber: hit.pageIndex + 1, pageCoordinates: { x: left, y: top }, alignX: 50, alignY: 35 });
-    listRef.current?.querySelector(`[data-result="${state.activeResultIndex}"]`)?.scrollIntoView({ block: 'nearest' });
-  }, [state.activeResultIndex, state.loading, state.results, scroll, documentId]);
+    if (state.loading || state.activeResultIndex < 0) return;
+    if (revealed.current === state.activeResultIndex) return;
+    revealed.current = state.activeResultIndex;
+    reveal(state.activeResultIndex);
+  }, [state.activeResultIndex, state.loading, reveal]);
+  useEffect(() => {
+    revealed.current = -1;
+  }, [state.results]);
 
   // EmbedPDF 2.15.1 logs an error and drops results when a running search is
   // aborted by the next one, so searches never overlap here: input is
@@ -177,8 +201,8 @@ function SearchPanel({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && has) {
                 e.preventDefault();
-                if (e.shiftKey) provides?.previousResult();
-                else provides?.nextResult();
+                if (e.shiftKey) go(state.activeResultIndex - 1);
+                else go(state.activeResultIndex + 1);
                 onNavigate?.();
               }
             }}
@@ -235,7 +259,7 @@ function SearchPanel({
             <IconAction
               label="Kết quả trước"
               shortcut="Shift Enter"
-              onClick={() => provides?.previousResult()}
+              onClick={() => go(state.activeResultIndex - 1)}
               disabled={!has}
               testId="search-prev"
             >
@@ -244,7 +268,7 @@ function SearchPanel({
             <IconAction
               label="Kết quả sau"
               shortcut="Enter"
-              onClick={() => provides?.nextResult()}
+              onClick={() => go(state.activeResultIndex + 1)}
               disabled={!has}
               testId="search-next"
             >
@@ -265,7 +289,7 @@ function SearchPanel({
                   data-result={index}
                   data-testid={`search-result-${index}`}
                   onClick={() => {
-                    provides?.goToResult(index);
+                    go(index);
                     onNavigate?.();
                   }}
                   className={cn(
